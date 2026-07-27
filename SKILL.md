@@ -1,21 +1,15 @@
 ---
 name: agent-browser-qa
 description: >-
-  Use this skill to actually drive a real browser through a web flow and produce QA
-  results plus documentation from that live run. Trigger when the user wants to:
-  smoke-test or QA a web app flow (login, checkout, wizard, form, grid); click through a
-  UI step-by-step capturing screenshots at each step; do a visual check or
-  visual-regression diff against a baseline; verify a form/row actually saved; test
-  NetSuite/Suitelet/APEX or any page through the browser; or turn a real run into a
-  user-guide or bug-report PDF (cover, table of contents, page numbers, annotated
-  screenshots). Works for English or Thai requests, headless or headed, even when
-  "agent-browser" isn't named. Do NOT trigger for writing Playwright/Cypress test code,
-  setting up CI test pipelines, or pure file/CSV-to-PDF conversion with no browser run.
-  Also NOT for NetSuite record-form QA or NetSuite user guides — that is skill
-  netsuite-ui-qa-testing; this skill keeps generic web apps and non-record NetSuite pages
-  (dashboards, Suitelets, list pages). Always read references/gotchas.md before driving
-  the browser — several silent-failure traps (below-fold click, fake ✓Done, os 10060)
-  live there.
+  Drive a real browser (agent-browser, CDP) through a web flow and produce QA results +
+  documentation from the live run. Trigger for: smoke-test/QA a web app flow (login,
+  checkout, wizard, form, grid), click-through with screenshots per step, visual
+  check/regression diff, verify a form/row actually saved, test Suitelet/APEX/any page,
+  or turn a run into a user-guide/bug-report PDF. English or Thai, headless or headed,
+  even when "agent-browser" isn't named. NOT for writing Playwright/Cypress code or CI
+  pipelines; NetSuite record-form QA / user guides → skill netsuite-ui-qa-testing (this
+  skill keeps generic apps + non-record NetSuite pages). Read references/gotchas.md
+  before driving the browser.
 ---
 
 # agent-browser QA & Docs
