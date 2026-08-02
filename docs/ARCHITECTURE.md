@@ -16,24 +16,24 @@ Workflow diagrams for every flow. GitHub renders mermaid natively. A short summa
 ## 1. Overview: one pass, two outputs
 
 Walk the happy path once, then split it into two outputs: a QA verdict and documentation material.
-Claude is the brain, agent-browser is the hands and eyes, and CDP talks to Chrome. Use short-output
-commands to avoid context overflow.
+Claude is the brain and `cdp.py` is the hands and eyes, talking **straight to Chrome over CDP** —
+no daemon in between. Use short-output commands to avoid context overflow.
 
 ```mermaid
 sequenceDiagram
     participant U as User
     participant C as Claude (brain)
-    participant A as agent-browser (hands & eyes)
+    participant A as cdp.py (hands & eyes)
     participant B as Chrome / CDP
     U->>C: QA page X and make a guide/report
-    C->>A: open URL, wait networkidle
-    A->>B: navigate + wait until idle
+    C->>A: nav URL (installs console collector)
+    A->>B: navigate + poll until the page is really there
     loop each step
-        C->>A: scrollintoview, screenshot (file)
-        C->>A: click / fill (or JS click if flaky)
+        C->>A: shot (file)
+        C->>A: click / fill (real Input events)
         A->>B: perform action
-        C->>A: assert (wait / get url / get text / count)
-        C->>A: errors (json)
+        C->>A: assert (wait / url / get text / get count)
+        C->>A: console
         A-->>C: short output (token-safe)
     end
     C->>C: output 1: qa-report.md (verdict + step table)
@@ -85,7 +85,7 @@ flowchart LR
 
 ## 4. PDF pipeline (paged.js)
 
-`agent-browser pdf` has no margin or paper option, so paged.js supplies a real table of contents and
+`cdp.py pdf` (Chrome printToPDF) has no margin or paper option, so paged.js supplies a real table of contents and
 page numbers. The main trap is double-pagination (alternating blank pages), fixed with `@page size`
 and a screen-only margin.
 
@@ -93,12 +93,12 @@ and a screen-only margin.
 flowchart TD
     t["pick a template<br/>guide / bug-report"] --> ed["edit the data array<br/>(content from the real run)"]
     ed --> sh["place screenshots in shots/"]
-    sh --> op["agent-browser open &lt;html&gt;"]
+    sh --> op["cdp.py nav &lt;html&gt;"]
     op --> wt["wait 6000<br/>(let paged.js lay out)"]
     wt --> ck{".pagedjs_page count<br/>= expected?"}
     ck -->|"~2x (blank pages)"| fx["fix double-pagination:<br/>@page size 182x250mm (smaller than print area)<br/>+ .pagedjs_page margin only in @media screen"]
     fx --> wt
-    ck -->|matches| pd["agent-browser pdf out.pdf"]
+    ck -->|matches| pd["cdp.py pdf out.pdf"]
     pd --> vf["reopen the PDF and screenshot<br/>verify page numbers, TOC, no blank pages"]
     vf --> done["PDF ready"]
 ```
@@ -135,4 +135,18 @@ Snippet: [`../assets/highlight.js`](../assets/highlight.js)
 
 ---
 
-The diagrams reflect the real workflow used with agent-browser 0.32.1 on Windows.
+The diagrams reflect the real workflow used with `cdp.py` (CDP ตรง) on Windows.
+
+## ที่ตัดออกและทำไม — video / live view
+
+`record start/stop` (วิดีโอ), `stream enable`, `dashboard start` (`localhost:4848`) เป็นฟีเจอร์ของ
+**daemon** ที่ถูกทิ้งไปพร้อมกัน · CDP ตรงทำได้แต่ต้องเขียน `Page.startScreencast` แล้วต่อเฟรม
+base64 เป็นวิดีโอเอง + พึ่ง ffmpeg เหมือนเดิม — งานเขียนและงานดูแลไม่คุ้มกับที่ **pipeline ทำเอกสาร
+ของ skill นี้ใช้ screenshot ต่อ step อยู่แล้ว** ซึ่งเป็น artifact ที่ดีกว่าสำหรับ user guide/bug report
+(อ้างอิงหน้าได้, diff ได้, ไม่ต้องเปิดดูทั้งคลิป)
+
+**ที่เสียไปจริง:** ไม่มีหน้าจอกลางให้คนนอกดูสดระหว่าง agent ขับ · ทดแทนด้วย headed Chrome
+(คนดูที่หน้าจอเครื่องนั้นได้) + `shot` ต่อ step
+
+**ถ้าวันหนึ่งต้องการวิดีโอจริง ๆ:** เปิด issue ที่ `Teibto/teibto-dev-standards` เพื่อเติม
+`screencast` ลง `cdp.py` — อย่าเขียน driver ตัวที่สองในสกิลนี้

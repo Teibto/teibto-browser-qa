@@ -6,12 +6,12 @@ that audience reads `SKILL.md`). Read this first, then `CONTRIBUTING.md` for the
 ## What this repo is
 
 A Claude Code **skill**: a playbook, doc templates, and a few scripts wrapped around the external
-[`agent-browser`](https://github.com/vercel-labs/agent-browser) CLI (a Rust tool that drives Chrome
+`cdp.py` (driver กลางของทีมที่ขับ Chrome
 over CDP). It is not an application — nothing here runs a server. The deliverable is the guidance in
 `SKILL.md` + `references/`, verified by `self-test/`, and shipped as a `.skill` bundle on a Release.
 
 Mental model the skill teaches: **Claude = the brain** (reads code, derives tests, judges pass/fail,
-writes docs); **agent-browser = the hands & eyes** (drives the browser, captures evidence, decides
+writes docs); **`cdp.py` = the hands & eyes** (drives the browser, captures evidence, decides
 nothing). One walk of the happy path yields two outputs: a QA verdict and documentation material.
 
 ## The four layers and how they relate
@@ -39,10 +39,10 @@ Two consequences to keep in mind when editing:
 | Path | What it is |
 |---|---|
 | `SKILL.md` | The skill itself: golden rules, workflow, targets. Loaded every trigger. |
-| `references/` | Thai working notes: `gotchas`, `commands`, `test-design`, `flow-spec`, `pdf-reports`, `coverage-model`, `reliability-policy`, `a11y-layer`, `perf-layer`, `visual-regression`, `test-data`, `video-and-live`. On-demand. |
+| `references/` | Thai working notes: `gotchas`, `commands`, `test-design`, `flow-spec`, `pdf-reports`, `coverage-model`, `reliability-policy`, `a11y-layer`, `perf-layer`, `visual-regression`, `test-data`. On-demand. |
 | `docs/` | `ARCHITECTURE.md` (mermaid per flow), `TEAM-PROCESS.md` (lifecycle, release gate, RACI), `CLAIMS-AUDIT.md` (claim ledger). |
 | `assets/` | PDF templates (`guide-`, `bug-report-template.html`) + `highlight.js` / `pointer.js`. Edit only the `data[]` block — see `references/pdf-reports.md`. |
-| `self-test/` | `smoke-test.sh` (claim checks against a real agent-browser) + `pdf/pdf-test.sh` (pagination A/B). |
+| `self-test/` | `smoke-test.sh` (claim checks กับ Chrome จริงผ่าน cdp.py) + `pdf/pdf-test.sh` (pagination A/B). |
 | `scripts/` | `build-skill.py` (bundle), `coverage-check.py` (release gate → exit code), `release-summary.py` (roll-up). |
 | `examples/` | `saucedemo.yaml` — a runnable flow. `qa/_template/coverage.yaml` — a manifest starter. |
 

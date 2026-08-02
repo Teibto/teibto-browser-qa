@@ -2,14 +2,16 @@
 
 [![Release](https://img.shields.io/github/v/release/wichtking/agent-browser-qa?logo=github&label=release&color=5A3FD6)](https://github.com/wichtking/agent-browser-qa/releases/latest)
 [![Claude Code](https://img.shields.io/badge/Claude%20Code-skill-5A3FD6?logo=anthropic)](https://docs.anthropic.com/claude/docs/skills)
-[![driver](https://img.shields.io/badge/driver-agent--browser%200.32-orange?logo=googlechrome)](https://github.com/vercel-labs/agent-browser)
+[![driver](https://img.shields.io/badge/driver-CDP%20direct%20(cdp.py)-orange?logo=googlechrome)](https://github.com/Teibto/teibto-dev-standards)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
 <p align="center">
   <img src="docs/banner.png" alt="agent-browser-qa: browser QA and docs from one real browser run" width="100%">
 </p>
 
-A Claude Code skill for browser QA and documentation, built on [`agent-browser`](https://github.com/vercel-labs/agent-browser). Drive a real browser through a flow once and get two things back: a QA verdict, and a polished user guide or bug report.
+A Claude Code skill for browser QA and documentation. Drive a real browser through a flow once and get two things back: a QA verdict, and a polished user guide or bug report.
+
+> **Transport note (2026-08-02):** this skill used to drive Chrome through the `agent-browser` CLI and its background daemon. It now talks **straight to Chrome over CDP** via `cdp.py` — the team's shared driver in [`Teibto/teibto-dev-standards`](https://github.com/Teibto/teibto-dev-standards). The daemon was dropped because it hung without saying why (`os error 10060` loops, silently dead Chrome) and could not answer JavaScript dialogs at all — `beforeunload` wedged it permanently. The repo keeps its name for continuity. Command-by-command mapping: [`references/commands.md`](references/commands.md).
 
 The reference files under [`references/`](references) are working notes kept in Thai. This README and [`SKILL.md`](SKILL.md) are in English.
 
@@ -17,14 +19,14 @@ The reference files under [`references/`](references) are working notes kept in 
 
 ## How it works
 
-Claude reads the code, derives the tests, and judges pass or fail. `agent-browser` (a Rust CLI over CDP) does the driving and captures the evidence. Its output never enters the model's context on its own, so a full pass stays cheap; favor short-output commands to keep it that way.
+Claude reads the code, derives the tests, and judges pass or fail. `cdp.py` does the driving and captures the evidence — no daemon in between. Its output never enters the model's context on its own, so a full pass stays cheap; favor short-output commands to keep it that way.
 
 ```mermaid
 flowchart LR
-    claude["Claude Code<br/>brain: read code, derive tests,<br/>judge pass/fail, write docs"] -->|"CLI commands"| ab["agent-browser<br/>(Rust, hands & eyes)"]
-    ab -->|"CDP"| chrome["Chrome for Testing<br/>(headless/headed)"]
+    claude["Claude Code<br/>brain: read code, derive tests,<br/>judge pass/fail, write docs"] -->|"commands"| ab["cdp.py<br/>(hands & eyes)"]
+    ab -->|"CDP (no daemon)"| chrome["Chrome<br/>(headless/headed)"]
     chrome --> targets["targets<br/>Web app · NetSuite Suitelet · APEX"]
-    ab -.->|"snapshot -i / errors<br/>(short output, token-safe)"| claude
+    ab -.->|"a11y / console<br/>(short output, token-safe)"| claude
     ab -.->|"screenshot (file)"| shots["shots/<br/>(artifact, not context)"]
     claude --> out1["QA verdict<br/>qa-report.md"]
     claude --> out2["Docs PDF<br/>user-guide / bug-report"]
@@ -79,13 +81,12 @@ Option B, clone into your skills directory:
 git clone https://github.com/wichtking/agent-browser-qa.git ~/.claude/skills/agent-browser-qa
 ```
 
-Then install the `agent-browser` CLI:
+Then install the driver's dependencies:
 ```bash
-npm install -g agent-browser   # or brew / cargo install agent-browser
-agent-browser install          # download Chrome for Testing (first time)
+py -m pip install websocket-client pillow numpy   # pillow/numpy only for visual diff
 ```
 
-Requirements: Node.js for `npm install -g`; `ffmpeg` only if you use `record` for video; Python 3.10+ and `git` only if you build the `.skill` bundle. Verified with `agent-browser` 0.32.1 (older notes tagged 0.27.x; see `docs/CLAIMS-AUDIT.md` for per-version drift). For other versions, run `agent-browser skills get core --full` for version-matched syntax.
+`cdp.py` ships with the team skills (`~/.claude/skills/netsuite-qa-browser/references/cdp.py`); point `NS_CDP` elsewhere if you vendor it into a project. Requirements: Chrome, Python 3.10+, and `git` only if you build the `.skill` bundle. Full setup and every command: [`references/commands.md`](references/commands.md).
 
 Maintainers: the `.skill` bundle is a build artifact and is not committed. Rebuild it with `python scripts/build-skill.py` and attach the output to a GitHub Release.
 
@@ -94,15 +95,20 @@ Maintainers: the `.skill` bundle is a build artifact and is not committed. Rebui
 Confirm your setup with a short smoke run: open a page, assert, check for errors, screenshot.
 
 ```bash
-agent-browser batch \
-  "open https://example.com" \
-  "wait --load networkidle" \
-  "get title" \
-  "errors" --json
-agent-browser screenshot hello.png     # evidence file: the image, not context
+NS_CDP="$HOME/.claude/skills/netsuite-qa-browser/references/cdp.py"
+export CDP_PORT=9400
+AB(){ py "$NS_CDP" "$@"; }
+
+chrome --user-data-dir=/tmp/qa-profile --remote-debugging-port=$CDP_PORT --no-first-run about:blank &
+until curl -sf "http://127.0.0.1:$CDP_PORT/json/version" >/dev/null; do sleep 1; done
+
+AB nav https://example.com 2
+AB get text title          # -> Example Domain
+AB console                 # -> []   (empty = no page errors so far)
+AB shot hello.png          # evidence file: the image, not context
 ```
 
-Expect a JSON array where each command reports `"success": true`, the title contains `Example Domain`, and `errors` is empty.
+Expect the title to contain `Example Domain` and `console` to print `[]`. If `console` **errors** instead of printing `[]`, the page was not opened with `nav`, so nothing is watching — that distinction is deliberate (see [`references/gotchas.md`](references/gotchas.md) #2).
 
 The first run is slow: a cold browser session can take one to two minutes to start on Windows, and may look like it hung when it hasn't. Keep the session warm and reuse it. If commands keep failing with `os error 10060`, clear the stale session file (see [`references/gotchas.md`](references/gotchas.md), section 3).
 
@@ -153,7 +159,7 @@ Python tooling (`pip install -r requirements.txt`, PyYAML):
 | `scripts/coverage-check.py` | Release gate → exit code: reads a `qa/<feature>/coverage.yaml`, returns 0 pass / 1 fail / 2 malformed. | `python scripts/coverage-check.py qa/<feature>/coverage.yaml` |
 | `scripts/release-summary.py` | Roll every `qa/*/coverage.yaml` into one QA-Lead sign-off table. | `python scripts/release-summary.py [qa_dir]` |
 
-Mechanical checks live in [`self-test/`](self-test) — run `bash self-test/smoke-test.sh` after any agent-browser or Chrome version bump. Details in [`CONTRIBUTING.md`](CONTRIBUTING.md).
+Mechanical checks live in [`self-test/`](self-test) — run `bash self-test/smoke-test.sh` after any Chrome or `cdp.py` version bump (30 checks against a real browser). Details in [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
 ## Glossary
 
@@ -182,10 +188,11 @@ Mechanical checks live in [`self-test/`](self-test) — run `bash self-test/smok
 
 This skill is a playbook around an upstream tool; it does not reproduce or replace the CLI.
 
-- [vercel-labs/agent-browser](https://github.com/vercel-labs/agent-browser) — the Rust CLI that drives Chrome over CDP. This skill collects usage, gotchas, and doc templates around it. Credit and license for the CLI belong to the upstream authors.
+- [vercel-labs/agent-browser](https://github.com/vercel-labs/agent-browser) — the Rust CLI this skill was originally built on, and where the repo name comes from. No longer a dependency (see the transport note at the top); credit and license for the CLI belong to the upstream authors.
+- [`Teibto/teibto-dev-standards`](https://github.com/Teibto/teibto-dev-standards) — home of `cdp.py`, the shared CDP driver this skill now drives Chrome with.
 - [saucedemo.com](https://www.saucedemo.com) — the Sauce Labs demo app used for examples and evidence runs.
 - [Paged.js](https://pagedjs.org/) — PDF pagination.
 
 ## License
 
-[MIT](LICENSE) © 2026 Wichit Wongta. The `agent-browser` CLI is under vercel-labs' own license.
+[MIT](LICENSE) © 2026 Wichit Wongta.

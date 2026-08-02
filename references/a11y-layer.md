@@ -1,7 +1,7 @@
 # a11y layer — จับ bug ที่ functional test มองไม่เห็น (token-safe)
 
 accessibility เป็น bug ประเภทที่ happy-path smoke ไม่มีทางเจอ: contrast ต่ำ, label ไม่ผูก input,
-focus order พัง, ARIA ผิด. ทั้งหมดนี้ **✅ browser-verifiable** — ยิงผ่าน agent-browser ได้จริง
+focus order พัง, ARIA ผิด. ทั้งหมดนี้ **✅ browser-verifiable** — ยิงผ่าน browser ได้จริง
 (ต่างจาก race/governance ที่ ⚠️ code-only). กติกาเดียวที่ต้องระวัง: **ห้าม dump node เต็ม**
 กลับ context — axe คืนผลยาวมาก ต้อง reduce ให้เหลือตัวเลข + top N ก่อนเข้า context.
 
@@ -14,10 +14,10 @@ axe-core เป็น JS ตัวเดียว inject ได้ผ่าน `
 
 ```
 # 1) โหลด axe เข้าไปในหน้า (ถ้ายังไม่มี window.axe)
-agent-browser eval "if(!window.axe){var s=document.createElement('script');
+AB eval "if(!window.axe){var s=document.createElement('script');
   s.src='https://cdnjs.cloudflare.com/ajax/libs/axe-core/4.10.0/axe.min.js';
   document.head.appendChild(s);} 'loading'"
-agent-browser wait --fn "window.axe && typeof axe.run==='function'"   # รอ axe พร้อม
+AB wait --fn "window.axe && typeof axe.run==='function'"   # รอ axe พร้อม
 ```
 
 ## 2. รัน axe แล้ว reduce ให้ token-safe (สำคัญสุด)
@@ -26,7 +26,7 @@ agent-browser wait --fn "window.axe && typeof axe.run==='function'"   # รอ a
 reduce ในหน้าเว็บก่อน return ให้เหลือแค่ **count + top N by impact**:
 
 ```
-agent-browser eval "axe.run(document,{resultTypes:['violations']}).then(function(r){
+AB eval "axe.run(document,{resultTypes:['violations']}).then(function(r){
   var order={critical:0,serious:1,moderate:2,minor:3};
   var top=r.violations.slice().sort(function(a,b){return order[a.impact]-order[b.impact];})
     .slice(0,8).map(function(v){return {id:v.id, impact:v.impact, count:v.nodes.length};});

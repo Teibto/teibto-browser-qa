@@ -27,7 +27,7 @@ design matrix แค่บอกว่า *จะรัน short-assertion check
 
 ---
 
-## สิ่งที่ agent-browser รันผ่าน browser ได้จริง vs ไม่ได้ (สำคัญ — กัน false confidence)
+## สิ่งที่รันผ่าน browser ได้จริง vs ไม่ได้ (สำคัญ — กัน false confidence)
 
 prompt ทั่วไปครอบคลุมทุก edge case แต่ **CDP-driven browser เดียวทำได้ไม่หมด**. แยกให้ชัดในรายงาน
 ไม่งั้นจะให้ความมั่นใจหลอกๆ (ตรงข้ามกับที่ gotchas สู้มาทั้งไฟล์):

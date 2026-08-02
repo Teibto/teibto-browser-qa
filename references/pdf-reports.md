@@ -5,7 +5,7 @@
 
 > **ขอบเขต pipeline:** สูตร paged.js + `assets/guide-template.html` ในไฟล์นี้คือ pipeline
 > เอกสาร GENERIC (web app ทั่วไป / หน้า NetSuite ที่ไม่ใช่ record form). คู่มือ NetSuite record form
-> ใช้ pipeline ของ skill netsuite-ui-qa-testing (agent-browser pdf + `add-pdf-outline.py` +
+> ใช้ pipeline ของ skill netsuite-ui-qa-testing (AB pdf + `add-pdf-outline.py` +
 > `toc_tools.py` two-pass + DOCX) — อย่าเอามาปนกัน.
 
 ## ขั้นตอน (recipe)
@@ -20,15 +20,15 @@
    = ประหยัด ~2,000 tok/เอกสาร (53%).
 3. วาง screenshot ไว้ใน guide/shots/ (ถ่ายจาก run จริง — ดูหัวข้อ "ถ่ายภาพไฮไลต์")
 4. สร้าง PDF:
-     agent-browser open "file:///ABS/PATH/guide.html"
-     agent-browser wait 6000          # รอ paged.js จัดหน้า (เช็ค .pagedjs_page count)
-     agent-browser pdf "ชื่อเอกสาร.pdf"
+     AB nav "file:///ABS/PATH/guide.html"
+     AB wait 6000          # รอ paged.js จัดหน้า (เช็ค .pagedjs_page count)
+     AB pdf "ชื่อเอกสาร.pdf"
 5. verify: เปิด PDF กลับมา screenshot ดูจำนวนหน้า (ต้องไม่มีหน้าว่างสลับ) + สารบัญมีเลขหน้า
 ```
 
 ## ทำไมต้อง paged.js (และกับดักของมัน)
 
-`agent-browser pdf` รับแค่ path — **ไม่มี option ตั้ง margin / paper / preferCSSPageSize /
+`AB pdf` รับแค่ path — **ไม่มี option ตั้ง margin / paper / preferCSSPageSize /
 header-footer**. `@page` margin-box counter แบบง่าย (`@bottom-center{content:counter(page)}`)
 **ทำงานแล้วบน Chrome 150** — verified 2026-07-14: footer เลขหน้าโผล่ครบทุกหน้าใน printToPDF
 (เคยพังบน Chrome รุ่นเก่า จึงต้อง re-verify ต่อ version; เดิมเอกสารนี้เขียนว่า "ไม่ทำงาน").
@@ -41,7 +41,7 @@ header-footer**. `@page` margin-box counter แบบง่าย (`@bottom-cent
 **กับดัก double-pagination (หน้าคู่ว่าง เลขหน้าเป็น 2 เท่า) — ต้องแก้ 2 จุด**
 (verified 2026-07-14: paged.js 3 หน้า → PDF **6** หน้าถ้าไม่แก้ หน้าคู่เหลือแค่ footer; แก้แล้วได้ 3 หน้าตรง.
 repro harness: `self-test/pdf/`)**:**
-1. printToPDF ของ agent-browser ใช้ paper **Letter** (พื้นที่พิมพ์ ~196×259mm) + margin default.
+1. printToPDF ของ Chrome (`AB pdf`) ใช้ paper **Letter** (พื้นที่พิมพ์ ~196×259mm) + margin default.
    ถ้า `@page size` ใหญ่กว่านี้จะล้นเป็นหน้าถัดไป → ตั้ง **เล็กกว่า**:
    `@page{ size:182mm 250mm; margin:13mm }`
 2. อย่าใส่ `margin` บน `.pagedjs_page` ตอนพิมพ์ (มันบวกความสูง) → จำกัดเฉพาะจอ:

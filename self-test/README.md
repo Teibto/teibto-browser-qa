@@ -1,7 +1,7 @@
 # self-test — regression harness for agent-browser-qa
 
 Machine-checks the skill's **syntax / recipe / reproducible-causal** claims against a real
-agent-browser so a wrong or drifted claim is caught mechanically, not by accident.
+Chrome ผ่าน `cdp.py` so a wrong or drifted claim is caught mechanically, not by accident.
 
 ## Run
 
@@ -9,7 +9,7 @@ agent-browser so a wrong or drifted claim is caught mechanically, not by acciden
 bash self-test/smoke-test.sh
 ```
 
-Needs `agent-browser` on PATH (v0.27.0+) and Chrome for Testing installed. Uses an isolated
+Needs Chrome + `websocket-client`. Uses an isolated
 `--session smoketest` and a local `file://` page (`smoke-page.html`), so it never touches your
 other sessions. Exit code is non-zero if any check fails.
 
@@ -36,7 +36,7 @@ bash self-test/pdf/pdf-test.sh
 ```
 
 Verifies the two causal claims in `references/pdf-reports.md` by rendering 3 controlled docs through
-`agent-browser pdf` and counting pages with pymupdf:
+`AB pdf` and counting pages with pymupdf:
 
 | check | claim | result 2026-07-14 |
 |---|---|---|
@@ -50,7 +50,7 @@ asymmetric-burden rule — the trap is asserted, a non-repro doesn't refute it.
 
 ## When to run
 
-- After any **agent-browser or Chrome version bump** — this is the drift detector. A claim that
+- After any **Chrome or `cdp.py` version bump** — this is the drift detector. A claim that
   silently changed behavior (e.g. the `batch` JSON shape, a flag rename) fails here first.
 - Before shipping edits to `references/commands.md` or `references/gotchas.md`.
 

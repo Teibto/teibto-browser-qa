@@ -5,14 +5,14 @@ How to change this skill without breaking the discipline it is built on. New her
 
 ## Prerequisites
 
-- [`agent-browser`](https://github.com/vercel-labs/agent-browser) on PATH + Chrome for Testing
-  (`agent-browser install`) — needed to run `self-test/smoke-test.sh`.
+- Chrome + `py -m pip install websocket-client pillow numpy` — needed to run `self-test/smoke-test.sh`.
+  driver อยู่ที่ `~/.claude/skills/netsuite-qa-browser/references/cdp.py` (override ด้วย `NS_CDP`).
 - Python 3.10+ with PyYAML: `pip install -r requirements.txt` — for the `scripts/`.
 - Optional: `pymupdf` (for `self-test/pdf/pdf-test.sh`), `ffmpeg` (only if you touch the video recipe).
 
 ## The change loop
 
-Most edits change or add a **claim** — a statement about how agent-browser behaves, a gotcha, a
+Most edits change or add a **claim** — a statement about how the browser/driver behaves, a gotcha, a
 recipe, a token/efficiency number. The loop keeps a claim honest:
 
 ```
@@ -36,7 +36,7 @@ copy a reference's content up into `SKILL.md`. When in doubt, measure — this r
 ### Adding a self-test check
 
 Two kinds live in `self-test/smoke-test.sh`:
-- **Browser checks** drive a real agent-browser against `self-test/smoke-page.html` (e.g. "`click`
+- **Browser checks** drive a real Chrome (via `cdp.py`) against `self-test/smoke-page.html` (e.g. "`click`
   does not auto-scroll"). Use `chk "name" "expected-substr" "actual"`.
 - **Pure-file checks** need no browser (e.g. the PDF-template scoped-read gate). Prefer these for
   anything measurable from files — they stay green even where the browser harness can't run.
@@ -51,7 +51,7 @@ add or update its row with honest provenance:
 - **measured** — a number you produced with a tool (cite it, e.g. "tiktoken o200k_base").
 - **verified (A/B)** — reproduced with a controlled before/after.
 - **inferred** — a causal claim you believe but did not A/B; say so, don't promote it to fact.
-- **version-pinned** — true for a specific agent-browser / Chrome version; re-verify on a bump.
+- **version-pinned** — true for a specific Chrome / `cdp.py` version; re-verify on a bump.
 
 ## Running the checks
 
@@ -60,7 +60,7 @@ bash self-test/smoke-test.sh      # syntax/recipe/reproducible claims + efficien
 bash self-test/pdf/pdf-test.sh    # PDF pagination A/B (needs pymupdf + network for paged.js CDN)
 ```
 
-Re-run after any agent-browser or Chrome version bump — this is the drift detector.
+Re-run after any Chrome or `cdp.py` version bump — this is the drift detector.
 
 ## Scripts
 

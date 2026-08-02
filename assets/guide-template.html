@@ -2,7 +2,7 @@
 <!-- ============================================================================
   USER GUIDE TEMPLATE (agent-browser-qa skill)
   วิธีใช้: 1) แก้ META + data[] ในแท็ก <script> ด้านล่าง  2) วาง screenshot ใน shots/
-           3) agent-browser open <ไฟล์นี้> → wait 6000 → agent-browser pdf out.pdf
+           3) AB nav <ไฟล์นี้> → wait 6000 → AB pdf out.pdf
   โครง data: scenario { title,color(s1..s4),ov{what,why,when}, steps[ {act,crumb[],url,img,
              do,res,why, fields[[ชื่อ,รายละเอียด,ตัวอย่าง]], note?, warn?} ] }
   ใช้ D (=="—") ในช่อง "ตัวอย่าง" เมื่อไม่มีค่า. ดู references/pdf-reports.md สำหรับ gotcha PDF.
@@ -57,7 +57,7 @@
 <script>
 /* ===== EDIT HERE: META + ข้อมูล ===== */
 const META={title:"คู่มือการใช้งาน <ระบบ>",sub:"User Guide",tagline:"คู่มือใช้งาน · เข้าใจการทำงานของ UI ทีละขั้น",
-  meta:[["ขอบเขต","N Scenario · M ขั้นตอน"],["เวอร์ชัน","1.0"],["วันที่","DD MMMM YYYY"],["ที่มาของภาพ","รันจริงด้วย agent-browser"]]};
+  meta:[["ขอบเขต","N Scenario · M ขั้นตอน"],["เวอร์ชัน","1.0"],["วันที่","DD MMMM YYYY"],["ที่มาของภาพ","รันจริงจาก browser"]]};
 const D="—";
 const data=[
  {color:"s1",id:"scn-1",title:"✅ Scenario 1 — <ชื่อ flow>",

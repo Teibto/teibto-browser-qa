@@ -1,247 +1,207 @@
-# agent-browser — กับดักที่เจอจริง + วิธีแก้
+# กับดักที่เจอจริง + วิธีแก้ (transport = CDP ตรง)
 
-รวมบั๊ก/ข้อจำกัด/ความเข้าใจผิดที่เสียเวลาไปจริง (agent-browser 0.32.1 · Windows 11 ·
-Chrome for Testing headless). เรียงตามความสำคัญ. **อ่านก่อนเริ่มขับ browser** เพราะหลายอันทำให้
-automation "ผ่านแบบหลอก" (false pass) ตรวจจับยาก.
+รวมบั๊ก/ข้อจำกัด/ความเข้าใจผิดที่เสียเวลาไปจริง (Chrome for Testing / Chrome 150 · Windows 11).
+เรียงตามความสำคัญ. **อ่านก่อนเริ่มขับ browser** เพราะหลายอันทำให้ automation "ผ่านแบบหลอก"
+(false pass) ตรวจจับยาก.
+
+> **ที่หายไปพร้อม agent-browser daemon** (Teibto/teibto-dev-standards#111): `os error 10060`
+> ทุกสายพันธุ์ · session file ค้างชี้ daemon ตาย · "daemon version mismatch, restarting" ·
+> `connect` ค้าง 2 นาที · zombie daemon บน port สุ่ม · daemon/Chrome ค้างสะสมข้ามคืน ·
+> `record` ที่ต้อง restart daemon หลังติดตั้ง ffmpeg — **ไม่ต้องไล่หาอีกแล้ว**
+> ถ้ายังเจอ แปลว่ามีสคริปต์เก่าที่ยังเรียก daemon ค้างอยู่
 
 ## TOC
-1. click element ใต้ fold — FIXED บน 0.3x (≤0.27 = silent no-op)
-2. อย่าเชื่อ `✓ Done` — assert state เสมอ
-3. `os error 10060` บน long-poll wait
-4. syntax ที่พลาดบ่อย (get attr / find / is)
-5. headless ไม่มีฟอนต์ไทย
-6. PDF viewer สคริปต์ไม่ได้ (shadow DOM)
-7. JS click = ทางหนีที่ชัวร์
-8. `record` ต้องมี ffmpeg + PATH ไม่ refresh ใน daemon เก่า
-9. headed window ดำ/about:blank ≠ GPU bug — คือหน้ายังไม่ navigate
-10. หลาย terminal ชนกัน — ตั้ง session ต่อ terminal (สำคัญเมื่อรันขนาน)
+
+1. อย่าเชื่อว่า "คำสั่งผ่าน" = "งานสำเร็จ" — assert state เสมอ
+2. `console` ว่าง ≠ ไม่มี error — แยก "ไม่มีข้อผิดพลาด" ออกจาก "ไม่ได้เฝ้าอยู่"
+3. dialog ถูกตอบอัตโนมัติ — สะดวกแต่เปลี่ยนข้อมูลจริงได้
+4. `viewport` ที่สั่งแยกคำสั่งไม่มีผล — Emulation ตายพร้อม websocket
+5. element-scoped `shot` ตก popup ที่เป็น top-layer
+6. Syntax ที่พลาดบ่อย
+7. headless ไม่มีฟอนต์ไทย
+8. Chrome PDF viewer สคริปต์ไม่ได้
+9. headed window จอดำ — แยก 3 กลไก อย่าเหมารวมว่า "GPU"
+10. หลาย terminal ขับพร้อมกัน — แยก port + profile
 
 ---
 
-## 1. `click` element ใต้ fold — [HIGH บน ≤0.27 · FIXED บน 0.3x]
+## 1. อย่าเชื่อว่า "คำสั่งผ่าน" = "งานสำเร็จ" [HIGH]
 
-> **อัปเดต 2026-07-17 (0.32.1):** upstream **แก้แล้ว** — `click` element ใต้ fold **auto-scroll เข้า
-> viewport แล้วยิง handler** เอง (A/B: ปุ่ม top=1629 innerH=569 inView=false → หลัง click ได้ผล +
-> `scrollY` 0→1089). เนื้อหาข้างล่างคืออาการเดิมบน **≤0.27** ที่ยังต้อง `scrollintoview` ก่อน.
-> บน 0.3x `scrollintoview` เป็น **safe habit** ไม่ใช่ข้อบังคับ. เวอร์ชันที่แก้ไม่อยู่ใน release notes
-> (ไม่ได้ bisect) — ยืนยันว่ามีใน 0.32.1.
-
-**อาการ (≤0.27):** สั่ง `click` element ที่อยู่ใต้ fold (นอก viewport แนวตั้ง) → CLI คืน `✓ Done`
-แต่ event ไม่ถึง element จริง ไม่มีอะไรเกิดขึ้น และไม่มี error.
-
-**พิสูจน์ (minimal repro):**
-```
-button rect:  top=952  innerH=568  inView=false
-click "#b"          → ✓ Done
-get text "#out"     → "count=0"        ← ไม่เปลี่ยน (no-op!)
-# หลักฐานเชิงลึก: listener บนปุ่มจับ click ได้ []; document listener จับที่ target=HTML
-# (พื้นที่ว่าง); elementFromPoint(จุดคลิก)=ปุ่มถูกต้อง, ไม่มี overlay, DPR=1
-```
-
-**แก้:** `scrollintoview <sel>` ก่อน `click` เสมอ →
-```
-scrollintoview "#b"   # ปุ่มเลื่อนมา inView=true
-click "#b"            # ทำงานทันที → count=1 trusted=true
-```
-
-**ผลกระทบ:** ร้ายแรง — สคริปต์ผ่านแบบหลอกเพราะ click คืน Done โดยไม่ error. ปุ่มท้ายฟอร์ม
-(Continue/Finish/Cancel) มักอยู่ใต้ fold → โดนบ่อย. ในจอ (in-viewport) click ทำงานปกติ.
-
----
-
-## 2. อย่าเชื่อ `✓ Done` — assert state ผลลัพธ์เสมอ [HIGH]
-
-`✓ Done` แปลว่า "คำสั่งทำงานเสร็จ" ไม่ใช่ "เกิดผลลัพธ์ตามตั้งใจ". หลัง action ที่เปลี่ยน state
+คำสั่งที่ exit 0 แปลว่า "สั่งไปแล้ว" ไม่ใช่ "เกิดผลลัพธ์ตามตั้งใจ" · หลัง action ที่เปลี่ยน state
 ต้องพิสูจน์ด้วยคำสั่งสั้น:
-- หลัง click ที่นำทาง → `get url` (เช็ค url เปลี่ยน) หรือ `wait --load networkidle`
-- หลัง add-to-cart → `wait "[data-test=remove-...]"` หรือ `get text ".badge"`
-- หลังกรอกฟอร์ม → `get value` ยืนยันค่าเข้า
 
-อ่าน state ทันทีหลัง click บางครั้ง race (ยังไม่ render) → ใช้ `wait <selector ผลลัพธ์>` แทนการ
-อ่านดิบ. การ "อ่านเร็วเกิน + chain หลุด" ทำให้เข้าใจผิดว่า click ไม่ติดทั้งที่ติด.
+- หลัง click ที่นำทาง → `AB url` (เช็ค url เปลี่ยน)
+- หลัง add-to-cart → `AB wait "!!document.querySelector('[data-test=remove]')"` หรือ `AB get text ".badge"`
+- หลังกรอกฟอร์ม → `AB get value "#field"` ยืนยันค่าเข้าจริง
 
----
+อ่าน state ทันทีหลัง click บางครั้ง race (ยังไม่ render) → ใช้ `wait <เงื่อนไขของผลลัพธ์>`
+แทนการอ่านดิบ · การ "อ่านเร็วเกิน" ทำให้เข้าใจผิดว่า click ไม่ติดทั้งที่ติด
 
-## 3. `os error 10060` (connection timeout) บน long-poll wait [MEDIUM]
-
-**อาการ:** `wait --text "..."` หรือ `wait "[selector]"` บางครั้งโยน
-`✗ Failed to read: A connection attempt failed ... (os error 10060)` ระหว่าง flow ต่อเนื่อง
-(TCP connect timeout ไม่ใช่ timeout ปกติ) แล้ว command ถัดมา fail ต่อ (chain หลุด).
-
-**แก้:** เลี่ยง element/text-wait แบบ long-poll → ใช้ `wait --load networkidle` + เช็ค state
-ด้วยคำสั่งสั้น (`get url` / `get count`). สำหรับ clientside toggle (เช่น add-to-cart) ใช้
-`wait <ms สั้นๆ>` + verify. ทำเป็นช่วงสั้นๆ ต่อ bash call ลดโอกาส daemon สะดุด.
-
-**10060 ทุกคำสั่งแม้ kill daemon แล้ว = session file ค้าง:** `~/.agent-browser/<session>.pid/.port`
-ชี้ไป daemon ที่ตายแล้ว → CLI พยายามต่อ port เก่าจน timeout ไม่ spawn ใหม่. แก้:
-`Remove-Item "$env:USERPROFILE\.agent-browser\default.*"` (หรือชื่อ session ที่ใช้)
-แล้วสั่งคำสั่งใดก็ได้ — CLI spawn daemon ใหม่เอง (เจอจริง 2026-07-05: kill process แล้ว
-ทุกคำสั่งยัง 10060 ต่อเนื่องจนลบไฟล์).
-
-> **Retry policy:** 10060 / daemon stall เป็น *infra error* → retry ได้ (max 2 + backoff)
-> **หลัง reset สาเหตุ** เท่านั้น. assertion fail ไม่ใช่ infra → ห้าม retry. ดู
-> [`reliability-policy.md`](reliability-policy.md).
+`cdp.py click` ยิง **Input event จริง** พร้อม `scrollIntoView` ให้แล้ว — ปัญหา "คลิกใต้ fold แล้ว
+เป็น no-op เงียบ ๆ" ของตัวขับรุ่นเก่าจึงไม่เกิด **แต่กฎ assert ยังอยู่** เพราะ handler ของแอป
+อาจไม่ทำงานด้วยเหตุอื่น (element ถูก overlay ทับ, handler ยังไม่ bind, ปุ่ม disabled)
 
 ---
 
-## 4. Syntax ที่พลาดบ่อย [LOW — แต่เสียเวลา debug]
+## 2. `console` ว่าง ≠ ไม่มี error [HIGH — false pass ตรง ๆ]
 
-- **`get attr <selector> <name>`** — selector มาก่อน! `get attr @e2 href` ✓.
-  สลับเป็น `get attr href @e2` → คืน `Element not found` (ชี้สาเหตุผิด).
-- **`find <locator> <value> <action> [--flags]`** — action มาก่อน, ชื่อใส่ flag:
-  `find role button click --name "Submit"` ✓. ไม่ใช่ `find role button "Submit" click`.
-- **`is` ไม่ใช่ subaction ของ `find`** — เช็ค visibility ด้วยคำสั่งแยก `is visible @ref`.
-- **ref จาก `snapshot -i` (เช่น `@e2`) ใช้ข้าม CLI invocation ได้** (daemon เก็บ browser ไว้);
-  chain ด้วย `&&`. แต่ ref จะ stale ถ้าหน้า re-render/navigate → snapshot ใหม่.
-- **PowerShell กลืน `@e18`** (`@` = splatting token) → `click @e18` กลาย `click` เปล่า
-  ("Missing arguments"). ref ต้อง quote เสมอใน PowerShell: `agent-browser click '@e18'`.
+`cdp.py console` อ่านจาก collector ที่ **inject ลงหน้า** (`window.onerror` + `unhandledrejection`
++ patch `console.error/warn`) ซึ่งถูกติดตั้งอัตโนมัติทุกครั้งที่ `nav`
+
+**ที่ต้องระวัง:**
+
+- **หน้าที่ไม่ได้เปิดด้วย `nav` จะไม่มี collector** (เช่นหน้าที่แอป redirect ไปเอง หรือแท็บที่คนอื่น
+  เปิดไว้) → `console` จะ **error ไม่ใช่คืน `[]`** โดยเจตนา เพราะ "ไม่มี error" กับ "ไม่ได้เฝ้าอยู่"
+  คนละเรื่อง · เจอ error นี้ให้ `nav` ซ้ำ หรือ inject collector เอง
+- **collector ตายพร้อมหน้า** — navigate แล้ว log เริ่มใหม่ · **นี่คือพฤติกรรมที่ต้องการ**:
+  buffer สะสมข้ามหน้า (แบบที่ `agent-browser errors` ทำ) ทำให้ error ของหน้าก่อนถูกนับเป็นของ
+  หน้านี้ ซึ่งเป็น false PASS ที่จับยากมาก
+- **error ที่เกิด "ก่อน" collector ถูกติดตั้ง จับไม่ได้** — script ที่ throw ตอน parse ของหน้า
+  อยู่ก่อนเราเสมอ · ต้องจับ error ตอน load จริง ๆ ให้เปิดหน้าเปล่าก่อน inject แล้วค่อย
+  `location.href = <target>`
+- เก็บสูงสุด **200 รายการต่อหน้า** — หน้าที่ spam error จะถูกตัดท้าย
+
+---
+
+## 3. dialog ถูกตอบอัตโนมัติ — สะดวกแต่เปลี่ยนข้อมูลจริงได้ [HIGH]
+
+`cdp.py` เปิด `Page.enable` ตั้งแต่ต่อ session แล้วตอบทุก `alert`/`confirm`/`prompt`/**`beforeunload`**
+ให้อัตโนมัติ (default = accept) — นี่คือเหตุผลหลักที่ทิ้ง daemon เพราะมันทำข้อนี้ไม่ได้เลย
+
+**แต่ "ตอบได้" ไม่ได้แปลว่า "ควรตอบ":**
+
+- กด OK บน `confirm` ของแอป = **ยืนยันบันทึก/ลบจริง**
+- กด OK บน `beforeunload` = **ทิ้งงานที่ยังไม่ save จริง ๆ**
+
+ทุก dialog ที่ถูกตอบจะถูกพิมพ์ลง **stderr** เป็น `[dialog] <ชนิด>: <ข้อความ> -> accept` —
+**อ่านบรรทัดนั้นทุกครั้ง** · ต้องการปฏิเสธไว้ก่อนใช้ `DIALOG=dismiss AB ...` แล้วดูว่า url
+ยังเป็นหน้าเดิมไหม
+
+---
+
+## 4. `viewport` ที่สั่งแยกคำสั่งไม่มีผล [MEDIUM — เงียบสนิท]
+
+`Emulation.setDeviceMetricsOverride` **ผูกกับ session ของ CDP** และถูกยกเลิกทันทีที่ปิด websocket ·
+`cdp.py` เปิด WebSocket ใหม่ทุก invocation → `AB viewport 1920 1200 2` แล้วค่อย `AB shot`
+**ได้ภาพ 1x เสมอ** ทั้งที่ตั้ง dsf ไว้แล้ว และไม่มีอะไรฟ้อง
+
+```bash
+AB shot out.png "#card" --dsf=2 --vw=1920 --vh=1200     # ✓ metric ในคำสั่งเดียวกับที่ถ่าย
+AB viewport 1920 1200 2 && AB shot out.png              # ✗ ได้ 1x — override ตายไปแล้ว
+```
+
+(teibto-dev-standards#119 · เทส `T11e` ล็อกข้อนี้ไว้แล้ว) · เหตุผลเดียวกับที่ `evalmedia` ต้องตั้ง
+media แล้ว eval **ในคำสั่งเดียว**
+
+---
+
+## 5. element-scoped `shot` ตก popup ที่เป็น top-layer [MEDIUM]
+
+`AB shot out.png "#card"` crop เฉพาะกล่องของ element — **native `<select>` popup, `<dialog>`
+ที่เป็น top-layer, tooltip ที่ portal ออกไปนอก element จะไม่ติดมาด้วย** เพราะอยู่คนละ layer
+
+ภาพที่ต้องมี popup → ถ่าย **full viewport** แล้ว crop ทีหลัง · หรือใช้ท่า DOM (กาง `<select>`
+ด้วย `size=N`) ซึ่งอยู่ใน DOM จึงจับติดเสมอ → `commands.md` §จับภาพ native `<select>`
+
+ป๊อปอัป native ที่อยู่นอก DOM จริง ๆ (`alert`/`confirm`, file dialog) **screenshot ไม่ติดทุกกรณี**
+
+---
+
+## 6. Syntax ที่พลาดบ่อย [LOW — แต่เสียเวลา debug]
+
+- **`get attr <selector> <name>`** — selector มาก่อน! `get attr "#a" href` ✓
+- **`get` คืน `<no element>` เมื่อหา element ไม่เจอ** — อย่าอ่านเป็น "ค่าว่าง" มันคนละเรื่อง
+  (selector ผิด/หน้ายังไม่ render ≠ field ว่าง)
+- **ref จาก `a11y` (`@42`) ใช้ข้าม invocation ได้** เพราะเป็น `backendNodeId` ที่คงที่ตลอดอายุ node —
+  แต่ stale เมื่อ navigate หรือหน้า re-render node นั้นทิ้ง
+- **PowerShell กลืน `@42`** (`@` = splatting token) → ต้อง quote เสมอ: `AB click '@42'`
 - **`eval` ทุกครั้งรันใน global scope เดียวกันของหน้า** — top-level `let x` ใน eval แรกทำให้
   eval ถัดไปที่ประกาศ `let x` ซ้ำพัง `SyntaxError: Identifier 'x' has already been declared`
-  (เจอจริง 2 ครั้งใน session เดียว). ครอบ IIFE เสมอ: `(function(){ ...; return JSON.stringify(out); })()`;
-  ค่าที่ต้องใช้ข้าม eval เก็บใน `window.__x`.
+  (เจอจริง 2 ครั้งใน session เดียว) · ครอบ IIFE เสมอ:
+  `(function(){ ...; return JSON.stringify(out); })()` และเก็บค่าข้าม eval ที่ `window.__x`
+- **`IFRAME` ไม่มี state ค้าง** — ต่างจาก `frame "#sel"` เดิมที่ต้องจำ `frame main` กลับ ·
+  ที่นี่ตั้งเฉพาะคำสั่งที่ต้องการ: `IFRAME="#fr" AB get text "#inner"`
 
 ---
 
-## 5. headless Chrome for Testing ไม่มีฟอนต์ไทย [LOW]
+## 7. headless Chrome ไม่มีฟอนต์ไทย [LOW]
 
 ข้อความไทยที่ **render/วาดใน headless** (เช่น label ที่ inject เองด้วย `font: ... sans-serif`)
-กลายเป็นกล่อง □□□. แต่ HTML ที่เปิดในเบราว์เซอร์ผู้ใช้ render ไทยปกติ.
+กลายเป็นกล่อง □□□ · แต่ HTML ที่เปิดในเบราว์เซอร์ผู้ใช้ render ไทยปกติ
 
-**แก้:** อย่า bake ข้อความไทยลง screenshot ใน headless — ใส่แค่กรอบ/ไฮไลต์เปล่าๆ (ดู
-`assets/highlight.js`) แล้วเขียนข้อความไทยใน HTML/เอกสาร. หรือกำหนด font stack ที่มี glyph ไทย.
+**แก้:** อย่า bake ข้อความไทยลง screenshot ใน headless — ใส่แค่กรอบ/ไฮไลต์เปล่า ๆ
+(ดู `assets/highlight.js`) แล้วเขียนข้อความไทยใน HTML/เอกสาร · หรือกำหนด font stack ที่มี glyph ไทย
 
 ---
 
-## 6. Chrome PDF viewer สคริปต์ไม่ได้ [LOW]
+## 8. Chrome PDF viewer สคริปต์ไม่ได้ [LOW]
 
 หน้า PDF ใน Chrome อยู่ใน `<embed>`/shadow DOM — `elementFromPoint` คืน BODY, `PageDown` /
-`#page=N` / คลิก thumbnail **ไม่ทำงานผ่าน CDP**. ถ้าต้องอ่าน PDF อ้างอิงให้ screenshot ทีละหน้า
-(แต่ก็เลื่อนหน้าไม่ได้ง่ายๆ) — ทางที่ดีกว่าคือแปลง PDF→ข้อความ/ภาพด้วยเครื่องมืออื่นถ้ามี.
-
----
-
-## 7. JS click = ทางหนีที่ชัวร์ตอนเก็บ screenshot/เดิน flow
-
-ถ้า native `click` / `find ... click` flaky (ข้อ 1) และเป้าหมายคือ "เดิน flow ให้ถึงสถานะที่
-อยากถ่ายรูป" (ไม่ใช่ทดสอบความคลิกได้ของแอป) → ขับด้วย JS click:
-```
-eval "document.querySelector('SEL').click()"
-```
-พิสูจน์แล้วว่า fire React/handler ชัวร์เสมอ. แยกการ QA "ความคลิกได้จริง" ออกไป assert ใน
-qa-report ต่างหาก. ใช้คู่กับ `get url`/`get count` ยืนยันผลทุกครั้ง.
-
----
-
-## 8. `record` ต้องมี ffmpeg + PATH ไม่ refresh ใน daemon เก่า [MEDIUM — เสีย flow ทั้งรอบ]
-
-**อาการ:** `record start` คืน `✓ Recording started` ปกติ → เดิน flow จนจบ → `record stop` พัง
-`✗ ffmpeg not found or failed to execute`. ไฟล์วิดีโอ **ไม่ถูกสร้าง** → เสีย flow ที่อัดไปทั้งรอบ.
-
-**เหตุ:** `record` ใช้ ffmpeg encode WebM แต่เครื่องไม่มี. และถึงติดตั้งแล้ว (เช่น
-`winget install Gyan.FFmpeg`) — **PATH ที่ installer แก้ไม่ refresh ใน daemon ที่รันอยู่ก่อนติดตั้ง**
-(daemon เป็น process ค้าง). `record stop` ทำ encode ที่ฝั่ง daemon → ยังหา ffmpeg ไม่เจอ.
-
-**แก้:**
-1. ติดตั้ง ffmpeg (`winget install Gyan.FFmpeg`).
-2. **kill daemon เก่า**: `Stop-Process` process ชื่อ `agent-browser-win32-x64` — **อย่าแตะ `chrome`
-   ของผู้ใช้** (มีหลายตัว). หรือเปิด terminal ใหม่ทั้งหมด.
-3. เริ่ม `record` ในเชลล์ที่ ffmpeg อยู่บน PATH แล้ว (prepend bin ลง `$env:PATH` ถ้ายังไม่ refresh)
-   → daemon ใหม่ inherit PATH → `record stop` encode ได้.
-
-**กันพลาด:** ก่อนอัด flow ยาว ลอง `record start` + action สั้นๆ + `record stop` 1 รอบให้ได้ไฟล์ก่อน.
-`stream`/`dashboard` **ไม่ต้องใช้ ffmpeg** — ถ้าแค่อยากดู live ใช้ทางนั้นเลี่ยงปัญหานี้ได้.
+`#page=N` / คลิก thumbnail **ไม่ทำงานผ่าน CDP** · ถ้าต้องอ่าน PDF อ้างอิงให้ screenshot ทีละหน้า
+(แต่ก็เลื่อนหน้าไม่ได้ง่าย ๆ) — ทางที่ดีกว่าคือแปลง PDF→ข้อความ/ภาพด้วยเครื่องมืออื่น
 
 ---
 
 ## 9. headed window จอดำ — แยก 3 กลไก อย่าเหมารวมว่า "GPU" [MEDIUM]
 
-จอดำใน headed Chrome มี **3 สาเหตุคนละเรื่อง** วิธีแยก: ถาม 2 คำถามก่อนเสมอ —
-(1) `get url` เป็น `about:blank` ไหม? (2) หน้าต่างถูก **บัง/background** อยู่ไหม (terminal ทับ,
-QA window อยู่หลัง)?
+ถาม 2 คำถามก่อนเสมอ — (1) `AB url` เป็น `about:blank` ไหม? (2) หน้าต่างถูก **บัง/background**
+อยู่ไหม (terminal ทับ, QA window อยู่หลัง)?
 
-**กลไก A — `about:blank` cosmetic (benign, เจอบ่อยสุด).**
-`about:blank` พื้น dark theme ว่างเปล่า = ดำ เป็นเรื่องปกติ ไม่ใช่ paint พัง. ทดสอบจับภาพหน้าต่างจริง
-ตรงพิกัด: ดำ ⟺ `url == about:blank` เท่านั้น; พอ navigate หน้าจริง render ปกติทันที **ทั้งมีและไม่มี
-`--disable-gpu`**. แปลว่า browser **ยังไม่ได้ navigate ไปเป้าหมาย** — มักเพราะ `open` ครั้งแรก
-หลัง daemon restart ล้มเหลว:
-```
-⚠ Daemon version mismatch detected, restarting...
-✗ Could not configure browser: Failed to read... (os error 10060)
-get url → about:blank        ← ค้าง = จอดำ
-```
-แก้: หลัง `open` เช็ก `get url` เสมอ (golden rule #4); ถ้าค้าง about:blank → `open` ซ้ำ 1 ครั้ง;
-จะ present/screenshot ให้ทำหลังหน้าจริงโหลด.
+**กลไก A — `about:blank` cosmetic (benign, เจอบ่อยสุด).** `about:blank` พื้น dark theme ว่างเปล่า
+= ดำ เป็นเรื่องปกติ ไม่ใช่ paint พัง · ทดสอบจับภาพหน้าต่างจริงตรงพิกัด: ดำ ⟺ `url == about:blank`
+เท่านั้น; พอ navigate หน้าจริง render ปกติทันที **ทั้งมีและไม่มี `--disable-gpu`**
+แปลว่า browser **ยังไม่ได้ navigate ไปเป้าหมาย** → เช็ค `AB url` แล้ว `nav` ซ้ำ
 
-**กลไก B — GPU-compositing black rectangle.** automation Chrome บน Windows headed บาง
-เงื่อนไข paint content เป็นสี่เหลี่ยมดำทั้งที่ url เป็นหน้าจริง. แก้: `--disable-gpu`
-`--disable-software-rasterizer`.
+**กลไก B — GPU-compositing black rectangle.** automation Chrome บน Windows headed บางเงื่อนไข
+paint content เป็นสี่เหลี่ยมดำทั้งที่ url เป็นหน้าจริง · แก้: `--disable-gpu --disable-software-rasterizer`
 
-**กลไก C — occluded/background window หยุด paint ("the real repeat offender").** Chrome บน
-Windows มี feature `CalculateNativeWinOcclusion`: หน้าต่างที่ถูกบัง/background จะถูกมองว่า hidden แล้ว
-**หยุด render** → จอดำ. QA window ถูก background ตลอดเวลาที่ agent ขับ → โดนเต็ม ๆ. แก้:
+**กลไก C — occluded/background window หยุด paint ("the real repeat offender").** Chrome บน Windows
+มี feature `CalculateNativeWinOcclusion`: หน้าต่างที่ถูกบัง/background ถูกมองว่า hidden แล้ว
+**หยุด render** → จอดำ · QA window ถูก background ตลอดเวลาที่ agent ขับ → โดนเต็ม ๆ · แก้:
 `--disable-features=CalculateNativeWinOcclusion --disable-backgrounding-occluded-windows
---disable-renderer-backgrounding`.
+--disable-renderer-backgrounding`
 
-**Source of truth = launcher `qa-browser.ps1`** (repo PWOC/WCS/DA-Light-Mfg, ดู `netsuite-qa-browser`).
-มันรวม flag set ครบทั้ง B+C ไว้ที่ launch แล้ว (comment ในไฟล์ชี้ว่า **C คือตัวการหลัก ไม่ใช่ B**).
-flag ใช้ตอน launch เท่านั้น → session ที่รันอยู่ต้อง `close` + relaunch.
+**สิ่งที่วัดได้เอง (bound):** ทดสอบบนเครื่องนี้ (Chrome 150, จับภาพหน้าต่างจริง + cover window 9 วิ)
+บน example.com **และหน้า NetSuite Login จริง** มี/ไม่มี flag → **reproduce B และ C ไม่ได้เลย**
+reproduce ได้แค่ A · สรุป: B/C เป็น **conditional จริง** (background นานเป็นนาที / GPU driver เฉพาะ /
+Chrome รุ่นเก่า) ที่ cover สังเคราะห์สั้น ๆ trigger ไม่ติด — flag set มาจาก session จริงยาว ๆ
+จึงยังเชื่อถือได้ แค่ trigger ไม่ง่ายบน Chrome 150
 
-**สิ่งที่วัดได้เอง (bound):** ทดสอบ A/B บนเครื่องนี้ (Chrome 150, จับภาพหน้าต่างจริง + cover window 9s):
-บน example.com **และหน้า NetSuite Login จริง**, มี/ไม่มี flag → **reproduce B และ C ไม่ได้เลย**
-(หน้า render ปกติทุกครั้ง); reproduce ได้แค่ A (about:blank). สรุป: B/C เป็น **conditional จริง**
-(background นานเป็นนาที / GPU driver เฉพาะ / Chrome รุ่นเก่า) ที่ cover สังเคราะห์สั้น ๆ trigger ไม่ติด —
-launcher เจอจาก session จริงยาว ๆ จึงยังเชื่อถือได้, แค่ trigger ไม่ง่ายบน Chrome 150.
-ที่ยืนยันแน่: **CDP `screenshot` ภูมิคุ้มกัน occlusion** (capture จาก renderer compositor ไม่ใช่ native
-window) → ถูกบังอยู่ก็ยังได้ภาพหน้าจริง → **artifact ของ guide/report ไม่พังแม้ on-screen จะดำ** (กลไก C
-กระทบแค่คนดู live/dashboard, ไม่กระทบไฟล์ screenshot).
+**ที่ยืนยันแน่:** **CDP screenshot ภูมิคุ้มกัน occlusion** (capture จาก renderer compositor ไม่ใช่
+native window) → ถูกบังอยู่ก็ยังได้ภาพหน้าจริง → **artifact ของ guide/report ไม่พังแม้จอจะดำ**
 
-**Decision rule เวลาเจอจอดำ:** เช็ก `get url` ก่อน → `about:blank` = กลไก A (retry open, benign);
-url เป็นหน้าจริง + หน้าต่างถูกบัง/background = กลไก B/C → relaunch ด้วย flag set ของ launcher.
-CDP screenshot ใช้ได้เสมอไม่ว่ากรณีไหน.
-
-**ยังไม่ฟันธง:** `%TEMP%\agent-browser-chrome-*` สะสมเป็นสิบชุด (orphan temp profile) — เห็นจริงแต่ยัง
-ไม่พิสูจน์ว่า leak ต่อ `open` หรือเป็นซากจาก crash/kill สะสม. กินดิสก์ ลบทิ้งเป็นครั้งคราวได้เมื่อไม่มี session รันอยู่.
+**Decision rule:** `AB url` ก่อน → `about:blank` = กลไก A (nav ซ้ำ, benign) · url เป็นหน้าจริง +
+หน้าต่างถูกบัง = B/C → relaunch พร้อม flag set · `AB shot` ใช้ได้เสมอไม่ว่ากรณีไหน
 
 ---
 
-## 10. หลาย terminal ขับ agent-browser พร้อมกัน → ชน daemon/browser ตัวเดียวกัน [HIGH — เมื่อรันขนาน]
+## 10. หลาย terminal ขับพร้อมกัน — แยก port + profile [HIGH — เมื่อรันขนาน]
 
-**อาการ (เจอจริง 2026-07-17):** เปิด Claude หลาย terminal ทำ QA พร้อมกัน ทุกตัว default session ชื่อ
-`default` เหมือนกัน → 1 daemon + 1 browser ตัวเดียวกัน สอง terminal คลิกทับกัน/แย่งแท็บ, หน้าเปิดทับกัน,
-หลุดกลางคัน. ซ้ำร้าย session ที่ crash ทิ้ง daemon (`agent-browser-win32-x64`) + Chrome-for-Testing ค้าง
-สะสมข้ามคืน (เจอ 11 daemon + 39 orphan chrome ค้าง ~20 ชม. จนเครื่องแน่น). **พอร์ต 4848 = dashboard
-server ไม่ใช่ต้นเหตุ**; TIME_WAIT storm บน 4848 เป็น connection churn ปกติ ปล่อยได้.
+**กลไกเปลี่ยนไปจากยุค daemon:** ไม่มี "session name" ให้ชนกันแล้ว · สิ่งที่ชนกันคือ **Chrome
+instance** และ **cookie jar ของ profile**
 
-**กลไก:** agent-browser = 1 daemon ต่อ 1 **session name**; แต่ละ session แยก browser context.
-ไม่ตั้งชื่อ = ทุก terminal ใช้ `default` = แชร์ browser เดียวกัน. บน Windows ยังมีชั้น **profile lock**:
-1 `--profile` dir = Chrome ได้แค่ 1 process → หลาย terminal ใช้ profile login เดียวกันชนที่ lock แม้ตั้ง
-session ต่างกันแล้ว.
+```bash
+# terminal ที่ 1
+export CDP_PORT=9400; chrome --user-data-dir=<...>/.qa-profiles/run-a --remote-debugging-port=9400 &
+# terminal ที่ 2 — คนละ port คนละ profile
+export CDP_PORT=9401; chrome --user-data-dir=<...>/.qa-profiles/run-b --remote-debugging-port=9401 &
+```
 
-**แก้ (ทำก่อนขับ browser ทุกครั้ง — โดยเฉพาะเมื่อจะรันขนาน):**
-- **ตั้ง session ต่อ terminal** จาก `CLAUDE_CODE_SESSION_ID` (Claude Code ฉีดเข้า env ทุก child process,
-  นิ่งต่อ terminal, ต่างข้าม terminal):
-  - bash (ต้นสาย `&&` chain): `export AGENT_BROWSER_SESSION="cc-${CLAUDE_CODE_SESSION_ID:0:8}"`
-  - pwsh: `$env:AGENT_BROWSER_SESSION = "cc-$($env:CLAUDE_CODE_SESSION_ID.Substring(0,8))"`
-  - fallback ราย command: ใส่ `--session "cc-<sid8>"` ทุกคำสั่ง
-  - ⚠ env ไม่ persist ข้าม tool call (harness shell = -NoProfile/non-interactive, `~/.bashrc`/profile.ps1
-    ไม่ถูกโหลด) → ต้อง `export`/`$env:` **inline ในทุก bash chain / pwsh call** หรือใช้ `--session`.
-- **รันขนานที่ต้องใช้ login เดิม (NetSuite):** ต้องแยก **profile dir ต่อ terminal** ด้วย ไม่งั้นชน profile
-  lock — seed สำเนา profile ที่ login แล้วเป็น `...\profiles\cc-<sid8>` ต่อ terminal
-  (ดู `netsuite-qa-browser` persistent-profile). generic web QA (ephemeral profile) ตั้งแค่ session ก็พอ.
+- **หนึ่ง `--user-data-dir` = Chrome ได้แค่ 1 process** (profile lock ของ Windows) → สอง terminal
+  ใช้ profile เดียวกันไม่ได้แม้ port ต่างกัน
+- **ใช้ profile เดียวกันที่ login ไว้แล้ว ⇒ cookie rotate ใส่กัน** — เจอจริง (TBTKB #354, บันทึกใน
+  skill `apex-page-as-code`): สอง terminal login แอปเดียวกัน ทุก ~10 วิ cookie ถูกทับ ผลคือ
+  login "สำเร็จ" ฝั่ง server ทุกครั้งแต่หน้า render เป็น anonymous · สะสมหนักจนเซิร์ฟเวอร์ตอบ
+  400 ทั้ง origin เพราะ cookie บวม · **ไล่ฝั่งแอปกี่ชั่วโมงก็ไม่เจอเพราะมันไม่ได้พังจริง**
+- ต้องใช้ login เดิมจริง ๆ → **seed สำเนา profile ต่อ terminal** ไม่ใช่แชร์ตัวเดียวกัน
 
-**Idle-timeout กันซากพอกซ้ำ:** ตั้ง env `AGENT_BROWSER_IDLE_TIMEOUT_MS` (ms) → daemon ปิด browser +
-exit เองเมื่อไม่มีคำสั่งตามเวลาที่ตั้ง. บนเครื่องนี้ตั้งถาวรที่ User scope = `1800000` (30 นาที).
+**เก็บกวาด:** ไม่มี daemon ให้ล้าง · ปิดแท็บของงานเราด้วย `AB close "<marker ของงาน>"` แล้วจบ ·
+**ห้ามลบ `.qa-profiles/`** ถ้ามี login อยู่ (จะต้อง 2FA ใหม่) · Chrome ที่เราเปิดเองปิดได้ตามปกติ
+— แต่ **ห้าม `taskkill chrome` มั่ว** เพราะ Chrome ส่วนตัวของผู้ใช้ปนอยู่ ให้กรองด้วย
+`--user-data-dir` ของ QA เท่านั้น:
 
-**Recipe ล้างซากแบบปลอดภัย (ห้าม `taskkill chrome` มั่ว — Chrome ส่วนตัว user ปนกับ QA):**
-1. `agent-browser close --all` → `agent-browser doctor` (เก็บ stale daemon/session files)
-2. kill เฉพาะ Chrome-for-Testing (path `*\.agent-browser\browsers\*`); **เว้น**
-   `C:\Program Files\Google\Chrome` (ส่วนตัว) + msedge/webview2. คลัสเตอร์ chrome ที่ไม่มี daemon เวลา
-   start คู่กัน = เบราว์เซอร์ส่วนตัว.
-3. kill daemon ค้างที่เหลือ: process ชื่อ `agent-browser-win32-x64`.
 ```powershell
-agent-browser close --all; agent-browser doctor
 Get-CimInstance Win32_Process -Filter "Name='chrome.exe'" |
-  ? { $_.ExecutablePath -like '*\.agent-browser\browsers\*' } |
+  ? { $_.CommandLine -like '*\.qa-profiles\*' } |
   % { Stop-Process -Id $_.ProcessId -Force }
-Get-Process 'agent-browser-win32-x64' -ErrorAction SilentlyContinue | Stop-Process -Force
 ```

@@ -1,26 +1,30 @@
 ---
 name: agent-browser-qa
 description: >-
-  Drive a real browser (agent-browser, CDP) through a web flow and produce QA results +
+  Drive a real browser (CDP ตรง ผ่าน cdp.py) through a web flow and produce QA results +
   documentation from the live run. Trigger for: smoke-test/QA a web app flow (login,
   checkout, wizard, form, grid), click-through with screenshots per step, visual
   check/regression diff, verify a form/row actually saved, test Suitelet/APEX/any page,
   or turn a run into a user-guide/bug-report PDF. English or Thai, headless or headed,
-  even when "agent-browser" isn't named. NOT for writing Playwright/Cypress code or CI
+  even when the driver isn't named. NOT for writing Playwright/Cypress code or CI
   pipelines; NetSuite record-form QA / user guides → skill netsuite-ui-qa-testing (this
   skill keeps generic apps + non-record NetSuite pages). Read references/gotchas.md
   before driving the browser.
 ---
 
-# agent-browser QA & Docs
+# Browser QA & Docs
 
-`agent-browser` = Rust CLI ([vercel-labs/agent-browser](https://github.com/vercel-labs/agent-browser))
-that drives Chrome over CDP and outputs an accessibility tree + element refs (`@e1`) that an LLM
-reads easily. **The CLI itself costs no tokens — tokens are only spent when you feed its output
-back into context.**
+`cdp.py` = driver กลางของทีม ([`Teibto/teibto-dev-standards`](https://github.com/Teibto/teibto-dev-standards)
+`scripts/cdp.py`) ที่ขับ Chrome ผ่าน **CDP ตรง ไม่มี daemon คั่น** และคืน accessibility tree
+พร้อม ref (`@42`) ที่ LLM อ่านง่าย · **ตัวขับเองไม่กิน token — token หมดไปกับผลลัพธ์ที่เราป้อนกลับ
+เข้า context เท่านั้น**
+
+> ทีมเลิกใช้ `agent-browser` daemon แล้ว (teibto-dev-standards#111) เพราะมันค้างแบบไม่บอกเหตุ
+> (`os error 10060` วนซ้ำ, Chrome ตายเงียบ) และตอบ JS dialog ไม่ได้เลย โดยเฉพาะ `beforeunload`
+> ที่ทำให้ daemon wedge ถาวร · ตารางแปลงคำสั่งทั้งหมด → `references/commands.md`
 
 **Roles:** Claude = the brain (read code → derive tests → judge pass/fail → write docs).
-agent-browser = the hands & eyes (drive the browser + capture evidence; it decides nothing).
+`cdp.py` = the hands & eyes (drive the browser + capture evidence; it decides nothing).
 
 **Principle — one pass, two outputs:** walk the happy path once → get both (1) a smoke verdict and
 (2) raw material for a user guide / bug report.
@@ -38,12 +42,11 @@ from code).
 ## 1. Install (first time)
 
 ```bash
-npm install -g agent-browser     # or brew / cargo install agent-browser
-agent-browser install            # download Chrome for Testing (~186MB, once)
-agent-browser --version          # confirm
+py -m pip install websocket-client pillow numpy    # pillow/numpy เฉพาะตอนใช้ diff
 ```
 
-Version-matched built-in guide (better than guessing from --help): `agent-browser skills get core --full`
+ตัว `cdp.py` มาพร้อม skill ของทีม (`~/.claude/skills/netsuite-qa-browser/references/cdp.py`)
+หรือ vendor เข้า repo งานก็ได้ · setup ครบชุด + ทุกคำสั่ง → `references/commands.md`
 
 ---
 
@@ -52,73 +55,65 @@ Version-matched built-in guide (better than guessing from --help): `agent-browse
 These traps make automation **fail silently, with no error** — full detail + evidence in
 `references/gotchas.md`, but keep these five in mind at all times:
 
-0. **Set a per-terminal session BEFORE the first command** so parallel terminals don't share one
-   browser (else two runs click over each other + leak zombie daemons). bash:
-   `export AGENT_BROWSER_SESSION="cc-${CLAUDE_CODE_SESSION_ID:0:8}"` at the head of the `&&` chain
-   (harness shells are -NoProfile/non-interactive, so re-set it inline in every bash call, or pass
-   `--session "cc-<sid8>"`). Parallel NetSuite (shared login) also needs a per-terminal `--profile`
-   dir — Windows locks one profile to one Chrome. Detail + cleanup recipe: #10 in `references/gotchas.md`.
+0. **หนึ่งงาน = หนึ่ง `CDP_PORT` = หนึ่ง `--user-data-dir`** ตั้งก่อนคำสั่งแรกเสมอ · สอง terminal
+   ที่ใช้ profile เดียวกัน **login จะ rotate cookie ใส่กัน** → หน้า render เป็น anonymous ทั้งที่
+   server บอกว่า login สำเร็จ ไล่ฝั่งแอปกี่ชั่วโมงก็ไม่เจอ (#10 ใน `references/gotchas.md`)
+1. **ทำงานในแท็บของตัวเองที่มี marker เฉพาะ แล้วปักหมุด** —
+   `export TGT_ID=$(AB newtab "<url>?job=<งาน>")` · ไม่ปักหมุดแล้วคำสั่งอาจไปตกแท็บของ session อื่น
+2. **อย่าเชื่อว่า "คำสั่งผ่าน" = "งานสำเร็จ"** — assert ผลลัพธ์ทุกครั้งด้วยคำสั่งสั้น
+   (`wait <เงื่อนไข>` / `url` / `get text`) · คำสั่งที่ exit 0 แปลว่า "สั่งไปแล้ว" เท่านั้น
+3. **`console` ว่าง ≠ ไม่มี error** — collector ผูกกับหน้า ถ้าหน้านั้นไม่ได้เปิดด้วย `nav`
+   คำสั่งจะ error (โดยเจตนา) ไม่ใช่คืน `[]` · "ไม่มี error" กับ "ไม่ได้เฝ้าอยู่" คนละเรื่อง
+4. **dialog ถูกตอบให้อัตโนมัติ — อ่าน `[dialog]` ใน stderr ทุกครั้ง** · กด OK บน `confirm` ของแอป
+   = ยืนยันบันทึก/ลบจริง · `DIALOG=dismiss` เมื่อต้องการปฏิเสธไว้ก่อน
+5. **จอดำใน headed = 3 กลไก ไม่ใช่แค่ "GPU" — เช็ค `AB url` ก่อน** · `about:blank` = หน้ายังไม่ navigate
+   (benign) → `nav` ซ้ำ · url จริงแต่หน้าต่างถูกบัง → relaunch พร้อม stability flags ·
+   `AB shot` ใช้ได้เสมอไม่ว่ากรณีไหน (#9 ใน `references/gotchas.md`)
 
-1. **`click` auto-scrolls on 0.3x — but still assert.** On agent-browser **≤0.27** a below-fold
-   `click` returned `✓ Done` and did nothing (silent no-op); **0.32.1 auto-scrolls the element into
-   view and fires the handler** (verified 2026-07-17: below-fold button, `scrollY` 0→1089). So
-   `scrollintoview <sel>` before `click` is now a *safe habit*, not a hard requirement — keep it for
-   below-fold buttons on old/mixed versions. Either way, prove the effect with rule #2.
-2. **Don't trust `✓ Done`** — always assert the resulting state (`wait` element / `get url` /
-   `get text .badge`). After a click, prove the effect happened; a successful command return is not proof.
-3. **Avoid long-poll `wait --text` / `wait <selector>`** on Windows (intermittent `os error 10060`)
-   → use `wait --load networkidle` + check state with short commands instead.
-   (ห้ามใช้ networkidle บน NetSuite — โพลไม่จบ; ใช้ `wait --fn "window.jQuery && jQuery.active === 0"`
-   ดู skill netsuite-qa-browser)
-4. **A black headed window = 3 causes, not just "GPU" — check `get url` first.**
-   `about:blank` → page never navigated (benign) → `open` again; a real page but covered/backgrounded
-   → relaunch with the `qa-browser.ps1` stability flags. CDP `screenshot` stays valid either way.
-   Mechanisms + the flag set: #9 in `references/gotchas.md`.
-
-Extra: if native `click` / `find ... click` is still flaky, drive with a **JS click**
-`eval "document.querySelector('SEL').click()"` (always reliable — QA the app's real clickability separately).
+Extra: `AB click` ยิง Input event จริงพร้อม scrollIntoView ให้แล้ว · ถ้ายังไม่ติดจริง ๆ ใช้
+**JS click** `eval "document.querySelector('SEL').click()"` เดิน flow ต่อ แล้วแยกไปรายงานเรื่อง
+"ความคลิกได้จริง" เป็น finding ต่างหาก
 
 ---
 
 ## 3. Token discipline (prevent context overflow)
 
-- For assertions use only **short-output commands**: `wait`, `is visible/enabled`, `get value/text`,
-  `get count`, `errors --json`, `console --json`.
-- **Never** feed a whole-page `snapshot` or raw `get html` back into context. If you must snapshot,
-  filter it: `snapshot -i` (interactive-only) or scope it `-s "#sel"`.
-- **screenshot = always a file** (`--json` returns just the path) — the path may enter context, the
-  image may not (unless truly necessary).
-- Cap output: `--max-output 50000`.
+- For assertions use only **short-output commands**: `wait`, `is visible/enabled/checked`,
+  `get value/text/count`, `console`.
+- **Never** feed a whole-page `a11y` dump or raw `get html` back into context — กรอง `a11y` ด้วย
+  คำค้นเสมอ (`AB a11y "Submit"`)
+- **screenshot = always a file** — path เข้า context ได้ ภาพไม่ควรเข้า (เว้นจำเป็นจริง ๆ)
+- งานยาวรวมเป็น JS ก้อนเดียวแล้ว `evalf` คืน JSON ก้อนเดียว → `references/commands.md`
 
 Full command reference + commonly-missed syntax → `references/commands.md`
 
-**Verify the command/syntax claims machine-side:** `self-test/smoke-test.sh` (checks against a real
-agent-browser — re-run on any agent-browser/Chrome version bump = drift detector). Which claims are
-verified vs inferred vs version-pinned: `docs/CLAIMS-AUDIT.md`.
+**Verify the command/syntax claims machine-side:** `self-test/smoke-test.sh` (รันกับ Chrome จริง —
+re-run ทุกครั้งที่ Chrome หรือ `cdp.py` เปลี่ยนเวอร์ชัน = drift detector) · claim ไหน verified
+vs inferred: `docs/CLAIMS-AUDIT.md`.
 
 ---
 
 ## 4. Standard workflow (one pass, two outputs)
 
 ```
-1. open <url> → wait --load networkidle   (NetSuite: ห้าม networkidle — ใช้ wait --fn jQuery.active===0)
-2. before each action: screenshot (file) as evidence / guide material
-3. action: scrollintoview → click/fill (or JS click) with ref @eN or a semantic locator
-4. assert the result with a short command (golden rule #2)
-5. errors --json → if non-empty = FAIL, record the error (no silent fallback)
-6. end of flow: write 2 files — qa-report.md (verdict) + user guide / bug report
+1. AB nav <url> → AB wait "<เงื่อนไขที่เจาะจงกับหน้านี้>"   (ติดตั้ง console collector ให้อัตโนมัติ)
+2. ก่อนทุก action: AB shot <file> เก็บเป็นหลักฐาน / วัตถุดิบของ guide
+3. action: AB click/fill ด้วย ref @<id> จาก a11y หรือ selector
+4. assert ผลลัพธ์ด้วยคำสั่งสั้น (golden rule #2)
+5. AB console → ไม่ว่าง = FAIL บันทึก error ไว้ (ห้าม fallback เงียบ)
+6. จบ flow: เขียน 2 ไฟล์ — qa-report.md (verdict) + user guide / bug report
 ```
 
-QA layers: (1) Smoke = happy path completes + errors empty · (2) Functional = assert state ·
-(3) Visual = `diff screenshot --baseline` · (4) Error surfacing = `errors`/`console` after every key step ·
+QA layers: (1) Smoke = happy path completes + `console` ว่าง · (2) Functional = assert state ·
+(3) Visual = `AB diff <baseline> <current>` · (4) Error surfacing = `console` after every key step ·
 (5) a11y = inject axe-core, return count + top N (`references/a11y-layer.md`) ·
 (6) Perf = save/load timing vs budget (`references/perf-layer.md`). Layers 5–6 are opt-in per scenario
 (`a11y`, `perf_budget` in flow.yaml) and return only short numbers — never a full node/timing dump.
 
 **Store test cases as repeatable files** (regression/repro) → write them as flow YAML:
-`references/flow-spec.md`. **Fewer process spawns + fewer `os 10060` stalls:** `batch` several
-commands into one invocation (`@eN` refs persist across them) instead of one CLI call each; run a
-pre-flight health-check before a long flow → `references/commands.md`.
+`references/flow-spec.md`. **ลด process spawn:** รวมงานหลายขั้นเป็น JS ก้อนเดียวแล้ว `evalf`
+(แต่ action ที่เปลี่ยน state ยังควรแยกเพื่อ assert ทีละขั้น) · pre-flight เหลือแค่
+`curl /json/version` → `references/commands.md`.
 
 Suggested artifact layout:
 ```
@@ -139,7 +134,7 @@ cause alternating blank pages).
 
 **Pipeline boundary:** this skill owns the GENERIC guide/bug-report PDF pipeline (paged.js +
 `assets/guide-template.html`). NetSuite record-form guides use netsuite-ui-qa-testing's own pipeline
-(agent-browser pdf + PyMuPDF `add-pdf-outline.py` + `toc_tools.py` two-pass + DOCX) — do not mix them.
+(`cdp.py pdf` + PyMuPDF `add-pdf-outline.py` + `toc_tools.py` two-pass + DOCX) — do not mix them.
 
 - `assets/guide-template.html` — document-style user guide (cover, breadcrumb, highlighted
   screenshot, field table, what/why/effect-on-system, FAQ, glossary). Edit only the data array.
@@ -153,20 +148,23 @@ the double-pagination fix, page-number verification) → `references/pdf-reports
 
 ---
 
-## 6. Record video / watch live
+## 6. วิดีโอ / ดูสด — **ตัดออกแล้ว**
 
-Record a flow as video (`record start/stop`, **needs ffmpeg** — restart the daemon after installing)
-or watch it live without ffmpeg (`dashboard start` → `http://localhost:4848`, or `stream enable`).
-Because CDP has no real cursor, inject a rendered pointer ring (`assets/pointer.js`) before each
-action so the screencast shows where it happens. Full recipe + traps → `references/video-and-live.md`.
+`record` / `stream` / `dashboard` เป็นฟีเจอร์ของ daemon ที่ถูกทิ้งไปพร้อมกัน · เหตุผลและสิ่งที่
+เสียไปจริง → `docs/ARCHITECTURE.md` §ที่ตัดออกและทำไม
+
+ใช้ **`AB shot` ต่อ step** เป็นหลักฐานแทน ซึ่งเป็น artifact ที่ดีกว่าสำหรับ guide/bug report อยู่แล้ว
+(อ้างอิงหน้าได้ · `AB diff` ได้ · ไม่ต้องเปิดดูทั้งคลิป) · `assets/pointer.js` ยังใช้ได้สำหรับ
+ชี้จุดโฟกัสในภาพนิ่ง
 
 ---
 
 ## Specific targets (NetSuite / APEX)
 
-- **NetSuite:** log in via an already-logged-in Chrome profile (`--profile "<your-profile>"` to
-  avoid repeat 2FA); elements inside an iframe → `frame "#sel"` before snapshot, then `frame main`;
-  async loads → `wait --fn "window.jQuery && jQuery.active === 0"`.
-- **Oracle APEX:** use an isolated `--session <name>`; dynamic Interactive Grid cells/buttons →
-  semantic locators `find label "..." fill "..."` / `find role button click --name "..."`; test Thai
-  input; `vitals --json` (if present in that version — check first).
+- **NetSuite:** ใช้ Chrome profile ที่ login ค้างไว้ (`--user-data-dir` ตัวเดิม) เลี่ยง 2FA ซ้ำ ·
+  element ใน iframe → `IFRAME="#sel" AB get ...` (ไม่มี state ค้างให้ลืมออก) ·
+  async loads → `AB wait "window.jQuery ? jQuery.active===0 : true"` ·
+  **งาน record-form / user guide ของ NetSuite ใช้ skill `netsuite-ui-qa-testing` ไม่ใช่ตัวนี้**
+- **Oracle APEX:** แยก `CDP_PORT` + profile ต่องาน · dynamic Interactive Grid cells/buttons →
+  `AB a11y "<ชื่อที่เห็นบนจอ>"` แล้วใช้ ref · ทดสอบ input ภาษาไทยด้วย · skill `apex-page-as-code`
+  มีสูตรเฉพาะของ APEX

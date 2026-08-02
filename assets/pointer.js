@@ -1,8 +1,8 @@
 // pointer.js — inject วงแหวน "pointer" เรืองแสง บอกตำแหน่งจุดที่กำลัง focus/คลิก
-// ใช้ตอน "อัดวิดีโอ / live" เป็นหลัก: agent-browser ขับผ่าน CDP/JS (โดยเฉพาะ JS click)
+// ชี้จุดโฟกัส/จุดคลิกในภาพนิ่ง — CDP ไม่มี cursor จริง จึง inject DOM overlay แทน
 //   → ไม่มี OS cursor ให้ screencast จับ → ดูไม่ออกว่าทำงานตรงไหน.
 //   overlay เป็น DOM จึง "ถูก render = ถูกอัดติด".
-// ใช้กับ agent-browser:  agent-browser eval "<เนื้อ IIFE ด้านล่าง>('SEL')"
+// ใช้กับ cdp.py:  AB eval "<เนื้อ IIFE ด้านล่าง>('SEL')"
 //
 // กฎใช้งาน (สำคัญ): เรียก point(sel) "ก่อน" ทุก action ด้วย selector เดียวกับที่จะ act
 //   → wait ~500-650ms (ให้วงแหวนเลื่อน+pulse เห็นใน video) → ค่อย fill/click.
@@ -35,13 +35,14 @@ function point(selector) {
   return 'ok';
 }
 
-// --- one-liner สำหรับวางใน agent-browser eval "..." (แทน SEL ด้วย selector) ---
+// --- one-liner สำหรับวางใน AB eval "..." (แทน SEL ด้วย selector) ---
 // (function(s){var p=document.getElementById('__ptr');if(!p){p=document.createElement('div');p.id='__ptr';p.style.cssText='position:fixed;z-index:2147483647;width:26px;height:26px;margin:-13px 0 0 -13px;border:3px solid #ff2d55;border-radius:50%;background:rgba(255,45,85,.2);box-shadow:0 0 0 5px rgba(255,45,85,.22),0 0 16px #ff2d55;pointer-events:none;transition:left .45s ease,top .45s ease;left:50%;top:50%';document.body.appendChild(p);}var e=document.querySelector(s);if(!e)return 'noel:'+s;e.scrollIntoView({block:'center'});var r=e.getBoundingClientRect();p.style.left=(r.left+r.width/2)+'px';p.style.top=(r.top+r.height/2)+'px';p.animate([{transform:'scale(1.8)'},{transform:'scale(1)'}],{duration:450});return 'ok';})('SEL')
 
 // ตัวอย่าง flow อัดวิดีโอมี pointer (bash/pwsh) — point ก่อน → wait → act:
 //   PT="(function(s){...})"                              # เก็บ snippet ไว้ในตัวแปร
-//   agent-browser record start flow.webm <url>           # ต้องมี ffmpeg ติดตั้ง (ดู gotchas)
-//   agent-browser eval "$PT('#user-name')" && agent-browser wait 650 && agent-browser fill '#user-name' 'standard_user'
-//   agent-browser eval "$PT('#login-button')" && agent-browser wait 650 && agent-browser eval "document.querySelector('#login-button').click()"
+//   (การอัดวิดีโอถูกตัดออกแล้ว — ดู docs/ARCHITECTURE.md §ที่ตัดออกและทำไม)
+//   ใช้ชี้จุดก่อน shot แต่ละ step แทน:
+//   AB eval "$PT('#user-name')" && AB wait 650 && AB fill '#user-name' 'standard_user'
+//   AB eval "$PT('#login-button')" && AB wait 650 && AB eval "document.querySelector('#login-button').click()"
 //   ...
-//   agent-browser record stop                            # encode เป็นไฟล์ (ทำโดย daemon ที่มี ffmpeg)
+//   AB shot guide/step-03.png                            # ภาพนิ่งที่มีวงชี้จุดคลิก
