@@ -1,17 +1,20 @@
 #!/usr/bin/env bash
 # PDF-pagination self-test — verifies the pdf-reports.md causal claims mechanically.
 #   bash self-test/pdf/pdf-test.sh
-# Needs: agent-browser + Chrome, python with pymupdf, and network (paged.js CDN).
-# Verified: agent-browser 0.27.0 / Chrome 150 (2026-07-14).
+# Needs: Chrome (เปิดค้างไว้ที่ CDP_PORT), websocket-client, pymupdf, network (paged.js CDN).
+# Verified: Chrome 150 (2026-07-14) · transport ย้ายเป็น cdp.py 2026-08-02
 set -u
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 D="$(cygpath -m "$HERE" 2>/dev/null || echo "$HERE")"
-S="pdftest"
-ab(){ agent-browser --session "$S" "$@" 2>&1; }
+CDP="${NS_CDP:-$HOME/.claude/skills/netsuite-qa-browser/references/cdp.py}"
+PY=""; for c in py python3 python; do "$c" -c 'import websocket' >/dev/null 2>&1 && { PY="$c"; break; }; done
+[ -n "$PY" ] || { echo "SKIP: ไม่มี python ที่ import websocket ได้"; exit 0; }
+curl -sf "http://127.0.0.1:${CDP_PORT:-9333}/json/version" >/dev/null 2>&1   || { echo "SKIP: ไม่มี Chrome ตอบที่ CDP_PORT=${CDP_PORT:-9333}"; exit 0; }
+ab(){ "$PY" "$CDP" "$@" 2>&1; }
 
 render(){ # render <name> <paged:yes|no>
   local name="$1" paged="$2"
-  ab open "file:///${D}/${name}.html" >/dev/null
+  ab nav "file:///${D}/${name}.html" 2 >/dev/null
   if [ "$paged" = yes ]; then
     local c=0 tries=0
     while [ "$tries" -lt 40 ]; do
@@ -21,7 +24,7 @@ render(){ # render <name> <paged:yes|no>
     done
     echo "  ${name}: .pagedjs_page=${c:-0}"
   else
-    ab wait --load networkidle >/dev/null 2>&1 || true
+    ab wait "document.readyState==='complete'" 15 >/dev/null 2>&1 || true
   fi
   ab pdf "${D}/out-${name}.pdf" >/dev/null
 }
@@ -30,7 +33,6 @@ echo "=== render ==="
 render t1-naive no
 render t2-good  yes
 render t2-bad   yes
-ab close >/dev/null
 
 echo "=== verdict (pymupdf) ==="
 python "${HERE}/pdf_inspect.py" "${HERE}"

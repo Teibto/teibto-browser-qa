@@ -19,7 +19,7 @@ infra error = ปัญหา "ต่อ browser/daemon ไม่ติด" ไ�
 | CDP disconnect | browser หลุด CDP กลาง flow | — |
 
 **ก่อน retry ต้อง reset สาเหตุ** ไม่ใช่ยิงซ้ำเฉยๆ: เช่น 10060 ที่ค้าง → ลบ session file
-(`~/.agent-browser/<session>.*`) แล้วค่อยสั่งใหม่ (gotchas.md §3). retry ที่ไม่ reset = วน fail เปล่า.
+แล้วค่อยสั่งใหม่. retry ที่ไม่ reset สาเหตุ = วน fail เปล่า.
 
 ---
 

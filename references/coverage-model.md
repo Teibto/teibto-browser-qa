@@ -38,7 +38,7 @@ acceptance_criteria:
     evidence: null                # path screenshot / anchor ใน qa-report.md
 ```
 
-**Field เขียนมือ:** `verifiable` ระบุเองต่อ AC (browser = พิสูจน์ผ่าน agent-browser ได้ /
+**Field เขียนมือ:** `verifiable` ระบุเองต่อ AC (browser = พิสูจน์ผ่าน browser ได้ /
 code-only = ต้อง Dev unit/integration test — ดู ✅/⚠️ ใน `test-design.md`). manifest ไม่ auto-derive
 จาก flow.yaml เพื่อไม่ให้ต้องแก้ schema flow เดิม.
 

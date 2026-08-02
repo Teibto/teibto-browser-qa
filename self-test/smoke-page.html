@@ -1,10 +1,22 @@
 <!doctype html><meta charset="utf-8"><title>Smoke</title>
 <body style="font-family:sans-serif">
+<style>#card{width:150px;height:60px;background:#ccd}</style>
 <a id="lnk" href="https://example.org/target">link</a>
 <button id="act" onclick="document.getElementById('out').textContent='act-clicked'">Act</button>
 <select id="sel"><option>Alpha</option><option>Beta</option><option>Gamma</option></select>
 <span id="out">idle</span>
+<div id="card">card for element-scoped shot</div>
+<div id="fixedbar" style="position:fixed;top:0;right:0;width:60px;height:24px;background:#fc0">fixed</div>
+<div id="gone" style="display:none">hidden</div>
+<button id="off" disabled>Disabled</button>
+<input id="txt">
+<p class="row">r1</p><p class="row">r2</p>
+<iframe id="fr" srcdoc="<p id=inner>inside iframe</p>"></iframe>
 <div style="height:1600px;background:#eee">spacer (pushes button below the fold)</div>
 <button id="btm" onclick="document.getElementById('bout').textContent='btm-clicked'">Bottom</button>
 <span id="bout">bidle</span>
+<script>
+  // ยิง error สองแบบ (console.error + uncaught) เพื่อทดสอบ console collector
+  window.boom = function () { console.error('smoke-error'); setTimeout(function () { null.x; }, 0); };
+</script>
 </body>

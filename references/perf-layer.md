@@ -10,13 +10,13 @@ browser timing API แล้ว **คืนแค่ตัวเลข ms + pass
 
 ใช้ Navigation Timing API — คืนแค่ตัวเลขที่ต้องการ:
 ```
-agent-browser eval "(function(){var n=performance.getEntriesByType('navigation')[0]||{};
+AB eval "(function(){var n=performance.getEntriesByType('navigation')[0]||{};
   return JSON.stringify({ttfb:Math.round(n.responseStart),
     dom:Math.round(n.domContentLoadedEventEnd),
     load:Math.round(n.loadEventEnd)});})()" --json
 # -> {"ttfb":210,"dom":880,"load":1450}
 ```
-ถ้า version ของ agent-browser มี `vitals --json` (LCP/CLS/TTFB/INP) ใช้ได้เลย — เช็คก่อนว่ามีจริง
+ไม่มีคำสั่ง `vitals` สำเร็จรูป — อ่านค่าเองจาก `performance` API ผ่าน `eval` (ตัวอย่างข้างล่าง)
 (framework-agnostic, ใช้กับ APEX ได้). ทั้งคู่คืนตัวเลขสั้น ไม่ต้อง reduce มาก.
 
 ---
@@ -29,17 +29,17 @@ save duration ของ NetSuite form วัดจาก **mark ก่อน sub
 
 ```
 # 1) ก่อนกด Save: ตั้ง mark
-agent-browser eval "performance.mark('save_start'); 'marked'"
+AB eval "performance.mark('save_start'); 'marked'"
 
 # 2) กด Save (ปุ่มมักอยู่ท้ายฟอร์ม → scrollintoview ก่อน, gotchas §1)
-agent-browser scrollintoview "#btn_save" && agent-browser eval "document.querySelector('#btn_save').click()"
+AB click  # (scrollIntoView อยู่ในตัวแล้ว) "#btn_save" && AB eval "document.querySelector('#btn_save').click()"
 
 # 3) รอ "save เสร็จจริง" — ไม่ใช่ ✓Done: รอ confirmation/redirect (gotchas §2)
-agent-browser wait --fn "window.jQuery ? jQuery.active===0 : true"   # NetSuite async settle
+AB wait --fn "window.jQuery ? jQuery.active===0 : true"   # NetSuite async settle
 #   (หรือรอ url เปลี่ยนเข้า record view / รอ banner 'saved')
 
 # 4) measure ช่วง save แล้วคืนแค่ ms
-agent-browser eval "performance.mark('save_end');
+AB eval "performance.mark('save_end');
   performance.measure('save','save_start','save_end');
   var m=performance.getEntriesByName('save')[0];
   JSON.stringify({save_ms:Math.round(m.duration)});" --json

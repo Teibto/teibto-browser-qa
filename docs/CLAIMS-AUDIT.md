@@ -1,6 +1,11 @@
 # Claims Audit — agent-browser-qa (+ netsuite-qa-browser cross-ref)
 
 Audited: 2026-07-14 · by: Claude Code · env: Win11, agent-browser 0.27.0, Chrome 150
+**Round 5 (2026-08-02):** transport ย้ายเป็น CDP ตรง (`cdp.py`) — claim ที่ผูกกับ **daemon**
+ถูกถอนทั้งหมด (10060 ทุกสายพันธุ์, session file, batch shape, record/ffmpeg, dashboard) ·
+claim ที่ผูกกับ **Chrome/หน้าเว็บ** ยังอยู่และถูก re-verify ด้วย `self-test/smoke-test.sh`
+รอบใหม่ (30 เคส) · claim ใหม่ที่เพิ่ม: console collector ผูกกับหน้า · `viewport` ข้าม invocation
+ไม่มีผล · element-scoped `shot` ตก top-layer popup
 
 > **Round 4 (2026-07-17):** baseline re-verified on **agent-browser 0.32.1**. Two claims drifted —
 > below-fold `click` now auto-scrolls (rows #13, abq #1) and `batch --json` shape changed (row #10).
@@ -66,7 +71,7 @@ Rows #6, #7, #9, #10, #13, #17 are exercised by `self-test/smoke-test.sh` (all g
 so a reader doesn't mistake them for an A/B result.
 
 **B. Smoke harness covers the reproducible rows** — re-run `self-test/smoke-test.sh` on every
-agent-browser / Chrome bump; it is the automatic drift detector.
+Chrome / `cdp.py` bump; it is the automatic drift detector.
 
 **C. Claims the harness can't cover (#1–#5, intermittent/conditional)** — rely on the provenance date
 and re-verify on a tool bump; do not promote to "fact" without an A/B.
@@ -89,19 +94,19 @@ verify fix 100%".
 - **Spec/schema** (flow YAML fields, defaults, `retry_on` enum) — definitional, self-consistent → low risk.
 - **Tool-pinned recipes** (axe rule ids, `axe.run` shape, `vitals` fields, paged.js counters) — drift
   class; correctness = "does the tool still behave this way" → caught by **re-running**, not by reading.
-  These silently break on an axe/agent-browser/Chrome bump. A dedicated layer smoke test would help.
+  These silently break on an axe/Chrome bump. A dedicated layer smoke test would help.
 - **Genuine unverified causal claims** — the "GPU class" — consolidated below.
 
 ### Consolidated HIGH-risk (unverified causal stated as fact)
 
 | claim | file | adjudication |
 |---|---|---|
-| `@page` margin-box `counter(page)` doesn't work in Chrome `printToPDF` (justifies paged.js) | pdf-reports L32 | **REFUTED on Chrome 150 (2026-07-14)** — `@bottom-center{content:counter(page)}` DID render in `agent-browser pdf` (footer on all 3 test pages). Version-drift: broke on old Chrome, works now. pdf-reports.md updated + paged.js kept (still needed for TOC `target-counter`). |
+| `@page` margin-box `counter(page)` doesn't work in Chrome `printToPDF` (justifies paged.js) | pdf-reports L32 | **REFUTED on Chrome 150 (2026-07-14)** — `@bottom-center{content:counter(page)}` DID render in `AB pdf` (footer on all 3 test pages). Version-drift: broke on old Chrome, works now. pdf-reports.md updated + paged.js kept (still needed for TOC `target-counter`). |
 | paged.js + printToPDF **double-pagination** (blank even pages, page# ×2) | pdf-reports L41 | **CONFIRMED (2026-07-14)** — no fixes → 3 logical pages became **6** PDF pages, even pages footer-only; fixes → clean 3. Matches the wording exactly. `verified` added + `self-test/pdf/` shipped. |
 | headless has no Thai font → boxes | pdf-reports L67 | duplicate of gotchas #5; widely-known → low real risk |
 | wait-before-assert fixes timing-flaky assert | reliability §2 | restates golden rule #2 (verified); testable but timing-flaky to automate |
 | don't `mark_end` at click's `✓ Done` = bogus number | perf §2 | corollary of golden rule #2 (verified) |
-| delete `~/.agent-browser/<session>.*` fixes stuck 10060 | reliability §1 | restates gotchas #3 ("observed 2026-07-05") — inherits its provenance |
+| ~~delete `~/.agent-browser/<session>.*` fixes stuck 10060~~ | reliability §1 | **ถอนแล้ว (2026-08-02)** — ไม่มี daemon ไม่มี session file อีกต่อไป |
 
 → Both PDF candidates now **resolved by an A/B** (`self-test/pdf/pdf-test.sh`): one was a stale claim
 (Chrome caught up), one was real (verified + regression-tested). **No open "GPU-2" candidate remains**
@@ -140,7 +145,7 @@ to the harness, A/B it (networkidle vs `jQuery.active===0`) then relabel. Trimmi
 a *duplicate* of gotchas #9, not a claim — no ledger change beyond the line-ref fix.
 
 `self-test/smoke-test.sh` now gates #20 with a pure-file check (`<script>` block ≥40% smaller than the
-full template) — runs without agent-browser, so it stays green even where the browser harness can't.
+full template) — runs without a browser, so it stays green even where the browser harness can't.
 
 ---
 

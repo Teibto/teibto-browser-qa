@@ -21,7 +21,7 @@ fail = 0
 # Claim 1 (pdf-reports §"ทำไมต้อง paged.js"): @page @bottom-center counter renders in printToPDF.
 # Documented as WORKING on Chrome 150 -> a regression (footer missing) should fail here.
 if naive_n == 3 and naive_ftr == 3:
-    print("  PASS  claim1: @page @bottom-center counter(page) renders in agent-browser pdf (footer on all 3 pages)")
+    print("  PASS  claim1: @page @bottom-center counter(page) renders in AB pdf (footer on all 3 pages)")
 else:
     print(f"  FAIL  claim1: expected footer on all 3 naive pages, got {naive_ftr}/{naive_n} "
           f"(if 0 -> Chrome regressed to the old 'counter dead in printToPDF' behavior; re-check pdf-reports.md)")
