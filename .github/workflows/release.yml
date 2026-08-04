@@ -1,0 +1,46 @@
+# release.yml — tag ต้องมี GitHub Release คู่กันเสมอ (Playbook R7 ของ Teibto/teibto-dev-standards)
+#
+# `git push --tags` สร้างแค่ tag ส่วน Release เป็นคนละ object ที่ต้องสร้างแยก ถ้าปล่อยเป็นงานมือ
+# จะหลุดเงียบข้าม release (repo มาตรฐานเองหลุดไป 20 tag จนหน้า Releases ค้างอยู่หลายเวอร์ชัน)
+#
+# ★ repo นี้ไม่เคยมี CI มาก่อน — workflow นี้ทำ **เฉพาะ release-on-tag** ไม่ได้เพิ่ม quality-gate
+#   (secret-scan / shellcheck / self-test) เพราะเป็นคนละการตัดสินใจ ถ้าจะเพิ่มให้เปิด issue แยก
+# ★ ต้อง build + แนบ `.skill` bundle ด้วย — flow มือเดิมแนบมาตลอด ถ้า automate แล้วลืมข้อนี้
+#   bundle จะหายเงียบ ๆ และคนที่ install แบบ one-file จะโหลดไม่ได้
+# @author Wichit Wongta @since 2026-08-04
+
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  release:
+    name: publish-release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # default token เป็น read-only สร้าง Release ไม่ได้
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0 # ต้องมี tag ครบ — สคริปต์ verify ว่า tag มีจริงก่อนสร้าง
+
+      # build-skill.py ใช้แค่ stdlib (glob/os/zipfile) จึงรันบน runner ได้ตรง ๆ
+      # `.skill` ไม่ถูก commit โดยเจตนา (มันซ้ำกับ source และค้างง่าย) — build ใหม่ทุก release
+      - name: Build .skill bundle
+        run: python3 scripts/build-skill.py
+
+      # สคริปต์ idempotent: มี Release อยู่แล้ว = SKIP ไม่เขียนทับ (re-run workflow ได้ปลอดภัย)
+      # badge Latest ไปตามเลขเวอร์ชัน ไม่ใช่ลำดับที่สร้าง
+      - name: Create GitHub Release from CHANGELOG
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bash scripts/publish-release.sh "${GITHUB_REF_NAME}"
+
+      # แยกขั้นเพราะ publish-release.sh เป็น asset กลางที่ใช้ร่วมหลาย repo — ไม่ใส่ logic
+      # เฉพาะ repo นี้ลงไปในนั้น · --clobber ทำให้ re-run ทับไฟล์เดิมได้ไม่ error
+      - name: Attach .skill bundle to the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "${GITHUB_REF_NAME}" agent-browser-qa.skill --clobber
