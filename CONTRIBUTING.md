@@ -73,13 +73,21 @@ Re-run after any Chrome or `cdp.py` version bump — this is the drift detector.
 ## Cutting a release
 
 1. Land all changes on `main` via PRs.
-2. `python scripts/build-skill.py` — rebuild `agent-browser-qa.skill`.
-3. Tag + release, attaching the bundle (SemVer; docs/optimization = minor, fixes = patch):
+2. Add a `## [X.Y.Z] - YYYY-MM-DD` section to `CHANGELOG.md`, leading with a **bold one-line
+   summary** (it becomes the first line of the release body).
+3. Tag and push — that's it (SemVer; docs/optimization = minor, fixes = patch):
    ```bash
-   gh release create vX.Y.Z --target main --title "vX.Y.Z — <summary>" \
-     --notes "<what changed>" agent-browser-qa.skill
+   git tag -a vX.Y.Z -m "vX.Y.Z — <summary>" && git push origin vX.Y.Z
    ```
-   The README's release badge is dynamic and updates itself once the release is the latest.
+   `.github/workflows/release.yml` then builds `agent-browser-qa.skill`, creates the GitHub
+   Release with the body taken from that CHANGELOG section, and attaches the bundle.
+
+**No CHANGELOG entry = the workflow fails on purpose** — a release with an empty body is worse
+than no release.
+
+The release title is plain `vX.Y.Z` (team standard, `Teibto/teibto-dev-standards` Playbook R7);
+the descriptive summary now lives in the first line of the body instead of the title.
+The README's release badge is dynamic and updates itself once the release is the latest.
 
 ## Git flow
 
