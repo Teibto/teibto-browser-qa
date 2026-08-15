@@ -7,6 +7,23 @@ claim ที่ผูกกับ **Chrome/หน้าเว็บ** ยัง�
 รอบใหม่ (30 เคส) · claim ใหม่ที่เพิ่ม: console collector ผูกกับหน้า · `viewport` ข้าม invocation
 ไม่มีผล · element-scoped `shot` ตก top-layer popup
 
+**Round 6 (2026-08-16):** วัดใหม่บน **Chrome 151** พร้อมคำสั่งชุด `run`/`lens`/`steady`/`netlog`/`stub`
+(`Teibto/teibto-dev-standards` #188/#190/#192 · `tests/test-cdp.sh` 88 เคสกับ Chrome จริง)
+
+| claim | สถานะ | Risk | Smoke |
+|---|---|---|---|
+| **"`viewport` ข้าม invocation ไม่มีผล" (Round 5) — หยาบเกินไป** | **แก้แล้ว** วัดจริงพบว่ามันแยกร่าง: **ขนาดหน้าต่างค้าง** ข้าม invocation (Chrome resize หน้าต่างจริง) ส่วน **dsf/mobile ไม่ค้าง** · เป็นเหตุผลที่เทส T11e กับ T18e ในชุดเดียวกันดูขัดกันเองแต่ผ่านทั้งคู่มาตลอด | MED (version-pinned: Chrome 151) | T19a/T19b |
+| `clearDeviceMetricsOverride` ไม่คืนขนาดหน้าต่าง — คืนตอน websocket ปิดเท่านั้น | measured | MED (version-pinned) | T20g/T20t |
+| หน้าที่ไม่มี `<meta name=viewport>` ได้ layout 980px ใต้ mobile emulation | measured (พฤติกรรมมาตรฐานของ mobile browser ไม่ใช่ของ Chrome เวอร์ชันนี้อย่างเดียว) | LOW | T20h |
+| `:focus-visible` ต้องมาจาก Tab จริง — `el.focus()` ไม่ติด | measured (ยืนยันซ้ำจาก gotchas §16) | LOW | T20l/T20n |
+| `console` ของหน้าไม่เห็น HTTP 4xx/5xx ที่แอป `catch` เอง — `lens netlog` เห็น | measured (เคสคู่ในเทสเดียวกัน) | LOW | T21b/T21c |
+| `Fetch.fulfillRequest` เปลี่ยนหน้าจอเข้าสถานะ empty/error ได้จริง | measured บน HTTP server จริงในเทส | LOW | T21f/T21h |
+
+**หนี้ที่ยังเหลือ:** `self-test/smoke-test.sh` ของ repo นี้ (30 เคส) ยังไม่ครอบคำสั่งชุดใหม่ —
+เคสทั้งหมดข้างบนอยู่ใน `tests/test-cdp.sh` ของ `teibto-dev-standards` ซึ่งเป็นเจ้าของ `cdp.py`
+· ตราบใดที่ยังไม่ตัดสินใจว่าจะ mirror เคสมาที่นี่หรืออ้างข้ามรีโป ให้ถือว่าคอลัมน์ Smoke ข้างบน
+หมายถึง "มีเทสที่ต้นทาง" ไม่ใช่ "มีเทสในรีโปนี้"
+
 > **Round 4 (2026-07-17):** baseline re-verified on **agent-browser 0.32.1**. Two claims drifted —
 > below-fold `click` now auto-scrolls (rows #13, abq #1) and `batch --json` shape changed (row #10).
 > Rows below are the original 0.27.0 audit; the drift is captured in **Round 4** at the bottom.
