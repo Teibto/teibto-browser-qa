@@ -52,7 +52,7 @@ Golden rule: `click` does not auto-scroll, so call `scrollintoview` first; and d
 - **One pass, two outputs.** A single run gives you the QA verdict and the docs together, so nothing needs a second walkthrough.
 - **Real pages, not mocks.** It drives actual Chrome over CDP against any web app, including NetSuite Suitelets and Oracle APEX, headless or headed.
 - **Deliberate test design.** A Phase 0–3 method turns code and acceptance criteria into a coverage matrix, and states up front which cases a browser can verify and which must come from a code review.
-- **Four QA layers.** Smoke, functional, visual regression, and error surfacing.
+- **Seven QA layers.** Smoke, functional, visual regression, error surfacing, a11y, perf, and a UX/UI lens that catches horizontal overflow, tap targets under 24×24, unreadable dark mode, and broken Tab order.
 - **Guards against silent failures.** The traps that let automation pass when it shouldn't (below-fold clicks, a fake `✓ Done`, `os 10060`) are written up with reproductions and fixes.
 - **Token-aware.** Assertions are short commands and screenshots are saved to files, so testing a large app doesn't fill the context window.
 - **Reproducible specs.** Test cases live as YAML with `requirement` and `acceptance` fields, so a requirement, its test, and its guide share one id.
@@ -166,7 +166,8 @@ Mechanical checks live in [`self-test/`](self-test) — run `bash self-test/smok
 | Term | Meaning |
 |---|---|
 | **One pass, two outputs** | A single walk of the happy path yields both a QA verdict and documentation material. |
-| **QA layers (1–6)** | Smoke · Functional · Visual regression · Error surfacing · a11y · Perf — each opt-in per scenario. |
+| **QA layers (1–7)** | Smoke · Functional · Visual regression · Error surfacing · a11y · Perf · UX/UI lens — each opt-in per scenario. See [`references/ux-lens.md`](references/ux-lens.md) for layer 7. |
+| **`PASS` / `FAIL` / `UNVERIFIED`** | Every lens returns one of three verdicts. `UNVERIFIED` means the check could not run — it is never reported as a pass. What CDP cannot check at all is listed in [`references/cdp-limits.md`](references/cdp-limits.md). |
 | **Flow YAML** | A test case stored as a repeatable file (`requirement` + `acceptance` + scenarios). See [`references/flow-spec.md`](references/flow-spec.md). |
 | **Coverage manifest / gate** | `qa/<feature>/coverage.yaml` maps each Acceptance Criterion to the scenario that proves it; `coverage-check.py` turns it into a pass/fail exit code. |
 | **Claims audit** | The ledger in [`docs/CLAIMS-AUDIT.md`](docs/CLAIMS-AUDIT.md) recording which claim is measured / verified / inferred / version-pinned. |
