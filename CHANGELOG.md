@@ -8,6 +8,39 @@
 > ไม่ได้ copy มาซ้ำที่นี่ เพราะจะกลายเป็นสองแหล่งที่ drift จากกันได้ · ตั้งแต่ v1.6.0 เป็นต้นไป
 > ไฟล์นี้คือต้นฉบับ และ Release body ถูก generate จากมัน
 
+## [1.6.0] - 2026-08-16
+
+**ชั้นที่ 7: UX/UI lens — และเส้นแบ่งระหว่างงาน QA กับงานตั้งค่าระบบ**
+
+`cdp.py` มีคำสั่ง `run` (หลายคำสั่งบน connection เดียว) และ `lens` ที่คืนคำวินิจฉัยแล้ว
+(`Teibto/teibto-dev-standards` #188/#190/#192) สกิลนี้จึงต้องบอกว่าเมื่อไหร่ใช้อะไร
+และผลที่ได้เชื่อได้แค่ไหน
+
+### Added
+
+- **`references/ux-lens.md`** — ชั้น QA ที่ 7: `lens layout|responsive|theme|focus|netlog` +
+  `steady` + `stub` · เลือก lens ให้ตรงคำถาม · ท่ารันหลาย lens ในหนึ่ง `run` · **ตารางว่าแต่ละ
+  lens "โกหก" ได้ยังไง** (ตรวจเฉพาะสิ่งที่มองเห็นอยู่ตอนนั้น, tap target ที่พ่อขยายพื้นที่กดให้,
+  theme เทียบสีตรงตัวจึงไม่จับ contrast ต่ำ, focus ยังไม่ตรวจ arrow-key navigation) และ
+  **สิ่งที่ lens จงใจไม่ฟ้อง** เพราะด่านที่ฟ้องทุกอย่างไร้ค่าพอกับด่านที่ไม่เคยฟ้องอะไร
+- **`references/cdp-limits.md`** — รายการสิ่งที่ CDP แตะไม่ได้เลย (screenshot ของ `alert`/file
+  dialog, native `<select>` popup, `chrome://`, PDF viewer) พร้อม**ทางออกทุกข้อ** · แยกจากสิ่งที่
+  "ทำได้แต่ไม่ควรใช้ browser ทำ" (GitHub → `gh`, NetSuite → REST/SuiteQL) และสิ่งที่ต้องอยู่ในโหมด
+  `run` เท่านั้น · ทีมตกลงว่า transport มีทางเดียวคือ CDP ตรง — กฎนี้จะกลายเป็นด่านที่ fail open
+  ทันทีถ้าไม่มีรายการนี้ เพราะคนจะรายงานว่า "ถ่ายภาพไว้แล้ว" ทั้งที่ภาพนั้นถ่ายไม่ติดโดยธรรมชาติ
+- **`references/configure.md`** — ตั้งค่าระบบผ่านหน้าจอ: วงจร READ → DIFF → PLAN → APPLY → VERIFY →
+  RECORD, desired-state ที่เขียนเป็น "ค่าที่ต้องการ" ไม่ใช่ "ลำดับการคลิก", guardrail
+  (`DIALOG=dismiss` เป็นค่าเริ่มต้นของโหมดนี้ · prod ต้องปลดล็อกด้วย flag · verify ไม่ได้ = หยุด),
+  evidence record ที่มี `before` ให้ rollback ได้ · **ข้อแรกสุด: ค่าไหนตั้งผ่าน API ได้ API ชนะเสมอ**
+
+### Changed
+
+- **golden rule ข้อ 6: `UNVERIFIED` ไม่ใช่ `PASS`** — "ตรวจไม่ได้" ที่ถูกเขียนลงรายงานว่า "ผ่าน"
+  คือการโกหกที่ไม่มีใครตั้งใจ · คลาสเดียวกับ "`console` ว่าง ≠ ไม่มี error" (rule 3)
+- `SKILL.md` §4 เพิ่มชั้นที่ 7 เข้า QA layers + ชี้ทางไป `configure.md` พร้อมเส้นแบ่ง:
+  **ห้ามปนงาน config เข้าไปใน QA run** เพราะ QA ต้อง read-only เสมอ
+- `README.md` — "Four QA layers" เป็น 7 ชั้น และเพิ่ม `PASS`/`FAIL`/`UNVERIFIED` เข้าอภิธานศัพท์
+
 ## [1.5.1] - 2026-08-04
 
 **ออก GitHub Release เองตอน push tag — เลิกทำมือ**

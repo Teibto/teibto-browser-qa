@@ -53,7 +53,7 @@ py -m pip install websocket-client pillow numpy    # pillow/numpy เฉพา�
 ## 2. Golden rules — read before driving the browser (most important)
 
 These traps make automation **fail silently, with no error** — full detail + evidence in
-`references/gotchas.md`, but keep these five in mind at all times:
+`references/gotchas.md`, but keep these six in mind at all times:
 
 0. **หนึ่งงาน = หนึ่ง `CDP_PORT` = หนึ่ง `--user-data-dir`** ตั้งก่อนคำสั่งแรกเสมอ · สอง terminal
    ที่ใช้ profile เดียวกัน **login จะ rotate cookie ใส่กัน** → หน้า render เป็น anonymous ทั้งที่
@@ -69,6 +69,9 @@ These traps make automation **fail silently, with no error** — full detail + e
 5. **จอดำใน headed = 3 กลไก ไม่ใช่แค่ "GPU" — เช็ค `AB url` ก่อน** · `about:blank` = หน้ายังไม่ navigate
    (benign) → `nav` ซ้ำ · url จริงแต่หน้าต่างถูกบัง → relaunch พร้อม stability flags ·
    `AB shot` ใช้ได้เสมอไม่ว่ากรณีไหน (#9 ใน `references/gotchas.md`)
+6. **`UNVERIFIED` ไม่ใช่ `PASS`** — `lens` คืนสามค่าเสมอ · "ตรวจไม่ได้" ที่ถูกเขียนลงรายงานว่า
+   "ผ่าน" คือการโกหกที่ไม่มีใครตั้งใจ · สิ่งที่ CDP แตะไม่ได้เลยมีรายการอยู่ที่
+   `references/cdp-limits.md` — ห้ามรายงานว่าตรวจแล้ว
 
 Extra: `AB click` ยิง Input event จริงพร้อม scrollIntoView ให้แล้ว · ถ้ายังไม่ติดจริง ๆ ใช้
 **JS click** `eval "document.querySelector('SEL').click()"` เดิน flow ต่อ แล้วแยกไปรายงานเรื่อง
@@ -107,8 +110,13 @@ vs inferred: `docs/CLAIMS-AUDIT.md`.
 QA layers: (1) Smoke = happy path completes + `console` ว่าง · (2) Functional = assert state ·
 (3) Visual = `AB diff <baseline> <current>` · (4) Error surfacing = `console` after every key step ·
 (5) a11y = inject axe-core, return count + top N (`references/a11y-layer.md`) ·
-(6) Perf = save/load timing vs budget (`references/perf-layer.md`). Layers 5–6 are opt-in per scenario
-(`a11y`, `perf_budget` in flow.yaml) and return only short numbers — never a full node/timing dump.
+(6) Perf = save/load timing vs budget (`references/perf-layer.md`) ·
+(7) **UX/UI = `AB lens layout|responsive|theme|focus|netlog`** — ล้นแนวนอน · tap target เล็กเกิน ·
+dark mode อ่านไม่ออก · Tab เดินไม่ครบ · error ฝั่ง network ที่ `console` มองไม่เห็น
+(`references/ux-lens.md`). Layers 5–7 are opt-in per scenario and return only findings — never a dump.
+
+**ตั้งค่าระบบผ่านหน้าจอ (ไม่ใช่ QA)** → `references/configure.md` · คนละสัญญากับงาน QA โดยสิ้นเชิง:
+QA ผิด = รายงานผิด แต่ config ผิด = ระบบจริงเปลี่ยน · ห้ามปนสองอย่างนี้ใน run เดียวกัน
 
 **Store test cases as repeatable files** (regression/repro) → write them as flow YAML:
 `references/flow-spec.md`. **ลด process spawn:** รวมงานหลายขั้นเป็น JS ก้อนเดียวแล้ว `evalf`
