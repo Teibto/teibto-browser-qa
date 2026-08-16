@@ -19,10 +19,15 @@ claim ที่ผูกกับ **Chrome/หน้าเว็บ** ยัง�
 | `console` ของหน้าไม่เห็น HTTP 4xx/5xx ที่แอป `catch` เอง — `lens netlog` เห็น | measured (เคสคู่ในเทสเดียวกัน) | LOW | T21b/T21c |
 | `Fetch.fulfillRequest` เปลี่ยนหน้าจอเข้าสถานะ empty/error ได้จริง | measured บน HTTP server จริงในเทส | LOW | T21f/T21h |
 
-**หนี้ที่ยังเหลือ:** `self-test/smoke-test.sh` ของ repo นี้ (30 เคส) ยังไม่ครอบคำสั่งชุดใหม่ —
-เคสทั้งหมดข้างบนอยู่ใน `tests/test-cdp.sh` ของ `teibto-dev-standards` ซึ่งเป็นเจ้าของ `cdp.py`
-· ตราบใดที่ยังไม่ตัดสินใจว่าจะ mirror เคสมาที่นี่หรืออ้างข้ามรีโป ให้ถือว่าคอลัมน์ Smoke ข้างบน
-หมายถึง "มีเทสที่ต้นทาง" ไม่ใช่ "มีเทสในรีโปนี้"
+**การแบ่งเทสระหว่างสองรีโป (ตัดสินใจ 2026-08-16):** `tests/test-cdp.sh` ของ `teibto-dev-standards`
+เป็นเจ้าของเทสลึกของ `cdp.py` — **ไม่ mirror มาที่นี่** เพราะจะกลายเป็นสองแหล่งที่ drift จากกัน
+(ปัญหาเดียวกับที่ CHANGELOG ของ repo นี้เคยเจอกับ Release body) · `self-test/smoke-test.sh`
+ของ repo นี้เก็บ **claim-check บาง ๆ ของสิ่งที่สกิลนี้สัญญาไว้** — ที่เพิ่มในรอบนี้: `run` ทำให้
+override อยู่ข้ามคำสั่งได้จริง (พร้อมเคสคู่), `lens layout` FAIL/PASS บนหน้าที่ผิด/ถูก,
+**`lens netlog` ที่ไม่ได้ `netlog on` = `UNVERIFIED`**, และ `steady` นอกโหมด `run` รายงาน `skipped`
+
+คอลัมน์ Smoke ข้างบนจึงหมายถึง "มีเทสที่ต้นทาง (`tests/test-cdp.sh`)" ส่วน claim ที่สกิลนี้เป็นคน
+สัญญาเองมีเทสของตัวเองใน `self-test/` แล้ว
 
 > **Round 4 (2026-07-17):** baseline re-verified on **agent-browser 0.32.1**. Two claims drifted —
 > below-fold `click` now auto-scrolls (rows #13, abq #1) and `batch --json` shape changed (row #10).

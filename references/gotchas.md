@@ -22,6 +22,13 @@
 8. Chrome PDF viewer สคริปต์ไม่ได้
 9. headed window จอดำ — แยก 3 กลไก อย่าเหมารวมว่า "GPU"
 10. หลาย terminal ขับพร้อมกัน — แยก port + profile
+11. `nav <url> <n>` อาร์กิวเมนต์ที่สองเป็น "วินาที" ไม่ใช่เงื่อนไข JS
+12. Chrome บังคับหน้าต่างกว้างขั้นต่ำ ~500px — วัด layout ที่ 320/390 ตรง ๆ ไม่ได้
+13. อ่าน state ทันทีหลังสั่ง scroll = อ่านก่อน handler ที่ deferred ด้วย rAF ทำงาน
+14. เปลี่ยน CSS custom property แล้ววัดในสคริปต์เดียวกัน = ได้ค่า `var()` ค้าง (fail ปลอม)
+15. `innerWidth` ใต้ device-metrics override รวม scrollbar — ด่าน overflow จึงแดงทุกความกว้าง (fail ปลอม)
+16. `el.focus()` ไม่ทำให้ `:focus-visible` ทำงาน — ด่าน focus ring รายงานว่า "ทุกปุ่มไม่มี ring"
+17. Chrome cache หน้าเดิม — แก้ไฟล์แล้ว QA ยังวัดโค้ดเก่า ผลที่ได้จึงเป็นของรุ่นก่อนแก้
 
 ---
 
@@ -205,3 +212,161 @@ Get-CimInstance Win32_Process -Filter "Name='chrome.exe'" |
   ? { $_.CommandLine -like '*\.qa-profiles\*' } |
   % { Stop-Process -Id $_.ProcessId -Force }
 ```
+
+---
+
+## 11. `nav <url> <n>` อาร์กิวเมนต์ที่สองเป็น "วินาที" ไม่ใช่เงื่อนไข JS [LOW — แต่ทำ flow ตายตรงคำสั่งแรก]
+
+`AB nav "<url>" "document.readyState==='complete'"` **ไม่ใช่** syntax ที่มี — อาร์กิวเมนต์ที่สอง
+ของ `nav` คือจำนวนวินาทีที่ drain event เท่านั้น ส่งสตริงไปได้
+`ValueError: could not convert string to float` แล้ว flow ตายตรงนั้น (เจอจริง 2026-08-14)
+
+```bash
+AB nav "<url>" 3                                    # drain 3 วิ
+AB wait "document.readyState==='complete'" 15       # เงื่อนไขอยู่ที่ wait เท่านั้น
+```
+
+**ผลข้างเคียงที่แพงกว่าตัว error:** `nav` เป็นคำสั่งที่ติดตั้ง console collector ให้ · `nav` ล้ม =
+ไม่มี collector → `AB console` คำสั่งถัดไปตอบว่า "collector ยังไม่ถูกติดตั้ง" ซึ่ง**ถูก** แต่ถ้าอ่านผ่าน ๆ
+แล้วเข้าใจว่า "ไม่มี error" ก็คือ false pass ตาม gotcha #2 เต็มรูปแบบ
+
+---
+
+## 12. Chrome บังคับหน้าต่างกว้างขั้นต่ำ ~500px [MEDIUM — เงียบ · ทำให้เทส mobile เป็น false pass]
+
+`--window-size=320,900` **ไม่ได้ viewport 320** — Chrome (รวม `--headless=new`) ปัดขึ้นเป็น ~500px
+`window.innerWidth` จึงคืน 500 ทั้งที่สั่ง 320/390/480 → **เทส breakpoint ของมือถือผ่านโดยไม่ได้ทดสอบ
+ความกว้างจริงเลย** และไม่มีอะไรฟ้อง (เจอจริง 2026-08-14 · nav ล้นแนวนอนที่ 390px รอดด่านมาได้
+เพราะทุก probe วัดที่ 500)
+
+```bash
+for W in 320 390 480; do ... --window-size=$W,900 ...; done   # ทั้งสามได้ innerWidth=500
+```
+
+**ทางที่ใช้ได้จริง**
+
+| ต้องการ | ใช้ |
+|---|---|
+| ภาพที่ layout จริงของ 320/390 | `AB shot out.png --vw=390 --vh=844` (device metrics มีผลในคำสั่งนั้น ดู #4) |
+| assert ตัวเลข layout ที่ <500 | ไม่มีทางตรง — ยืนยันจากภาพ + assert ที่ 500 ซึ่งอยู่ใน media query เดียวกัน |
+| ตรวจว่าล้นแนวนอนไหม | assert `document.documentElement.scrollWidth === window.innerWidth` **และ**
+ไม่มี element ที่ `getBoundingClientRect().right > innerWidth` ที่ทุกความกว้างที่วัดได้ (500–1920) |
+
+**ห้ามใช้ `overflow-x:hidden` แก้อาการล้น** — มันทำให้ทั้งด่านนี้ผ่านฟรีตลอดไป (`scrollWidth`
+เท่ากับ `innerWidth` เสมอ) ทั้งที่ของยังล้นอยู่จริงและผู้ใช้เห็นของถูกตัด
+
+---
+
+## 13. อ่าน state ทันทีหลังสั่ง scroll = อ่านก่อน handler ที่ deferred ทำงาน [MEDIUM — false FAIL]
+
+หน้าเว็บที่ผูก `scroll` handler แล้ว defer งานด้วย `requestAnimationFrame` (แพตเทิร์นปกติของ
+scroll-spy / reveal / sticky state) **จะยังไม่ได้อัปเดต DOM ตอนที่สคริปต์ก้อนเดียวกันอ่านผล** —
+rAF callback รันหลัง script ปัจจุบันจบ
+
+```js
+// ❌ อ่านได้ NONE ทุกครั้ง ทั้งที่หน้าไม่ได้พัง
+document.getElementById('scale').scrollIntoView({behavior:'instant'});
+return document.querySelectorAll('a[aria-current]').length;
+```
+
+```bash
+# ✅ แยกเป็นสอง round trip — websocket ปิด/เปิดใหม่ให้เวลาเบราว์เซอร์ flush frame
+AB eval "document.getElementById('scale').scrollIntoView({behavior:'instant'}); 'x'"
+AB eval "[...document.querySelectorAll('a[aria-current]')].map(a=>a.getAttribute('href')).join('|')||'NONE'"
+```
+
+เจอจริง 2026-08-14: สรุปผิดว่า scroll-spy ไม่ทำงานเลย แล้วเกือบไปแก้โค้ดที่ถูกอยู่แล้ว ·
+**อาการเดียวกันกับ `behavior:'smooth'`** — ที่นั่นแย่กว่าเพราะ scroll ยังวิ่งอยู่ ตำแหน่งที่วัดได้
+เป็นของกลางทาง (ค่าติดลบแปลก ๆ) ใช้ `behavior:'instant'` เสมอเมื่อวัดตำแหน่ง
+
+---
+
+## 14. เปลี่ยน custom property แล้ววัดในสคริปต์เดียวกัน = ได้ค่าค้าง [HIGH — false FAIL ที่ดูน่าเชื่อ]
+
+สลับธีมด้วย `setAttribute('data-theme', ...)` (หรือแก้ `--token` ตรง ๆ) แล้วอ่าน
+`getComputedStyle` ของ element อื่นในสคริปต์ก้อนเดียวกัน จะได้ค่าที่ยัง resolve จากธีมก่อนหน้า
+Chrome resolve `var()` แบบ lazy ต่อ element — element ที่ถูกอ่านก่อน (เช่น `body`) recalc ให้
+แต่ element ที่อ่านทีหลังยังไม่ recalc
+
+```js
+// ❌ วัด contrast ได้ 1.06 (ตัวหนังสือหายไปกับพื้น) ทั้งที่ของจริง 17:1
+document.documentElement.setAttribute('data-theme','light');
+const s = getComputedStyle(document.querySelector('.btn-solid'));   // ยังเป็นสีของธีม dark
+```
+
+```bash
+# ✅ สลับใน round trip หนึ่ง วัดใน round trip ถัดไป
+AB eval "document.documentElement.setAttribute('data-theme','light');'set'"
+AB evalf contrast.js
+```
+
+**อาการที่ทำให้เสียเวลา:** ค่าที่ได้ "สมเหตุสมผล" พอที่จะเชื่อ — `body` อ่านได้สีใหม่ถูกต้อง
+แต่ปุ่มอ่านได้สีเก่า ทำให้สรุปว่า "ธีม light พังเฉพาะปุ่ม" แล้วไปไล่ specificity ของ CSS ที่ถูกอยู่แล้ว
+วิธียืนยันเร็วที่สุดคืออ่านค่าโทเคนกับค่าที่ element ใช้จริงมาเทียบกัน
+(`getComputedStyle(document.documentElement).getPropertyValue('--ink')` vs
+`getComputedStyle(el).backgroundColor`) ถ้าสองอันไม่ตรงกันคือเจอกับดักนี้ ไม่ใช่บั๊กของหน้า
+
+ญาติของ #13 — กฎเดียวกันคือ **หนึ่ง round trip เปลี่ยน หนึ่ง round trip วัด**
+
+**แก้เพิ่ม 2026-08-15: แยก round trip อย่างเดียว "ไม่พอ" เสมอไป** เจอเคสที่สลับธีมด้วย
+`setAttribute` ใน eval หนึ่ง แล้ว sleep 0.5 วินาที แล้ววัดใน eval ถัดไป **ยังได้สีของธีมเก่า**
+(ปุ่มอ่านได้ `#f2f2f0` ทั้งที่ `--ink` ของ `:root` อ่านได้ `#15171d` ถูกต้องแล้ว)
+สิ่งที่ได้ผลคือ **กดปุ่มสลับธีมของหน้าเองด้วย `.click()`** แล้วค่อยวัด เพราะ handler ของหน้า
+ทำงานในจังหวะที่เบราว์เซอร์ recalc ให้ครบ · กฎที่ปลอดภัยที่สุดคือ **เปลี่ยน state ผ่านทางที่ผู้ใช้
+ใช้จริง อย่าตั้ง attribute เองแล้ววัด** และยืนยันด้วย screenshot อย่างน้อยหนึ่งครั้งก่อนเชื่อว่าหน้าพัง
+
+---
+
+## 15. `innerWidth` ใต้ device-metrics override รวมความกว้าง scrollbar [HIGH — false FAIL ทุกความกว้าง]
+
+ด่าน "ไม่มีอะไรล้นแนวนอน" ที่เขียนว่า `documentElement.scrollWidth === innerWidth` **แดงทุกความกว้าง**
+เมื่อขับผ่าน `Emulation.setDeviceMetricsOverride` เพราะ `innerWidth` = ความกว้างที่สั่ง
+แต่ `scrollWidth`/`clientWidth` = ความกว้างหลังหัก scrollbar (~15px บน Windows)
+
+```js
+// ❌ 1265 !== 1280 ทุกครั้ง ทั้งที่ไม่มี element ไหนล้นเลย
+d.scrollWidth === innerWidth
+// ✅ เทียบกับ clientWidth และวัด element ทั้งสองข้าง
+d.scrollWidth <= d.clientWidth &&
+  ![...document.querySelectorAll('body *')].some(e => {
+    const b = e.getBoundingClientRect();
+    return b.right > d.clientWidth + 1 || b.left < -1;   // ล้นซ้ายไม่เพิ่ม scrollWidth
+  })
+```
+
+อาการที่หลอก: ความกว้างเล็ก ๆ ที่หน้าไม่มี scrollbar (เนื้อหาสั้น) จะผ่าน ส่วนความกว้างใหญ่แดงหมด
+ทำให้ดูเหมือน "layout พังเฉพาะจอใหญ่" ซึ่งเป็นข้อสรุปที่ผิด
+
+---
+
+## 16. `el.focus()` ไม่ทำให้ `:focus-visible` ทำงาน [HIGH — false FAIL ยกแผง]
+
+focus ring สมัยใหม่เขียนด้วย `*:focus-visible` ซึ่ง **ผูกกับ heuristic ว่าผู้ใช้ใช้คีย์บอร์ดอยู่**
+การเรียก `el.focus()` จากสคริปต์ไม่เข้าเงื่อนไขนั้น `getComputedStyle(el).outlineWidth` จึงเป็น `0px`
+ทุกตัว และด่านจะรายงานว่า "ทุกปุ่มไม่มี focus ring" ทั้งที่กด Tab เองแล้วเห็นชัด
+
+```bash
+# ✅ กด Tab จริงแล้ววัด document.activeElement ทีละ stop
+AB key Tab
+AB eval "(()=>{const e=document.activeElement,s=getComputedStyle(e);
+  return e.tagName+'|'+s.outlineWidth+'|'+s.outlineStyle;})()"
+```
+
+**และอย่าวัดแค่ความหนา** — `outlineWidth != 0` ผ่านได้ด้วย outline โปร่งใสหรือสีกลืนพื้น
+ต้องเช็ค `outlineStyle !== 'none'` · alpha ของ `outlineColor` · และ contrast กับพื้นหลัง ≥ 3:1
+
+---
+
+## 17. Chrome cache หน้าเดิมไว้ — QA วัดโค้ดที่ยังไม่ได้แก้ [HIGH — สรุปผิดว่า "แก้แล้วไม่หาย"]
+
+รอบ QA ที่แก้ไฟล์ใน working tree แล้ว `nav` ไป URL เดิม (`http://127.0.0.1:PORT/`)
+Chrome เสิร์ฟจาก memory cache ผลที่ได้จึงเป็นของรุ่นก่อนแก้ **อาการคือแก้บั๊กแล้วด่านยังแดงเหมือนเดิม
+เป๊ะทุกบรรทัด** ซึ่งชวนให้ไปรื้อโค้ดที่แก้ถูกแล้ว
+
+```python
+c.nav(URL + "?qa=" + str(int(time.time())))   # cache-bust ทุกรอบ
+```
+
+ตัวชี้ขาดว่าเจอกับดักนี้: เปิด URL พร้อม query ใหม่แล้วผลเปลี่ยนทันที · เจอจริง 2026-08-15
+(#117 ของ ERP-AI-First) เสียเวลาไปหนึ่งรอบเต็มกับการยืนยันว่า fix ที่ถูกอยู่แล้ว "ไม่ทำงาน"
+

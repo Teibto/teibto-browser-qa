@@ -39,7 +39,7 @@ Two consequences to keep in mind when editing:
 | Path | What it is |
 |---|---|
 | `SKILL.md` | The skill itself: golden rules, workflow, targets. Loaded every trigger. |
-| `references/` | Thai working notes: `gotchas`, `commands`, `test-design`, `flow-spec`, `pdf-reports`, `coverage-model`, `reliability-policy`, `a11y-layer`, `perf-layer`, `visual-regression`, `test-data`. On-demand. |
+| `references/` | Thai working notes: `gotchas`, `commands`, `test-design`, `flow-spec`, `pdf-reports`, `coverage-model`, `reliability-policy`, `a11y-layer`, `perf-layer`, `visual-regression`, `test-data`, `ux-lens`, `cdp-limits`, `configure`. On-demand. |
 | `docs/` | `ARCHITECTURE.md` (mermaid per flow), `TEAM-PROCESS.md` (lifecycle, release gate, RACI), `CLAIMS-AUDIT.md` (claim ledger). |
 | `assets/` | PDF templates (`guide-`, `bug-report-template.html`) + `highlight.js` / `pointer.js`. Edit only the `data[]` block — see `references/pdf-reports.md`. |
 | `self-test/` | `smoke-test.sh` (claim checks กับ Chrome จริงผ่าน cdp.py) + `pdf/pdf-test.sh` (pagination A/B). |
