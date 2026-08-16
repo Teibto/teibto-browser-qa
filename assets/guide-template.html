@@ -56,10 +56,10 @@
 
 <script>
 /* ===== EDIT HERE: META + ข้อมูล ===== */
-const META={title:"คู่มือการใช้งาน <ระบบ>",sub:"User Guide",tagline:"คู่มือใช้งาน · เข้าใจการทำงานของ UI ทีละขั้น",
+let META={title:"คู่มือการใช้งาน <ระบบ>",sub:"User Guide",tagline:"คู่มือใช้งาน · เข้าใจการทำงานของ UI ทีละขั้น",
   meta:[["ขอบเขต","N Scenario · M ขั้นตอน"],["เวอร์ชัน","1.0"],["วันที่","DD MMMM YYYY"],["ที่มาของภาพ","รันจริงจาก browser"]]};
 const D="—";
-const data=[
+let data=[
  {color:"s1",id:"scn-1",title:"✅ Scenario 1 — <ชื่อ flow>",
   ov:{what:"<feature นี้คืออะไร + บริบท>",why:"<ทำเพื่ออะไร / สำคัญยังไง>",when:"<เมื่อไรใช้>"},
   steps:[
@@ -75,13 +75,31 @@ const data=[
  /* เพิ่ม scenario อื่นได้: color s2/s3/s4 */
 ];
 /* ผลต่อระบบหลังทำรายการ: [การกระทำ, ผลที่สังเกตจริง, เทียบระบบจริง] (ลบทั้ง section ได้ถ้าไม่ใช้) */
-const SYS=[["<การกระทำ>","<ผลที่สังเกตจริง>","<เทียบระบบจริง>"]];
-const SYS_NOTE="หมายเหตุ: <อธิบายขอบเขต demo vs ระบบจริง>";
-const FAQ=[["<คำถามที่พบบ่อย>","<คำตอบ>"]];               // ลบได้ถ้าไม่ใช้
-const GLOSS=[["<คำศัพท์>","<ความหมาย>"]];                  // ลบได้ถ้าไม่ใช้
+let SYS=[["<การกระทำ>","<ผลที่สังเกตจริง>","<เทียบระบบจริง>"]];
+let SYS_NOTE="หมายเหตุ: <อธิบายขอบเขต demo vs ระบบจริง>";
+let FAQ=[["<คำถามที่พบบ่อย>","<คำตอบ>"]];               // ลบได้ถ้าไม่ใช้
+let GLOSS=[["<คำศัพท์>","<ความหมาย>"]];                  // ลบได้ถ้าไม่ใช้
 /* ===== จบส่วนแก้ ===== */
 
 document.title=META.title; document.querySelector('style').textContent=document.querySelector('style').textContent.replace('__DOC_TITLE__',META.title);
+
+/* ★ ทุกค่าใน data ถูก HTML-escape ที่นี่ที่เดียว (#27) — payload อย่าง <script> หรือข้อความ
+   ที่มี "count < 5" จะแสดงเป็นตัวอักษรตามที่พิมพ์ ไม่ถูกเบราว์เซอร์ตีความเป็น markup
+   ★ escape ที่ขอบของข้อมูล ไม่ใช่ไล่ครอบทีละ ${...} — field ที่เพิ่มมาทีหลังจึงปลอดภัยเอง
+   ★ โครง markup/SVG ที่เทมเพลตสร้างเอง (logoSVG, ตาราง, ปุ่ม) ไม่ผ่านทางนี้ จึง render ปกติ */
+const esc = s => String(s).replace(/[&<>"']/g,
+  c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
+const escDeep = v => Array.isArray(v) ? v.map(escDeep)
+  : (v && typeof v === "object"
+      ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, escDeep(x)]))
+      : (typeof v === "string" ? esc(v) : v));
+META = escDeep(META);
+data = escDeep(data);
+SYS = escDeep(SYS);
+SYS_NOTE = escDeep(SYS_NOTE);
+FAQ = escDeep(FAQ);
+GLOSS = escDeep(GLOSS);
+
 const S="";
 const logoSVG=`<svg class="logo" viewBox="0 0 24 24" fill="none" stroke="#1f5fbf" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5.5 7.5h13l-1.1 12.2a1.5 1.5 0 0 1-1.5 1.3H8.1a1.5 1.5 0 0 1-1.5-1.3L5.5 7.5z" fill="#eaf1fb"/><path d="M9 7.5V5.6a3 3 0 0 1 6 0v1.9"/><path d="M9 13.2l2.1 2.1L15 11" stroke="#178a4c" stroke-width="1.9"/></svg>`;
 const cover=`<div class="coverpage">${logoSVG}<h1>${META.title}</h1><div class="sub">${META.sub}</div><div class="tagline">${META.tagline}</div><div class="cdivider"></div><div class="metabox">${META.meta.map(m=>`<div><b>${m[0]}:</b> ${m[1]}</div>`).join("")}</div></div>`;

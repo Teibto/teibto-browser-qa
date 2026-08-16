@@ -29,6 +29,16 @@ override อยู่ข้ามคำสั่งได้จริง (พร
 คอลัมน์ Smoke ข้างบนจึงหมายถึง "มีเทสที่ต้นทาง (`tests/test-cdp.sh`)" ส่วน claim ที่สกิลนี้เป็นคน
 สัญญาเองมีเทสของตัวเองใน `self-test/` แล้ว
 
+**ปิดค้างจาก Round 4:** flag ที่ค้างไว้ว่า "0.32 rejects unsafe startup arguments อาจกระทบ flag
+แก้จอดำ" (CLAIMS-AUDIT #8 · issue #29) — A/B แล้วพบว่า **ไม่กระทบ** (flag ทั้ง 5 ตัว live ใน
+`chrome://version` เพราะ launcher เปิด Chrome เองแล้วค่อย connect) และตั้งแต่ v1.5.0 ที่ทิ้ง daemon
+ไป ข้อกังวลนี้ก็ไม่มีเจ้าของแล้ว — สกิลนี้เปิด Chrome เองเสมอ ไม่มีชั้นไหนมา forward arg ให้
+
+**claim ใหม่ของ PDF template (Round 6):** ค่าใน `data[]`/`bugs[]`/`META` ถูก HTML-escape ที่ขอบ
+ของข้อมูล — measured, มีเทสใน `self-test/smoke-test.sh` (payload ไม่ execute · `<` ไม่หาย ·
+markup ของเทมเพลตยัง render · `document.title` ไม่ถูก escape ทับ) · **ข้อจำกัดที่ escape แก้ไม่ได้**:
+`</script>` ที่พิมพ์ตรง ๆ ในไฟล์ทำให้หน้าว่างทั้งหน้าตั้งแต่ชั้น HTML parser → `pdf-reports.md`
+
 > **Round 4 (2026-07-17):** baseline re-verified on **agent-browser 0.32.1**. Two claims drifted —
 > below-fold `click` now auto-scrolls (rows #13, abq #1) and `batch --json` shape changed (row #10).
 > Rows below are the original 0.27.0 audit; the drift is captured in **Round 4** at the bottom.
