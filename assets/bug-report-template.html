@@ -43,9 +43,9 @@
 
 <script>
 /* ===== EDIT HERE ===== */
-const META={title:"Bug Report",sub:"<ระบบ/โปรเจกต์>",tagline:"รายงานข้อบกพร่องที่พบระหว่าง QA",
+let META={title:"Bug Report",sub:"<ระบบ/โปรเจกต์>",tagline:"รายงานข้อบกพร่องที่พบระหว่าง QA",
   meta:[["ผลิตภัณฑ์","<ชื่อ + version>"],["สภาพแวดล้อม","<OS / browser>"],["วันที่","DD MMMM YYYY"],["วิธีพบ","รันจริง · มี repro"]]};
-const bugs=[
+let bugs=[
  /* หมายเหตุ: id ต้องขึ้นต้นด้วยตัวอักษร (เช่น AB-001) ห้ามขึ้นต้นด้วยตัวเลข — ไม่งั้น querySelector('#id') จะ invalid */
  {id:"AB-001",sev:"High",title:"<หัวข้อบั๊ก>",comp:"<component>",status:"<สถานะ เช่น ยืนยันแล้ว · มี workaround>",env:"<env>",
   summary:"<สรุปอาการ>",
@@ -57,6 +57,20 @@ const bugs=[
  /* เพิ่มบั๊ก: sev = High | Medium | Low | Enhancement */
 ];
 /* ===== จบส่วนแก้ ===== */
+
+
+/* ★ ทุกค่าใน data ถูก HTML-escape ที่นี่ที่เดียว (#27) — payload อย่าง <script> หรือข้อความ
+   ที่มี "count < 5" จะแสดงเป็นตัวอักษรตามที่พิมพ์ ไม่ถูกเบราว์เซอร์ตีความเป็น markup
+   ★ escape ที่ขอบของข้อมูล ไม่ใช่ไล่ครอบทีละ ${...} — field ที่เพิ่มมาทีหลังจึงปลอดภัยเอง
+   ★ โครง markup/SVG ที่เทมเพลตสร้างเอง (logoSVG, ตาราง, ปุ่ม) ไม่ผ่านทางนี้ จึง render ปกติ */
+const esc = s => String(s).replace(/[&<>"']/g,
+  c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
+const escDeep = v => Array.isArray(v) ? v.map(escDeep)
+  : (v && typeof v === "object"
+      ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, escDeep(x)]))
+      : (typeof v === "string" ? esc(v) : v));
+META = escDeep(META);
+bugs = escDeep(bugs);
 
 const SEV={High:{c:"var(--high)",t:"HIGH"},Medium:{c:"var(--med)",t:"MEDIUM"},Low:{c:"var(--low)",t:"LOW"},Enhancement:{c:"var(--enh)",t:"ENHANCEMENT"}};
 const cnt={High:0,Medium:0,Low:0,Enhancement:0};bugs.forEach(b=>cnt[b.sev]++);

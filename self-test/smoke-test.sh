@@ -168,6 +168,29 @@ echo "=== UNVERIFIED ไม่ใช่ PASS (golden rule #6) ==="
 chk "lens netlog ที่ไม่ได้ netlog on = UNVERIFIED" '"verdict": "UNVERIFIED"' "$(AB lens netlog)"
 chk "steady นอกโหมด run รายงานสิ่งที่ตั้งไม่ได้"    '"skipped": ["timezone' "$(AB steady --tz=Asia/Bangkok)"
 
+echo "=== PDF template: data ถูก HTML-escape (#27) ==="
+# ★ สกิลนี้ *จงใจ* ยิง payload อย่าง <script> เป็น test case แล้วบันทึกผลลง bug report
+#   ถ้า template ไม่ escape ผลคือเอกสารรันสคริปต์ของ payload หรือกลืนข้อความหายไปเงียบ ๆ
+cat > "$WORK/inject.py" <<'PY'
+import io, sys
+src = io.open(sys.argv[1], encoding="utf-8").read()
+old = [l for l in src.split("\n") if l.strip().startswith("evidence:")][0]
+# ★ ปิดท้ายด้วย <\/script> ไม่ใช่ </script> — HTML parser ตัด <script> ของเอกสารทิ้งตั้งแต่
+#   เห็น </script> ข้างใน string (ก่อน JS ได้ทำงานด้วยซ้ำ) ทำให้ทั้งหน้าว่าง แล้วเช็ค
+#   "ไม่ execute" จะผ่านฟรีเพราะไม่มีอะไร render เลย · กับดักนี้อยู่ใน pdf-reports.md
+new = '  evidence:"assert failed: expected count < 5 but got <script>window.__pwned=1<\\/script>",'
+io.open(sys.argv[2], "w", encoding="utf-8", newline="").write(src.replace(old, new, 1))
+PY
+"$PY" "$WORK/inject.py" "$(dirname "$HERE")/assets/bug-report-template.html" "$WORK/bugesc.html"
+AB nav "$(to_file "$WORK/bugesc.html")" 2 >/dev/null
+chk "เอกสาร render จริง (กันเช็คข้างล่างผ่านฟรีตอนหน้าว่าง)" "1" "$(AB get count 'svg.logo')"
+chk "payload ใน evidence ไม่ถูก execute"      "undefined"           "$(AB eval 'String(window.__pwned)')"
+chk "payload แสดงเป็นข้อความตามที่พิมพ์"        "<script>window.__pwned=1</script>" "$(AB get text 'pre.code')"
+chk "ข้อความที่มี '<' ไม่ถูกกลืนหาย"            "count < 5"           "$(AB get text 'pre.code')"
+# ★ document.title เป็นบริบท "ข้อความ" ไม่ใช่ HTML — ถ้า escape ก่อนตั้งชื่อ ผู้ใช้จะเห็น &lt;ระบบ&gt;
+AB nav "$(to_file "$(dirname "$HERE")/assets/guide-template.html")" 2 >/dev/null
+chk "ชื่อเอกสาร (text context) ไม่ถูก escape ทับ" "<ระบบ>" "$(AB eval 'document.title')"
+
 echo "=== about:blank เป็นเรื่องปกติ ไม่ใช่ paint พัง ==="
 chk "nav about:blank -> url == about:blank" "about:blank" "$(AB nav about:blank 1)"
 
