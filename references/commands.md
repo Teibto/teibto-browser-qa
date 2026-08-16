@@ -96,6 +96,11 @@ AB wait "window.jQuery ? jQuery.active===0 : true" 20     # หน้า async �
 | `diff <baseline.png> <current.png> [out.png] [--threshold=N]` | visual regression · **exit 1 เมื่อต่าง** |
 | `pdf <path>` | Chrome printToPDF (traps → `pdf-reports.md`) |
 
+⚠️ **path ของ `shot`/`pdf` ต้องเป็น Windows-style (`cygpath -w`)** — ส่ง path แบบ Git-Bash
+(`/d/...`) ไฟล์**ไม่ถูกเขียนและคำสั่ง exit 0 ไม่ฟ้องอะไรเลย** (Windows Python ตีความ `/d/x`
+เป็น `<ไดรฟ์ปัจจุบัน>:\d\x`) · หลัง `shot` ให้ `ls` ยืนยันว่าไฟล์มีจริงก่อนอ้างเป็นหลักฐานเสมอ
+— เจอจริง 2026-08-10 (QA ar_aging บน SB2: รายงานเกือบอ้างภาพที่ไม่มีอยู่จริง)
+
 ⚠️ **`--dsf` ต้องส่งที่ `shot` ไม่ใช่สั่ง `viewport` แยกก่อน** — `Emulation.setDeviceMetricsOverride`
 ผูกกับ session ของ CDP และถูกยกเลิกทันทีที่ปิด websocket · `cdp.py` เปิด WebSocket ใหม่ทุกคำสั่ง
 แปลว่า `viewport 1920 1200 2` แล้วค่อย `shot` **ได้ภาพ 1x เสมอโดยไม่มีอะไรฟ้อง**
