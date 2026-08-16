@@ -38,14 +38,16 @@ Full diagrams for every flow are in [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE
 
 | Flow | Steps | Output |
 |---|---|---|
-| Smoke QA | `open` → `wait --load networkidle` → walk happy path → `errors` empty | pass / fail |
-| Functional QA | action → `scrollintoview` → `click` → assert state | verdict per step |
-| Visual regression | `screenshot` → `diff screenshot --baseline` | `diff.png` |
-| Error surfacing | after every key step → `errors --json` + `console --json` | errors surface, not silent |
+| Smoke QA | `nav` → `wait "<page-specific condition>"` → walk happy path → `console` empty | pass / fail |
+| Functional QA | action → `click` / `fill` → assert state with `get` / `is` / `wait` | verdict per step |
+| Visual regression | `steady` → `shot` → `diff <baseline> <current>` | `diff.png` |
+| Error surfacing | `console` after every key step, `lens netlog` for the network layer | errors surface, not silent |
+| UX/UI review | `lens layout` · `responsive` · `theme` · `focus` | findings only, `[]` means clean |
+| Empty / error screens | `run` a script with `stub <url> <status>` | the state you cannot reach with real data |
 | User-guide PDF | walk flow, highlight, screenshot → `guide-template.html` → `pdf` | guide PDF (cover, TOC, page numbers) |
 | Bug-report PDF | repro, evidence, severity → `bug-report-template.html` → `pdf` | bug PDF (Steps/Expected/Actual) |
 
-Golden rule: `click` does not auto-scroll, so call `scrollintoview` first; and don't trust `✓ Done`, always assert the resulting state. Details in [`references/gotchas.md`](references/gotchas.md).
+Golden rule: a command that exits 0 only means it was *sent* — always assert the resulting state, and never read `UNVERIFIED` as a pass. Details in [`references/gotchas.md`](references/gotchas.md).
 
 ## Features
 
@@ -110,7 +112,7 @@ AB shot hello.png          # evidence file: the image, not context
 
 Expect the title to contain `Example Domain` and `console` to print `[]`. If `console` **errors** instead of printing `[]`, the page was not opened with `nav`, so nothing is watching — that distinction is deliberate (see [`references/gotchas.md`](references/gotchas.md) #2).
 
-The first run is slow: a cold browser session can take one to two minutes to start on Windows, and may look like it hung when it hasn't. Keep the session warm and reuse it. If commands keep failing with `os error 10060`, clear the stale session file (see [`references/gotchas.md`](references/gotchas.md), section 3).
+Keep the Chrome you launched and reuse it — the profile directory holds the login, so a persistent one costs you the sign-in exactly once. If a command reports that the CDP port is not answering, Chrome died: check with `curl http://127.0.0.1:$CDP_PORT/json/version` and relaunch. There is no daemon and no session file to clear.
 
 For a real multi-step flow, see [`examples/saucedemo.yaml`](examples/saucedemo.yaml) and [`references/flow-spec.md`](references/flow-spec.md).
 
@@ -129,6 +131,9 @@ agent-browser-qa/
 │   ├── gotchas.md                 silent-failure traps and fixes
 │   ├── test-design.md             what to test (adversarial coverage, Phase 0-3)
 │   ├── commands.md                command reference, token discipline, batch
+│   ├── ux-lens.md                 layer 7: the lenses, and how each one can lie
+│   ├── cdp-limits.md              what CDP cannot check at all, and what to do instead
+│   ├── configure.md               changing real settings through the screen (not QA)
 │   ├── flow-spec.md               test cases as repeatable flow YAML
 │   └── pdf-reports.md             paged.js recipe (TOC, page numbers, fixes)
 ├── assets/
@@ -159,7 +164,7 @@ Python tooling (`pip install -r requirements.txt`, PyYAML):
 | `scripts/coverage-check.py` | Release gate → exit code: reads a `qa/<feature>/coverage.yaml`, returns 0 pass / 1 fail / 2 malformed. | `python scripts/coverage-check.py qa/<feature>/coverage.yaml` |
 | `scripts/release-summary.py` | Roll every `qa/*/coverage.yaml` into one QA-Lead sign-off table. | `python scripts/release-summary.py [qa_dir]` |
 
-Mechanical checks live in [`self-test/`](self-test) — run `bash self-test/smoke-test.sh` after any Chrome or `cdp.py` version bump (30 checks against a real browser). Details in [`CONTRIBUTING.md`](CONTRIBUTING.md).
+Mechanical checks live in [`self-test/`](self-test) — run `bash self-test/smoke-test.sh` after any Chrome or `cdp.py` version bump; it prints its own pass/fail count against a real browser. It checks the claims *this skill* makes; the driver's own suite (`tests/test-cdp.sh` in [`Teibto/teibto-dev-standards`](https://github.com/Teibto/teibto-dev-standards)) covers `cdp.py` itself, and the two are deliberately not mirrored. Details in [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
 ## Glossary
 

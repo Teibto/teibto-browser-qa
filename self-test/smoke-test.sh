@@ -136,6 +136,38 @@ else
   echo "  SKIP  diff (ไม่มี pillow/numpy)"
 fi
 
+echo "=== run: override อยู่ข้ามคำสั่งได้จริง (claim ของ commands.md §run) ==="
+# ★ ตัวชี้วัดต้องเป็น devicePixelRatio ไม่ใช่ innerWidth — ขนาดหน้าต่างค้างข้าม invocation อยู่แล้ว
+#   ใช้ innerWidth เมื่อไหร่ เทสจะ "ผ่าน" ทั้งที่ override ไม่ได้อยู่จริง (CLAIMS-AUDIT Round 6)
+printf 'viewport 500 400 2\neval String(devicePixelRatio)\n' > "$WORK/run.txt"
+chk "run: viewport มีผลกับคำสั่งถัดไปในสคริปต์" "2" "$(AB run "$WORK/run.txt")"
+AB viewport 500 400 2 >/dev/null 2>&1
+chk "สั่งแยก invocation ไม่มีผล (เคสที่ทำให้ข้างบนมีความหมาย)" "1" "$(AB eval 'String(devicePixelRatio)')"
+
+echo "=== lens: หน้าที่ผิดต้อง FAIL หน้าที่ถูกต้องต้อง PASS ==="
+cat > "$WORK/bad.html" <<'HTML'
+<!doctype html><meta charset="utf-8"><title>bad</title>
+<style>body{margin:0}a.t{display:inline-block;width:10px;height:10px}</style>
+<div style="width:2000px">wide</div><a class="t" href="#">x</a>
+HTML
+cat > "$WORK/good.html" <<'HTML'
+<!doctype html><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>good</title>
+<style>body{margin:0;font:16px sans-serif}a{display:inline-block;min-width:44px;min-height:44px}</style>
+<p>fine</p><a href="#">link</a>
+HTML
+to_file(){ printf 'file:///%s' "$(cygpath -m "$1" 2>/dev/null || echo "$1")"; }
+AB nav "$(to_file "$WORK/bad.html")" 2 >/dev/null
+chk "lens layout จับหน้าล้นแนวนอน"       '"kind": "overflow-x"'       "$(AB lens layout)"
+AB nav "$(to_file "$WORK/good.html")" 2 >/dev/null
+chk "lens layout บนหน้าที่ถูกต้อง = PASS" '"verdict": "PASS"'         "$(AB lens layout)"
+
+echo "=== UNVERIFIED ไม่ใช่ PASS (golden rule #6) ==="
+# ★ claim ที่อันตรายที่สุดของทั้งสกิล: ถ้าอันนี้ regress รายงานจะบอกว่า "ไม่มี error ฝั่ง network"
+#   ทั้งที่ไม่เคยเฝ้าเลย — และไม่มีอะไรฟ้อง เพราะผลออกมาเป็นสีเขียว
+chk "lens netlog ที่ไม่ได้ netlog on = UNVERIFIED" '"verdict": "UNVERIFIED"' "$(AB lens netlog)"
+chk "steady นอกโหมด run รายงานสิ่งที่ตั้งไม่ได้"    '"skipped": ["timezone' "$(AB steady --tz=Asia/Bangkok)"
+
 echo "=== about:blank เป็นเรื่องปกติ ไม่ใช่ paint พัง ==="
 chk "nav about:blank -> url == about:blank" "about:blank" "$(AB nav about:blank 1)"
 

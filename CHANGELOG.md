@@ -8,6 +8,42 @@
 > ไม่ได้ copy มาซ้ำที่นี่ เพราะจะกลายเป็นสองแหล่งที่ drift จากกันได้ · ตั้งแต่ v1.6.0 เป็นต้นไป
 > ไฟล์นี้คือต้นฉบับ และ Release body ถูก generate จากมัน
 
+## [1.6.1] - 2026-08-16
+
+**เก็บงานค้างให้จบ — บทเรียนที่ไม่เคยเข้า repo และเอกสารที่ยังสอนคำสั่งที่ไม่มีอยู่จริง**
+
+### Added
+
+- **บทเรียน 7 ข้อที่เขียนไว้ตั้งแต่ 2026-08-10 แต่ไม่เคย commit** — `gotchas.md` §11–§17
+  (`nav` อาร์กิวเมนต์ที่สองเป็นวินาที · Chrome บังคับหน้าต่างกว้างขั้นต่ำ ~500px · อ่าน state ทันที
+  หลัง scroll · custom property ค้าง · `innerWidth` รวม scrollbar · `el.focus()` ไม่ปลุก
+  `:focus-visible` · Chrome cache หน้าเดิม) และหมายเหตุ path Windows ของ `shot`/`pdf` ใน
+  `commands.md` · v1.6.0 อ้าง §14–§17 ทั้งที่ยังไม่มีอยู่บน main — คนที่ clone ไปตามลิงก์เจอความว่าง (#41)
+- **`commands.md` §`run` และ §`lens`/`steady`/`netlog`/`stub`** — ตารางว่าตัวไหนต้องอยู่ในโหมด `run`
+  + กับดัก quote ของ `--body=` + `verdict` มีสามค่าไม่ใช่สอง
+- **`self-test/smoke-test.sh` เพิ่ม claim-check ของคำสั่งใหม่** — `run` ทำให้ override อยู่ข้ามคำสั่ง
+  (พร้อม**เคสคู่**ที่พิสูจน์ว่าเทสวัดของจริง) · `lens layout` FAIL บนหน้าที่ผิดและ PASS บนหน้าที่ถูก ·
+  **`lens netlog` ที่ไม่ได้ `netlog on` = `UNVERIFIED`** — claim ที่อันตรายที่สุดของทั้งสกิล
+  เพราะถ้ามัน regress ผลจะออกมาเป็นสีเขียวโดยไม่มีอะไรฟ้อง
+
+### Fixed
+
+- **`docs/ARCHITECTURE.md` §3 ยังเป็นชั้น QA ยุค daemon** — ตารางสอนคำสั่งที่ไม่มีอยู่จริงแล้ว
+  (`open`, `errors`, `diff screenshot --baseline`) และนับ 4 ชั้นขณะที่ README/SKILL.md นับ 7 ·
+  เขียนใหม่ทั้งหัวข้อ + diagram ที่แยกชั้นบังคับกับชั้น opt-in (#40)
+- **README สอนสิ่งที่ไม่จริงสองจุด** — "`click` does not auto-scroll, so call `scrollintoview` first"
+  (ปัจจุบัน `click` ทำ `scrollIntoView` ให้ในตัว) และคำแนะนำให้ล้าง "stale session file" ตอนเจอ
+  `os error 10060` (เป็นวิธีของ daemon ที่ไม่มีอยู่แล้ว) · ตารางงานในหน้าแรกก็ยังเป็นคำสั่งยุค daemon ทั้งตาราง
+- เลิกเขียนจำนวนเคสของ `smoke-test.sh` เป็นตัวเลขตายตัวใน README — สคริปต์พิมพ์ผลรวมเอง
+  ป้ายที่ hardcode จะ drift ทุกครั้งที่เพิ่มเทส
+- `CLAUDE.md` / `README.md` รายชื่อไฟล์ใน `references/` ตามทัน `ux-lens` · `cdp-limits` · `configure`
+
+### Changed
+
+- **CLAIMS-AUDIT: ตัดสินใจเรื่องการแบ่งเทสระหว่างสองรีโป** — เทสลึกของ `cdp.py` อยู่ที่
+  `tests/test-cdp.sh` ของ `teibto-dev-standards` เท่านั้น **ไม่ mirror มาที่นี่** (สองแหล่งจะ drift
+  จากกัน) · repo นี้เก็บเฉพาะ claim-check ของสิ่งที่สกิลนี้สัญญาเอง
+
 ## [1.6.0] - 2026-08-16
 
 **ชั้นที่ 7: UX/UI lens — และเส้นแบ่งระหว่างงาน QA กับงานตั้งค่าระบบ**

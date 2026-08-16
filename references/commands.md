@@ -138,6 +138,60 @@ AB eval "(function(){document.querySelector('SEL').size=window.__sz;return 'ok';
 ป๊อปอัป native ที่อยู่นอก DOM จริง ๆ (`alert`/`confirm`, file dialog) **screenshot ไม่ติดทุกกรณี** —
 ถ้าต้องเก็บภาพต้องใช้ OS-level capture (skill `netsuite-ui-qa-testing` มีสูตร)
 
+## `run` — หลายคำสั่งบน connection เดียว
+
+ทุก invocation เปิด WebSocket ใหม่ → **CDP override ตายก่อนคำสั่งถัดไปจะเริ่ม** · งานที่ต้องข้าม
+คำสั่ง (จอมือถือ, ธีม, timezone, ปลอมคำตอบ, เฝ้า network) จึงต้องอยู่ในโหมดนี้
+
+```bash
+cat > steps.txt <<'EOF'
+# หนึ่งคำสั่งต่อบรรทัด · '#' = คอมเมนต์
+netlog on
+steady --tz=Asia/Bangkok
+stub /api/orders 200 --bodyfile=D:\qa\empty.json
+nav https://app.example.com/orders 3
+lens layout
+lens netlog
+EOF
+AB run steps.txt
+```
+
+| กฎ | รายละเอียด |
+|---|---|
+| แยก argument แบบ shell | แต่ **backslash เป็นตัวอักษรธรรมดา** — path Windows ไม่ถูกกลืน |
+| ล้มบรรทัดไหน = หยุดทั้งสคริปต์ | บอกเลขบรรทัด + คำสั่ง ครอบทั้ง `SystemExit` และ exception อื่น |
+| **หนึ่ง `run` = หนึ่งแท็บ** | `tabs`/`newtab`/`close`/`diff` ถูกปฏิเสธ — แท็บถูกเลือกตอนต่อครั้งเดียว |
+| JSON ใน `--body=` | double quote โดน shlex กิน → ใช้ `--bodyfile=` หรือครอบ single quote |
+
+**ไม่ใช่ daemon:** lifetime ของ session = lifetime ของ process — จบสคริปต์คือจบ ไม่มี state ค้าง
+ไม่มี TTL ไม่มี orphan (เหตุผลที่ทีมทิ้ง `agent-browser` ยังใช้ได้อยู่)
+
+## `lens` / `steady` / `netlog` / `stub` — ชั้น UX/UI
+
+| คำสั่ง | คืนอะไร | ต้องอยู่ใน `run` |
+|---|---|---|
+| `lens layout` | ล้นแนวนอน · tap target < 24x24 · ข้อความถูกตัดหาย | ไม่ |
+| `lens responsive <w1,w2,..>` | วน `layout` ทุกความกว้าง + `no-viewport-meta` | ไม่ |
+| `lens theme` | ตัวหนังสือสีเดียวกับพื้น + `dark_mode: supported\|not-supported` | ไม่ |
+| `lens focus [n]` | ลำดับ Tab จริง · trap · ไม่มีเส้นบอกโฟกัส | ไม่ |
+| `lens netlog` | HTTP >= 400 · request ที่ล้ม · CSP/mixed content | **ใช่** |
+| `steady [--tz=] [--locale=]` | หยุด animation/transition/smooth scroll · `--tz`/`--locale` ต้องอยู่ใน `run` | บางส่วน |
+| `netlog on\|off` | เปิดเฝ้า `Network` + `Log` domain | **ใช่** |
+| `stub <urlที่ตรง> <status>` | ปลอมคำตอบเพื่อบังคับสถานะ empty/error | **ใช่** |
+
+```bash
+AB lens layout
+# {"lens":"layout","verdict":"FAIL","count":1,"findings":[
+#   {"kind":"tap-target-small","sel":"nav > a.menu","detail":"18x18 < 24x24 (WCAG 2.2 AA)"}]}
+```
+
+⚠️ **`verdict` มีสามค่า ไม่ใช่สอง** — `PASS` / `FAIL` / **`UNVERIFIED`** · `lens netlog` ที่ไม่ได้สั่ง
+`netlog on` มาก่อนคืน `UNVERIFIED` เพราะ "ไม่ได้เฝ้า" ไม่ใช่ "ไม่มีปัญหา" · คำสั่งที่ตั้ง override
+นอกโหมด `run` จะเตือนลง stderr เสมอว่าไม่มีผลจริง
+
+รายละเอียดการใช้งาน + ตารางว่าแต่ละ lens โกหกได้ยังไง → `ux-lens.md` ·
+สิ่งที่ CDP แตะไม่ได้เลย → `cdp-limits.md`
+
 ## ลด round-trip ในงานยาว
 
 ทุกคำสั่ง `cdp.py` = หนึ่ง process + หนึ่ง WebSocket handshake · flow ยาว ๆ ให้รวมงานเป็น

@@ -6,7 +6,7 @@ Workflow diagrams for every flow. GitHub renders mermaid natively. A short summa
 ## Contents
 1. [Overview: one pass, two outputs](#1-overview-one-pass-two-outputs)
 2. [Golden-rule action loop](#2-golden-rule-action-loop)
-3. [Four QA layers](#3-four-qa-layers)
+3. [Seven QA layers](#3-seven-qa-layers)
 4. [PDF pipeline (paged.js)](#4-pdf-pipeline-pagedjs)
 5. [Highlight capture sub-flow](#5-highlight-capture-sub-flow)
 6. [Targets and setup](#6-targets-and-setup)
@@ -65,21 +65,38 @@ flowchart TD
 
 ---
 
-## 3. Four QA layers
+## 3. Seven QA layers
+
+Layers 1–4 run on every pass. Layers 5–7 are opt-in per scenario and return findings only — never a
+dump — so switching them on does not cost the context window.
 
 ```mermaid
 flowchart LR
-    s["1. Smoke<br/>happy path completes<br/>+ errors empty"] --> f["2. Functional<br/>assert state<br/>with short commands"]
-    f --> v["3. Visual<br/>diff screenshot<br/>--baseline"]
-    v --> e["4. Error surfacing<br/>errors/console<br/>after every key step"]
+    s["1. Smoke<br/>happy path completes<br/>+ console empty"] --> f["2. Functional<br/>assert state<br/>with short commands"]
+    f --> v["3. Visual<br/>diff baseline.png current.png"]
+    v --> e["4. Error surfacing<br/>console after<br/>every key step"]
+    e -.opt-in.-> a["5. a11y<br/>axe-core, count + top N"]
+    e -.opt-in.-> p["6. Perf<br/>save/load ms vs budget"]
+    e -.opt-in.-> u["7. UX/UI lens<br/>layout · responsive · theme<br/>focus · netlog"]
 ```
 
 | Layer | When | Main commands | Pass criteria |
 |---|---|---|---|
-| Smoke | every commit | `open`, `wait`, `errors` | flow completes, errors empty |
+| Smoke | every commit | `nav`, `wait`, `console` | flow completes, `console` empty |
 | Functional | key features | `is`, `get`, `wait` | state matches at every step |
-| Visual | UI changes | `diff screenshot --baseline` | diff within threshold |
-| Error surfacing | every key step | `errors --json`, `console --json` | errors surface, not swallowed |
+| Visual | UI changes | `steady` then `diff <base> <cur>` | diff within threshold |
+| Error surfacing | every key step | `console` | errors surface, not swallowed |
+| a11y | forms, new screens | `evalf` axe-core | count + top N within budget |
+| Perf | save/load paths | `eval` timing marks | under the scenario's ms budget |
+| UX/UI lens | responsive / theme / keyboard work | `lens layout\|responsive\|theme\|focus\|netlog` | `verdict: PASS` — and `UNVERIFIED` is **not** a pass |
+
+Two things the table cannot show:
+
+- **`console` empty ≠ no errors.** An app that catches its own failures leaves `console` clean while
+  the API returns 500. That class is only visible through `lens netlog`, which needs `netlog on`
+  inside a `run` — and returns `UNVERIFIED`, not `PASS`, when nobody was watching.
+- **Layer 7 needs a session that outlives one command** for `netlog`/`stub`, which is what `run`
+  provides. The rest of the lenses work in a single invocation.
 
 ---
 
