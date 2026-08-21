@@ -10,6 +10,10 @@
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-08-21
+
+**Canonical team-owned Browser QA with a direct, bounded CDP runner and one local UI.**
+
 ### Changed
 
 - ย้าย canonical ownership จากบัญชีส่วนตัวมา `Teibto/teibto-browser-qa` และเปลี่ยน skill/bundle
