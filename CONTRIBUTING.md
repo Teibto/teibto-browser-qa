@@ -66,7 +66,7 @@ Re-run after any Chrome or `cdp.py` version bump — this is the drift detector.
 
 | Script | What it does | Usage |
 |---|---|---|
-| `scripts/build-skill.py` | Zips `SKILL.md` + `assets/` + `references/` + `examples/` + runtime scripts into `agent-browser-qa.skill` (a git-ignored build artifact). | `python scripts/build-skill.py` |
+| `scripts/build-skill.py` | Zips `SKILL.md` + `assets/` + `references/` + `examples/` + runtime scripts into `teibto-browser-qa.skill` (a git-ignored build artifact). | `python scripts/build-skill.py` |
 | `scripts/coverage-check.py` | Release gate as an exit code: reads a `qa/<feature>/coverage.yaml` and returns 0 (pass) / 1 (fail) / 2 (malformed). | `python scripts/coverage-check.py qa/<feature>/coverage.yaml` |
 | `scripts/release-summary.py` | Rolls every `qa/*/coverage.yaml` into one sign-off table, reusing the gate logic. | `python scripts/release-summary.py [qa_dir]` |
 
@@ -79,7 +79,7 @@ Re-run after any Chrome or `cdp.py` version bump — this is the drift detector.
    ```bash
    git tag -a vX.Y.Z -m "vX.Y.Z — <summary>" && git push origin vX.Y.Z
    ```
-   `.github/workflows/release.yml` then builds `agent-browser-qa.skill`, creates the GitHub
+   `.github/workflows/release.yml` then builds `teibto-browser-qa.skill`, creates the GitHub
    Release with the body taken from that CHANGELOG section, and attaches the bundle.
 
 **No CHANGELOG entry = the workflow fails on purpose** — a release with an empty body is worse

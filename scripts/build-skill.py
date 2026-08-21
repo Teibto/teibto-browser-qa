@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build agent-browser-qa.skill — a zip bundle for one-file install.
+"""Build teibto-browser-qa.skill — a zip bundle for one-file install.
 
 The .skill file is NOT committed (it duplicates the source and goes stale).
 Run this to (re)generate it, then attach the output to a GitHub Release.
@@ -8,7 +8,7 @@ Run this to (re)generate it, then attach the output to a GitHub Release.
 
 Bundle contents: SKILL.md + assets/* + references/* + examples/* + the runtime
 scripts/*.py (coverage-check, release-summary — referenced by the docs, so they
-must ship) + requirements.txt, under an `agent-browser-qa/` prefix. README, docs,
+must ship) + requirements.txt, under a `teibto-browser-qa/` prefix. README, docs,
 LICENSE, the build script itself, and .git are excluded.
 """
 import glob
@@ -16,7 +16,8 @@ import os
 import zipfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-OUT = os.path.join(ROOT, "agent-browser-qa.skill")
+SKILL_NAME = "teibto-browser-qa"
+OUT = os.path.join(ROOT, f"{SKILL_NAME}.skill")
 
 
 def main():
@@ -30,10 +31,10 @@ def main():
     files.append("requirements.txt")
     with zipfile.ZipFile(OUT, "w", zipfile.ZIP_DEFLATED) as z:
         for f in files:
-            z.write(os.path.join(ROOT, f), "agent-browser-qa/" + f.replace("\\", "/"))
+            z.write(os.path.join(ROOT, f), f"{SKILL_NAME}/" + f.replace("\\", "/"))
     print(f"Built {OUT} ({len(files)} entries)")
     for f in files:
-        print("  agent-browser-qa/" + f.replace("\\", "/"))
+        print(f"  {SKILL_NAME}/" + f.replace("\\", "/"))
 
 
 if __name__ == "__main__":

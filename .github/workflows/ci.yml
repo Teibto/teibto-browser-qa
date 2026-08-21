@@ -1,0 +1,56 @@
+name: quality-gate
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  quality-gate:
+    name: quality-gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install Python dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Install gitleaks
+        env:
+          GITLEAKS_VERSION: "8.29.0"
+        run: |
+          curl -sfL -o /tmp/gitleaks.tgz \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          tar -xzf /tmp/gitleaks.tgz -C /tmp gitleaks
+          sudo install /tmp/gitleaks /usr/local/bin/gitleaks
+
+      - name: Secret scan
+        run: gitleaks git . --no-banner --redact
+
+      - name: Shell syntax and lint
+        run: |
+          bash -n scripts/*.sh self-test/*.sh self-test/pdf/*.sh
+          shellcheck scripts/*.sh
+
+      - name: Validate skill and flow schema
+        run: python scripts/validate-skill.py
+
+      - name: Unit tests
+        run: python -m unittest discover -s tests -v
+
+      - name: Build installable skill
+        run: python scripts/build-skill.py
+
+      - name: Verify bundle checksum
+        run: sha256sum teibto-browser-qa.skill
