@@ -42,6 +42,7 @@ from code).
 ## 1. Install (first time)
 
 ```bash
+py -m pip install -r requirements.txt
 py -m pip install websocket-client pillow numpy    # pillow/numpy เฉพาะตอนใช้ diff
 ```
 
@@ -73,9 +74,8 @@ These traps make automation **fail silently, with no error** — full detail + e
    "ผ่าน" คือการโกหกที่ไม่มีใครตั้งใจ · สิ่งที่ CDP แตะไม่ได้เลยมีรายการอยู่ที่
    `references/cdp-limits.md` — ห้ามรายงานว่าตรวจแล้ว
 
-Extra: `AB click` ยิง Input event จริงพร้อม scrollIntoView ให้แล้ว · ถ้ายังไม่ติดจริง ๆ ใช้
-**JS click** `eval "document.querySelector('SEL').click()"` เดิน flow ต่อ แล้วแยกไปรายงานเรื่อง
-"ความคลิกได้จริง" เป็น finding ต่างหาก
+Extra: `AB click` ยิง Input event จริงพร้อม scrollIntoView ให้แล้ว · ถ้า native click ไม่เกิดผล
+ให้ **FAIL พร้อมหลักฐาน** ห้าม fallback ไป `element.click()` เงียบ ๆ เพราะจะซ่อนปัญหาความคลิกได้จริง
 
 ---
 
@@ -118,10 +118,10 @@ dark mode อ่านไม่ออก · Tab เดินไม่ครบ �
 **ตั้งค่าระบบผ่านหน้าจอ (ไม่ใช่ QA)** → `references/configure.md` · คนละสัญญากับงาน QA โดยสิ้นเชิง:
 QA ผิด = รายงานผิด แต่ config ผิด = ระบบจริงเปลี่ยน · ห้ามปนสองอย่างนี้ใน run เดียวกัน
 
-**Store test cases as repeatable files** (regression/repro) → write them as flow YAML:
-`references/flow-spec.md`. **ลด process spawn:** รวมงานหลายขั้นเป็น JS ก้อนเดียวแล้ว `evalf`
-(แต่ action ที่เปลี่ยน state ยังควรแยกเพื่อ assert ทีละขั้น) · pre-flight เหลือแค่
-`curl /json/version` → `references/commands.md`.
+**Store test cases as repeatable files** (regression/repro) → write them as flow YAML and run them
+with `scripts/flow-runner.py`: `references/flow-spec.md`. Runner validate schema ก่อน, บังคับ
+`TGT_ID`, เปิด `cdp.py session --jsonl` เพียง process/WebSocket เดียวต่อ run และ fail-fast โดยไม่มี
+JS-click fallback. งานสำรวจแบบ ad-hoc ยังใช้คำสั่ง `AB` ตามปกติได้
 
 Suggested artifact layout:
 ```

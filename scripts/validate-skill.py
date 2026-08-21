@@ -6,21 +6,14 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+import json
 import yaml
+from jsonschema import Draft202012Validator
 
 
 ROOT = Path(__file__).resolve().parent.parent
 SKILL_NAME = "teibto-browser-qa"
-ALLOWED_ACTIONS = {
-    "open",
-    "fill",
-    "click",
-    "select",
-    "press",
-    "scrollintoview",
-    "eval",
-    "wait",
-}
+FLOW_SCHEMA = json.loads((ROOT / "schemas" / "flow.schema.json").read_text(encoding="utf-8"))
 ACTIVE_TEXT_FILES = [
     ROOT / "SKILL.md",
     ROOT / "README.md",
@@ -59,32 +52,18 @@ def validate_skill() -> None:
 
 def validate_flow(path: Path) -> None:
     data = yaml.safe_load(path.read_text(encoding="utf-8"))
-    if not isinstance(data, dict):
-        raise ValidationError(f"{path}: root must be an object")
-    if not str(data.get("story") or "").strip():
-        raise ValidationError(f"{path}: story is required")
-    scenarios = data.get("scenarios")
-    if not isinstance(scenarios, list) or not scenarios:
-        raise ValidationError(f"{path}: scenarios must be a non-empty list")
+    errors = sorted(Draft202012Validator(FLOW_SCHEMA).iter_errors(data), key=lambda e: list(e.path))
+    if errors:
+        error = errors[0]
+        location = ".".join(str(part) for part in error.absolute_path) or "<root>"
+        raise ValidationError(f"{path}: {location}: {error.message}")
+    scenarios = data["scenarios"]
     seen: set[str] = set()
     for scenario in scenarios:
-        if not isinstance(scenario, dict):
-            raise ValidationError(f"{path}: each scenario must be an object")
-        scenario_id = str(scenario.get("id") or "").strip()
-        if not scenario_id or scenario_id in seen:
-            raise ValidationError(f"{path}: scenario ids must be present and unique")
+        scenario_id = scenario["id"]
+        if scenario_id in seen:
+            raise ValidationError(f"{path}: scenario ids must be unique")
         seen.add(scenario_id)
-        steps = scenario.get("steps")
-        if not isinstance(steps, list) or not steps:
-            raise ValidationError(f"{path}: {scenario_id} needs at least one step")
-        for index, step in enumerate(steps, 1):
-            if not isinstance(step, dict):
-                raise ValidationError(f"{path}: {scenario_id} step {index} must be an object")
-            action = step.get("action")
-            if action not in ALLOWED_ACTIONS:
-                raise ValidationError(
-                    f"{path}: {scenario_id} step {index} has unsupported action {action!r}"
-                )
 
 
 def validate_active_names() -> None:

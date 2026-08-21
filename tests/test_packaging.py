@@ -35,6 +35,7 @@ class PackagingTests(unittest.TestCase):
         self.assertTrue(examples)
         for example in examples:
             validator.validate_flow(example)
+        validator.validate_flow(ROOT / "tests" / "fixtures" / "live-flow.yaml")
 
     def test_bundle_has_one_canonical_root(self) -> None:
         subprocess.run(
@@ -47,6 +48,10 @@ class PackagingTests(unittest.TestCase):
         with zipfile.ZipFile(BUNDLE) as archive:
             names = archive.namelist()
         self.assertIn("teibto-browser-qa/SKILL.md", names)
+        self.assertIn("teibto-browser-qa/scripts/flow-runner.py", names)
+        self.assertIn("teibto-browser-qa/schemas/flow.schema.json", names)
+        self.assertIn("teibto-browser-qa/app/server.js", names)
+        self.assertIn("teibto-browser-qa/app/public/index.html", names)
         self.assertTrue(all(name.startswith("teibto-browser-qa/") for name in names))
         self.assertFalse(any("agent-browser-qa/" in name for name in names))
 

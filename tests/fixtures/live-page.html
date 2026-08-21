@@ -1,0 +1,12 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>TEIBTO runner live fixture</title>
+<label>Name <input id="name"></label>
+<button id="save">Save</button>
+<p id="status">not saved</p>
+<script>
+document.getElementById('save').addEventListener('click', function (event) {
+  document.getElementById('status').textContent =
+    (event.isTrusted ? 'saved ' : 'untrusted ') + document.getElementById('name').value;
+});
+</script>

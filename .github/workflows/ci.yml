@@ -40,14 +40,16 @@ jobs:
 
       - name: Shell syntax and lint
         run: |
-          bash -n scripts/*.sh self-test/*.sh self-test/pdf/*.sh
+          bash -n scripts/*.sh self-test/*.sh self-test/pdf/*.sh tests/*.sh
           shellcheck scripts/*.sh
 
       - name: Validate skill and flow schema
         run: python scripts/validate-skill.py
 
       - name: Unit tests
-        run: python -m unittest discover -s tests -v
+        run: |
+          python -m unittest discover -s tests -v
+          node --check app/server.js
 
       - name: Build installable skill
         run: python scripts/build-skill.py

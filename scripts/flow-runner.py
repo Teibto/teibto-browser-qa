@@ -1,0 +1,546 @@
+#!/usr/bin/env python3
+"""Run a validated browser-QA YAML flow through one pinned cdp.py JSONL session.
+
+Examples:
+  py scripts/flow-runner.py --meta --flow examples/saucedemo.yaml
+  $env:TGT_ID='<page-target-id>'
+  '{"password":"..."}' | py scripts/flow-runner.py --flow examples/saucedemo.yaml `
+      --out runs/manual --vars-json -
+
+JSON events are written to stdout and runs/<id>/run-log.jsonl. Secrets are never
+placed in argv or artifacts. Exit 0=PASS, 1=FAIL/UNVERIFIED, 2=setup/input error.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import queue
+import re
+import subprocess
+import sys
+import threading
+import time
+from pathlib import Path
+from typing import Any, TextIO
+
+import yaml
+from jsonschema import Draft202012Validator
+
+try:
+    sys.stdout.reconfigure(encoding="utf-8")
+    sys.stderr.reconfigure(encoding="utf-8")
+except (AttributeError, OSError):
+    pass
+
+
+ROOT = Path(__file__).resolve().parent.parent
+SCHEMA_PATH = ROOT / "schemas" / "flow.schema.json"
+PLACEHOLDER = re.compile(r"\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}")
+# fill is immediately verified by reading its value back. The actions below can
+# change application state but have no trustworthy implicit success signal.
+MUTATING_ACTIONS = {"click", "select", "press", "eval"}
+MAX_EVENT_TEXT = 2_000
+
+
+class RunnerError(RuntimeError):
+    def __init__(self, code: str, message: str, *, detail: Any = None):
+        super().__init__(message)
+        self.code = code
+        self.detail = detail
+
+
+def load_flow(path: Path) -> dict[str, Any]:
+    try:
+        flow = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except (OSError, yaml.YAMLError) as exc:
+        raise RunnerError("INVALID_FLOW", f"อ่าน flow ไม่ได้: {exc}") from exc
+    if not isinstance(flow, dict):
+        raise RunnerError("INVALID_FLOW", "flow ต้องเป็น YAML object")
+    schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
+    errors = sorted(Draft202012Validator(schema).iter_errors(flow), key=lambda e: list(e.path))
+    if errors:
+        lines = []
+        for error in errors[:20]:
+            location = ".".join(str(part) for part in error.absolute_path) or "<root>"
+            lines.append(f"{location}: {error.message}")
+        raise RunnerError("INVALID_FLOW", "flow ไม่ผ่าน schema: " + "; ".join(lines))
+    names = [item["name"] for item in flow.get("vars", [])]
+    if len(names) != len(set(names)):
+        raise RunnerError("INVALID_FLOW", "ชื่อตัวแปรใน vars ต้องไม่ซ้ำกัน")
+    scenario_ids = [item["id"] for item in flow["scenarios"]]
+    if len(scenario_ids) != len(set(scenario_ids)):
+        raise RunnerError("INVALID_FLOW", "scenario id ต้องไม่ซ้ำกัน")
+    return flow
+
+
+def secret_names(flow: dict[str, Any]) -> set[str]:
+    return {item["name"] for item in flow.get("vars", []) if item.get("secret")}
+
+
+def resolve_vars(flow: dict[str, Any], supplied: dict[str, Any]) -> dict[str, Any]:
+    declared = {item["name"]: item for item in flow.get("vars", [])}
+    unknown = sorted(set(supplied) - set(declared))
+    if unknown:
+        raise RunnerError("UNKNOWN_VAR", "ตัวแปรไม่ได้ประกาศใน flow: " + ", ".join(unknown))
+    complex_values = sorted(name for name, value in supplied.items()
+                            if not isinstance(value, (str, int, float, bool, type(None))))
+    if complex_values:
+        raise RunnerError("INVALID_VARS", "ค่าตัวแปรต้องเป็น scalar: " + ", ".join(complex_values))
+    values = {name: item.get("default", "") for name, item in declared.items()}
+    values.update(supplied)
+    return values
+
+
+def substitute(value: Any, variables: dict[str, Any]) -> Any:
+    if not isinstance(value, str):
+        return value
+
+    def replace(match: re.Match[str]) -> str:
+        name = match.group(1)
+        if name not in variables:
+            raise RunnerError("MISSING_VAR", f"ไม่มีค่าตัวแปร {name}")
+        return str(variables[name])
+
+    rendered = PLACEHOLDER.sub(replace, value)
+    unresolved = PLACEHOLDER.findall(rendered)
+    if unresolved:
+        raise RunnerError("MISSING_VAR", "ยังมีตัวแปรที่แทนค่าไม่ได้: " + ", ".join(unresolved))
+    return rendered
+
+
+def redact(value: Any, secrets: set[str], variables: dict[str, Any], *, truncate: bool = True) -> Any:
+    secret_values = [str(variables[name]) for name in secrets if variables.get(name) not in (None, "")]
+    if isinstance(value, dict):
+        return {key: ("***" if key in secrets else redact(item, secrets, variables, truncate=truncate))
+                for key, item in value.items()}
+    if isinstance(value, list):
+        return [redact(item, secrets, variables, truncate=truncate) for item in value]
+    if isinstance(value, str):
+        for secret in secret_values:
+            value = value.replace(secret, "***")
+        return value[:MAX_EVENT_TEXT] if truncate else value
+    return value
+
+
+def resolve_cdp_script(explicit: str | None) -> Path:
+    candidates = [
+        explicit,
+        os.environ.get("TEIBTO_CDP_SCRIPT"),
+        ROOT.parent / "teibto-dev-standards" / "scripts" / "cdp.py",
+        Path.home() / ".claude" / "skills" / "netsuite-qa-browser" / "references" / "cdp.py",
+    ]
+    for candidate in candidates:
+        if candidate and Path(candidate).is_file():
+            return Path(candidate).resolve()
+    raise RunnerError(
+        "CDP_SCRIPT_MISSING",
+        "ไม่พบ cdp.py: ระบุ --cdp-script หรือ TEIBTO_CDP_SCRIPT",
+    )
+
+
+class EventSink:
+    def __init__(self, output: TextIO, path: Path | None, secrets: set[str], variables: dict[str, Any]):
+        self.output = output
+        self.file = path.open("w", encoding="utf-8") if path else None
+        self.secrets = secrets
+        self.variables = variables
+
+    def emit(self, payload: dict[str, Any]) -> None:
+        safe = redact(payload, self.secrets, self.variables)
+        line = json.dumps(safe, ensure_ascii=False, separators=(",", ":"))
+        self.output.write(line + "\n")
+        self.output.flush()
+        if self.file:
+            self.file.write(line + "\n")
+            self.file.flush()
+
+    def close(self) -> None:
+        if self.file:
+            self.file.close()
+
+
+class CDPSession:
+    def __init__(self, script: Path, target_id: str, *, port: str | None = None,
+                 request_timeout: float = 45.0):
+        if not target_id:
+            raise RunnerError("UNPINNED_TARGET", "ต้องระบุ --target-id หรือ TGT_ID")
+        command = [
+            sys.executable,
+            str(script),
+            "session",
+            "--jsonl",
+            f"--target-id={target_id}",
+            "--idle-timeout=120",
+            "--max-lifetime=1800",
+        ]
+        env = os.environ.copy()
+        if port:
+            env["CDP_PORT"] = str(port)
+        self.process = subprocess.Popen(
+            command,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            bufsize=1,
+            env=env,
+        )
+        self.request_timeout = request_timeout
+        self.lines: queue.Queue[str | None] = queue.Queue()
+        self.stderr: list[str] = []
+        self.sequence = 0
+        threading.Thread(target=self._read_stdout, daemon=True).start()
+        threading.Thread(target=self._read_stderr, daemon=True).start()
+        ready = self._next(request_timeout)
+        if ready.get("type") != "ready" or not ready.get("ok"):
+            error = ready.get("error") or {}
+            self.close(force=True)
+            raise RunnerError(error.get("code", "CDP_NOT_READY"),
+                              error.get("message", "CDP session ไม่พร้อม"), detail=ready)
+        if ready.get("target_id") != target_id:
+            self.close(force=True)
+            raise RunnerError("TARGET_MISMATCH", "CDP ต่อผิด target", detail=ready)
+        self.ready = ready
+
+    def _read_stdout(self) -> None:
+        assert self.process.stdout
+        for line in self.process.stdout:
+            self.lines.put(line)
+        self.lines.put(None)
+
+    def _read_stderr(self) -> None:
+        assert self.process.stderr
+        for line in self.process.stderr:
+            if len(self.stderr) < 200:
+                self.stderr.append(line.rstrip())
+
+    def _next(self, timeout: float) -> dict[str, Any]:
+        try:
+            raw = self.lines.get(timeout=timeout)
+        except queue.Empty as exc:
+            raise RunnerError("SESSION_TIMEOUT", "CDP session ไม่ตอบภายในเวลาที่กำหนด") from exc
+        if raw is None:
+            message = "CDP session ปิดก่อนส่งผลลัพธ์"
+            if self.stderr:
+                message += ": " + self.stderr[-1]
+            raise RunnerError("SESSION_CLOSED", message)
+        try:
+            payload = json.loads(raw)
+        except ValueError as exc:
+            raise RunnerError("INVALID_SESSION_OUTPUT", "CDP session คืนค่าที่ไม่ใช่ JSON") from exc
+        if not isinstance(payload, dict):
+            raise RunnerError("INVALID_SESSION_OUTPUT", "CDP session response ต้องเป็น object")
+        return payload
+
+    def command(self, command: str, args: list[Any] | None = None) -> dict[str, Any]:
+        if self.process.poll() is not None:
+            raise RunnerError("SESSION_CLOSED", "CDP session ปิดไปแล้ว")
+        self.sequence += 1
+        request_id = f"flow-{self.sequence}"
+        request = {"id": request_id, "type": "command", "command": command, "args": args or []}
+        assert self.process.stdin
+        try:
+            self.process.stdin.write(json.dumps(request, ensure_ascii=False) + "\n")
+            self.process.stdin.flush()
+        except (BrokenPipeError, OSError) as exc:
+            raise RunnerError("SESSION_CLOSED", "ส่งคำสั่งเข้า CDP session ไม่ได้") from exc
+        while True:
+            payload = self._next(self.request_timeout)
+            if payload.get("type") == "closed":
+                raise RunnerError("SESSION_CLOSED", f"CDP session ปิด: {payload.get('reason')}", detail=payload)
+            if payload.get("id") != request_id:
+                raise RunnerError("CORRELATION_MISMATCH", "CDP response id ไม่ตรงกับ request", detail=payload)
+            if not payload.get("ok"):
+                error = payload.get("error") or {}
+                raise RunnerError(error.get("code", "CDP_COMMAND_FAILED"),
+                                  error.get("message", f"คำสั่ง {command} ล้มเหลว"), detail=payload)
+            return payload
+
+    def close(self, *, force: bool = False) -> None:
+        if self.process.poll() is not None:
+            return
+        if not force:
+            try:
+                assert self.process.stdin
+                self.process.stdin.write('{"id":"runner-close","type":"close"}\n')
+                self.process.stdin.flush()
+                self.process.wait(timeout=3)
+                return
+            except Exception:
+                pass
+        self.process.terminate()
+        try:
+            self.process.wait(timeout=3)
+        except subprocess.TimeoutExpired:
+            self.process.kill()
+            self.process.wait(timeout=3)
+
+
+def js_selector(selector: str) -> str:
+    return json.dumps(selector, ensure_ascii=False)
+
+
+def selector_wait(selector: str) -> str:
+    return ("(function(){var e=document.querySelector(%s);if(!e)return false;"
+            "var r=e.getBoundingClientRect(),s=getComputedStyle(e);"
+            "return r.width>0&&r.height>0&&s.visibility!=='hidden';})()") % js_selector(selector)
+
+
+def perform_action(session: CDPSession, step: dict[str, Any], variables: dict[str, Any]) -> None:
+    action = step["action"]
+    target = substitute(step.get("target", ""), variables)
+    value = substitute(step.get("value", ""), variables)
+    if action == "open":
+        session.command("nav", [target])
+    elif action == "fill":
+        session.command("fill", [target, value])
+        result = session.command("get", ["value", target]).get("data")
+        if str(result) != str(value):
+            raise RunnerError("FILL_NOT_APPLIED", f"ค่าใน {target} ไม่ตรงหลัง fill")
+    elif action == "click":
+        session.command("click", [target])
+    elif action == "select":
+        session.command("pick", [target, value])
+    elif action == "press":
+        session.command("key", [target])
+    elif action == "scrollintoview":
+        expression = ("(function(){var e=document.querySelector(%s);if(!e)return false;"
+                      "e.scrollIntoView({block:'center'});return true;})()") % js_selector(target)
+        if session.command("eval", [expression]).get("data") is not True:
+            raise RunnerError("ELEMENT_MISSING", f"ไม่พบ element: {target}")
+    elif action == "eval":
+        session.command("eval", [target])
+    elif action == "wait":
+        if target:
+            expression = target[3:] if target.startswith("fn:") else selector_wait(target)
+            session.command("wait", [expression, "20"])
+    else:  # schema should make this unreachable
+        raise RunnerError("INVALID_ACTION", f"action ไม่รองรับ: {action}")
+
+
+def perform_wait(session: CDPSession, wait: Any, variables: dict[str, Any]) -> None:
+    if wait is None:
+        return
+    if wait == "networkidle":
+        # CDP transport does not claim true network-idle; this is an explicit document-ready wait.
+        session.command("wait", ["document.readyState === 'complete'", "30"])
+    elif isinstance(wait, int):
+        time.sleep(wait / 1000)
+    elif isinstance(wait, str):
+        rendered = substitute(wait, variables)
+        expression = rendered[3:] if rendered.startswith("fn:") else selector_wait(rendered)
+        session.command("wait", [expression, "20"])
+
+
+def perform_assert(session: CDPSession, assertion: dict[str, Any],
+                   variables: dict[str, Any]) -> tuple[bool, str]:
+    if "url_contains" in assertion:
+        wanted = substitute(assertion["url_contains"], variables)
+        actual = str(session.command("url").get("data") or "")
+        return wanted in actual, f'URL contains "{wanted}" (actual: {actual[:300]})'
+    target = substitute(assertion["target"], variables)
+    wanted = substitute(assertion["contains"], variables)
+    actual = str(session.command("get", ["text", target]).get("data") or "")
+    return wanted in actual, f'{target} contains "{wanted}" (actual: {actual[:300]})'
+
+
+def flow_meta(flow: dict[str, Any], path: Path, *, full: bool = False) -> dict[str, Any]:
+    defaults = {item["name"]: item.get("default", "") for item in flow.get("vars", [])}
+    first_open = next((step for scenario in flow["scenarios"] for step in scenario["steps"]
+                       if step["action"] == "open"), None)
+    url = substitute(first_open.get("target", ""), defaults) if first_open else ""
+    meta = {
+        "id": flow["story"], "title": flow["title"], "file": path.name,
+        "target": flow.get("target", "web"), "url": url, "vars": flow.get("vars", []),
+        "scenarios": [{"id": item["id"], "steps": len(item["steps"]),
+                       "doc": item.get("doc", False)} for item in flow["scenarios"]],
+        "step_count": sum(len(item["steps"]) for item in flow["scenarios"]),
+    }
+    if full:
+        flat = []
+        for scenario in flow["scenarios"]:
+            for step in scenario["steps"]:
+                action = step["action"]
+                flat.append({"i": len(flat), "a": action.upper(),
+                             "t": "assert" if step.get("assert") else action,
+                             "d": step.get("intent", action), "sel": step.get("target")})
+        meta["steps"] = flat
+        meta["yaml"] = path.read_text(encoding="utf-8")
+    return meta
+
+
+def run_flow(flow: dict[str, Any], path: Path, output_dir: Path, variables: dict[str, Any],
+             cdp_script: Path, target_id: str, port: str | None, sink: EventSink) -> int:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    shots = output_dir / "shots"
+    shots.mkdir()
+    report_path = output_dir / "qa-report.md"
+    report = [f"# QA Report — {flow['story']}", "", f"**Title:** {flow['title']}",
+              f"**Target ID:** `{target_id}`", ""]
+    assertions = sum(1 for scenario in flow["scenarios"] for step in scenario["steps"]
+                     if step.get("assert"))
+    passed = failures = unverified = 0
+    session: CDPSession | None = None
+    sink.emit({"type": "run_start", "story": flow["story"], "title": flow["title"],
+               "scenarios": [{"id": item["id"], "steps": len(item["steps"])}
+                             for item in flow["scenarios"]]})
+    try:
+        session = CDPSession(cdp_script, target_id, port=port)
+        sink.emit({"type": "session_ready", "target_id": target_id,
+                   "protocol": session.ready.get("protocol"), "port": session.ready.get("port")})
+        global_index = 0
+        for scenario in flow["scenarios"]:
+            scenario_failed = False
+            sink.emit({"type": "scenario_start", "id": scenario["id"]})
+            report.extend([f"## Scenario: {scenario['id']}", ""])
+            for index, raw_step in enumerate(scenario["steps"], 1):
+                global_index += 1
+                intent = raw_step.get("intent", raw_step["action"])
+                sink.emit({"type": "step", "scenario": scenario["id"], "index": index,
+                           "global_index": global_index, "intent": intent, "status": "running"})
+                started = time.perf_counter()
+                try:
+                    perform_action(session, raw_step, variables)
+                    perform_wait(session, raw_step.get("wait"), variables)
+                    assertion = raw_step.get("assert")
+                    status, detail = "done", ""
+                    if assertion:
+                        ok, detail = perform_assert(session, assertion, variables)
+                        if not ok:
+                            raise RunnerError("ASSERTION_FAILED", detail)
+                        passed += 1
+                        status = "pass"
+                    elif raw_step["action"] in MUTATING_ACTIONS:
+                        unverified += 1
+                        status, detail = "unverified", "state-changing step has no explicit assertion"
+                    shot = None
+                    if raw_step.get("capture", True):
+                        shot_path = (shots / f"{scenario['id']}-{index:02d}.png").resolve()
+                        session.command("shot", [str(shot_path)])
+                        shot = str(shot_path)
+                    marker = "✅" if status == "pass" else ("⚠️" if status == "unverified" else "▸")
+                    report.append(f"- {marker} {intent}" + (f" — {detail}" if detail else ""))
+                    sink.emit({"type": "step_done", "scenario": scenario["id"], "index": index,
+                               "global_index": global_index, "intent": intent, "status": status,
+                               "detail": detail, "shot": shot,
+                               "duration_ms": round((time.perf_counter() - started) * 1000, 3)})
+                except RunnerError as exc:
+                    failures += 1
+                    scenario_failed = True
+                    report.append(f"- ❌ {intent} — {exc.code}: {exc}")
+                    sink.emit({"type": "step_done", "scenario": scenario["id"], "index": index,
+                               "global_index": global_index, "intent": intent, "status": "fail",
+                               "error": {"code": exc.code, "message": str(exc)},
+                               "duration_ms": round((time.perf_counter() - started) * 1000, 3)})
+                    break
+            if not scenario_failed:
+                try:
+                    console = session.command("console").get("data")
+                    messages = console if isinstance(console, list) else ([] if console in (None, [], "[]") else console)
+                    empty = not messages
+                    sink.emit({"type": "errors", "scenario": scenario["id"], "empty": empty,
+                               **({"msgs": messages} if not empty else {})})
+                    if not empty:
+                        failures += 1
+                        scenario_failed = True
+                        report.append(f"- ❌ Browser console: {messages}")
+                    else:
+                        report.append("- ✅ Browser console collector is empty")
+                except RunnerError as exc:
+                    failures += 1
+                    scenario_failed = True
+                    report.append(f"- ❌ Console verification unavailable — {exc.code}: {exc}")
+                    sink.emit({"type": "errors", "scenario": scenario["id"], "empty": False,
+                               "error": {"code": exc.code, "message": str(exc)}})
+            sink.emit({"type": "scenario_done", "id": scenario["id"],
+                       "status": "fail" if scenario_failed else "done"})
+            report.append("")
+            if scenario_failed:
+                break
+    except RunnerError as exc:
+        failures += 1
+        sink.emit({"type": "fatal", "error": {"code": exc.code, "message": str(exc)}})
+        report.append(f"## Fatal\n\n- ❌ {exc.code}: {exc}\n")
+    finally:
+        if session:
+            session.close()
+
+    verdict = "FAIL" if failures else ("UNVERIFIED" if unverified else "PASS")
+    summary = [f"**Verdict:** {verdict}", f"**Assertions:** {passed}/{assertions} passed",
+               f"**Unverified state changes:** {unverified}", ""]
+    report[4:4] = summary
+    safe_report = redact("\n".join(report), sink.secrets, variables, truncate=False)
+    report_path.write_text(str(safe_report), encoding="utf-8")
+    sink.emit({"type": "run_done", "passed": passed, "total": assertions,
+               "failures": failures, "unverified": unverified, "verdict": verdict,
+               "report": str(report_path.resolve())})
+    return 0 if verdict == "PASS" else 1
+
+
+def read_vars(argument: str) -> dict[str, Any]:
+    raw = sys.stdin.read() if argument == "-" else argument
+    if len(raw) > 1_000_000:
+        raise RunnerError("VARS_TOO_LARGE", "--vars-json ต้องไม่เกิน 1,000,000 characters")
+    try:
+        value = json.loads(raw or "{}")
+    except ValueError as exc:
+        raise RunnerError("INVALID_VARS", "--vars-json ต้องเป็น JSON object") from exc
+    if not isinstance(value, dict):
+        raise RunnerError("INVALID_VARS", "--vars-json ต้องเป็น JSON object")
+    return value
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--flow", required=True)
+    parser.add_argument("--out")
+    parser.add_argument("--vars-json", default="{}")
+    parser.add_argument("--target-id", default=os.environ.get("TGT_ID"))
+    parser.add_argument("--cdp-port", default=os.environ.get("CDP_PORT"))
+    parser.add_argument("--cdp-script")
+    parser.add_argument("--meta", action="store_true")
+    parser.add_argument("--full", action="store_true")
+    args = parser.parse_args(argv)
+    sink: EventSink | None = None
+    try:
+        path = Path(args.flow).resolve()
+        flow = load_flow(path)
+        if args.meta:
+            print(json.dumps(flow_meta(flow, path, full=args.full), ensure_ascii=False))
+            return 0
+        if not args.out:
+            raise RunnerError("INVALID_ARGS", "ต้องระบุ --out เมื่อสั่ง run")
+        if not args.target_id:
+            raise RunnerError("UNPINNED_TARGET", "ต้องระบุ --target-id หรือ TGT_ID")
+        cdp_script = resolve_cdp_script(args.cdp_script)
+        supplied = read_vars(args.vars_json)
+        exposed = secret_names(flow).intersection(supplied)
+        if exposed and args.vars_json != "-":
+            raise RunnerError("SECRET_IN_ARGV", "secret vars ต้องส่งด้วย --vars-json - ผ่าน stdin")
+        variables = resolve_vars(flow, supplied)
+        output_dir = Path(args.out).resolve()
+        output_dir.parent.mkdir(parents=True, exist_ok=True)
+        if output_dir.exists():
+            raise RunnerError("OUTPUT_EXISTS", f"output directory มีอยู่แล้ว: {output_dir}")
+        output_dir.mkdir(parents=True)
+        log_path = output_dir / "run-log.jsonl"
+        sink = EventSink(sys.stdout, log_path, secret_names(flow), variables)
+        return run_flow(flow, path, output_dir, variables, cdp_script,
+                        args.target_id or "", args.cdp_port, sink)
+    except RunnerError as exc:
+        payload = {"type": "fatal", "error": {"code": exc.code, "message": str(exc)}}
+        if sink:
+            sink.emit(payload)
+        else:
+            print(json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
+        return 2
+    finally:
+        if sink:
+            sink.close()
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

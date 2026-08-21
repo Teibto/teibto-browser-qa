@@ -15,6 +15,10 @@
 - ย้าย canonical ownership จากบัญชีส่วนตัวมา `Teibto/teibto-browser-qa` และเปลี่ยน skill/bundle
   identity เป็น `teibto-browser-qa` โดยคง Git history, issues และ Releases เดิม (#47)
 - เพิ่ม PR quality gate และบังคับให้ release-on-tag ผ่าน gate เดียวกันก่อนสร้าง bundle พร้อม checksum
+- รวม QA runner เข้า repo canonical: strict JSON Schema, one pinned/bounded `cdp.py session --jsonl`
+  ต่อ run, secret ผ่าน stdin, fail-fast typed errors, `PASS`/`FAIL`/`UNVERIFIED`, JSONL log/report/shots
+- เพิ่ม local-only UI/API ที่ใช้ runner เดียวกัน พร้อม SSE/cancellation/path guards; ตัด dependency
+  `agent-browser` daemon, dashboard, video และ ffmpeg ออกจาก runtime
 
 ## [1.6.3] - 2026-08-16
 
