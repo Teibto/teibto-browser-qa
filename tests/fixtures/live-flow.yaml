@@ -1,0 +1,19 @@
+story: live-runner
+title: Live runner contract
+vars:
+  - {name: base_url, label: URL}
+  - {name: tester, label: Tester, secret: true}
+scenarios:
+  - id: native-click
+    steps:
+      - action: open
+        target: "{{base_url}}"
+        wait: networkidle
+        capture: false
+      - action: fill
+        target: "#name"
+        value: "{{tester}}"
+        capture: false
+      - action: click
+        target: "#save"
+        assert: {target: "#status", contains: "saved"}

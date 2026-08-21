@@ -1,0 +1,883 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>QA Agent · Control Center</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --ink:#0A0C10; --surface:#12161F; --surface-2:#161B26; --raise:#1B2130;
+  --line:#242C3B; --line-soft:#1C2230;
+  --txt:#E6EAF2; --muted:#8B95A8; --faint:#5A6378;
+  --wire:#56D4F0; --run:#F5B544; --pass:#4ADE80; --fail:#FF5C6C; --assert:#A989FF;
+  --wire-dim:rgba(86,212,240,.12); --run-dim:rgba(245,181,68,.14);
+  --pass-dim:rgba(74,222,128,.12); --fail-dim:rgba(255,92,108,.13);
+  --r:10px; --r-sm:7px;
+  --mono:'JetBrains Mono',ui-monospace,monospace;
+  --disp:'Space Grotesk',sans-serif; --ui:'Inter',sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{
+  background:
+    radial-gradient(900px 500px at 88% -8%,rgba(86,212,240,.07),transparent 60%),
+    radial-gradient(700px 500px at -5% 110%,rgba(169,137,255,.06),transparent 55%),
+    var(--ink);
+  color:var(--txt); font-family:var(--ui); font-size:14px;
+  -webkit-font-smoothing:antialiased; line-height:1.5;
+}
+::-webkit-scrollbar{width:9px;height:9px}
+::-webkit-scrollbar-thumb{background:#222a39;border-radius:6px}
+::-webkit-scrollbar-track{background:transparent}
+button{font-family:inherit;cursor:pointer;border:none;background:none;color:inherit}
+.mono{font-family:var(--mono)}
+
+.app{display:grid;grid-template-columns:230px 1fr;min-height:100vh}
+.side{border-right:1px solid var(--line);background:rgba(10,12,16,.6);backdrop-filter:blur(8px);padding:18px 14px;position:sticky;top:0;height:100vh;display:flex;flex-direction:column;gap:6px}
+.brand{display:flex;align-items:center;gap:11px;padding:6px 8px 18px}
+.logo{width:34px;height:34px;border-radius:9px;flex:none;position:relative;background:linear-gradient(135deg,#0e1722,#0a1118);border:1px solid #213040;display:grid;place-items:center}
+.logo::before{content:"";width:13px;height:13px;border-radius:50%;border:2px solid var(--wire);box-shadow:0 0 12px var(--wire)}
+.logo::after{content:"";position:absolute;width:5px;height:5px;border-radius:50%;background:var(--run);right:6px;bottom:6px;box-shadow:0 0 8px var(--run)}
+.brand b{font-family:var(--disp);font-weight:700;font-size:15px;letter-spacing:.2px;display:block;line-height:1.15}
+.brand span{font-size:10.5px;color:var(--faint);font-family:var(--mono);letter-spacing:1px}
+.nav-label{font-size:10px;color:var(--faint);font-family:var(--mono);letter-spacing:1.5px;padding:14px 10px 6px}
+.nav a{display:flex;align-items:center;gap:11px;padding:9px 11px;border-radius:var(--r-sm);color:var(--muted);font-weight:500;font-size:13.5px;text-decoration:none;transition:.16s}
+.nav a:hover{background:var(--surface-2);color:var(--txt)}
+.nav a.on{background:var(--wire-dim);color:var(--txt);box-shadow:inset 0 0 0 1px rgba(86,212,240,.25)}
+.nav a .ic{width:17px;height:17px;flex:none;opacity:.85}
+.nav a.on .ic{color:var(--wire);opacity:1}
+.side-foot{margin-top:auto;padding:12px 10px 4px;border-top:1px solid var(--line-soft);font-size:11px;color:var(--faint);font-family:var(--mono)}
+.side-foot .dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--pass);box-shadow:0 0 7px var(--pass);margin-right:6px;vertical-align:middle}
+
+.main{min-width:0;display:flex;flex-direction:column}
+.scrim{display:none}
+.topbar{display:flex;align-items:center;gap:14px;padding:15px 26px;border-bottom:1px solid var(--line);position:sticky;top:0;z-index:30;background:rgba(10,12,16,.75);backdrop-filter:blur(10px)}
+.topbar h1{font-family:var(--disp);font-size:18px;font-weight:600;letter-spacing:.2px}
+.crumb{font-family:var(--mono);font-size:11px;color:var(--faint);margin-left:2px}
+.spacer{flex:1}
+.pill{font-family:var(--mono);font-size:11px;padding:5px 10px;border-radius:20px;border:1px solid var(--line);color:var(--muted);display:inline-flex;align-items:center;gap:6px}
+.pill .dot{width:6px;height:6px;border-radius:50%;background:var(--wire);box-shadow:0 0 6px var(--wire)}
+.pill.live .dot{background:var(--pass);box-shadow:0 0 6px var(--pass)}
+.pill.demo{color:var(--run);border-color:rgba(245,181,68,.35)}
+.pill.demo .dot{background:var(--run);box-shadow:0 0 6px var(--run)}
+.view{padding:26px;display:none;animation:fade .3s ease}
+.view.on{display:block}
+@keyframes fade{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r)}
+.eyebrow{font-family:var(--mono);font-size:10.5px;letter-spacing:1.5px;color:var(--faint);text-transform:uppercase}
+.btn{display:inline-flex;align-items:center;gap:8px;padding:9px 15px;border-radius:var(--r-sm);font-weight:600;font-size:13px;transition:.16s;border:1px solid var(--line);background:var(--surface-2);color:var(--txt)}
+.btn:hover{border-color:#33404f;background:var(--raise)}
+.btn.primary{background:var(--wire);color:#04181f;border-color:var(--wire)}
+.btn.primary:hover{background:#74dcf3;box-shadow:0 4px 18px rgba(86,212,240,.25)}
+.btn.run{background:var(--run);color:#251800;border-color:var(--run)}
+.btn.run:hover{background:#ffc564;box-shadow:0 4px 18px rgba(245,181,68,.3)}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.tag{font-family:var(--mono);font-size:10.5px;padding:3px 8px;border-radius:5px;border:1px solid var(--line);color:var(--muted)}
+.tag.ns,.tag.netsuite{color:#7ed0ff;border-color:rgba(126,208,255,.3);background:rgba(126,208,255,.07)}
+.tag.web{color:#c4a6ff;border-color:rgba(196,166,255,.3);background:rgba(196,166,255,.07)}
+.tag.pass{color:var(--pass);border-color:rgba(74,222,128,.3);background:var(--pass-dim)}
+.tag.fail{color:var(--fail);border-color:rgba(255,92,108,.3);background:var(--fail-dim)}
+.tag.flaky{color:var(--run);border-color:rgba(245,181,68,.3);background:var(--run-dim)}
+
+.stat-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:22px}
+.stat{padding:18px}
+.stat .k{font-family:var(--mono);font-size:10.5px;letter-spacing:1px;color:var(--faint);text-transform:uppercase}
+.stat .v{font-family:var(--disp);font-size:34px;font-weight:600;margin-top:8px;line-height:1}
+.stat .sub{font-size:12px;color:var(--muted);margin-top:7px}
+.ov-grid{display:grid;grid-template-columns:1.5fr 1fr;gap:18px}
+.panel-h{display:flex;align-items:center;justify-content:space-between;padding:15px 18px;border-bottom:1px solid var(--line)}
+.panel-h b{font-family:var(--disp);font-size:14.5px;font-weight:600}
+.run-row{display:flex;align-items:center;gap:13px;padding:13px 18px;border-bottom:1px solid var(--line-soft);font-size:13px}
+.run-row:last-child{border-bottom:none}
+.run-row .v-dot{width:9px;height:9px;border-radius:50%;flex:none}
+.run-row .nm{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.run-row .meta{font-family:var(--mono);font-size:11px;color:var(--faint)}
+.donut-wrap{padding:26px 18px;display:flex;flex-direction:column;align-items:center;gap:6px}
+.legend{display:flex;gap:18px;margin-top:10px;font-size:12px;color:var(--muted)}
+.legend i{display:inline-block;width:9px;height:9px;border-radius:3px;margin-right:6px;vertical-align:middle}
+
+.story-layout{display:grid;grid-template-columns:300px 1fr;gap:18px;align-items:start}
+.story-item{padding:13px 16px;border-bottom:1px solid var(--line-soft);cursor:pointer;transition:.14s}
+.story-item:hover{background:var(--surface-2)}
+.story-item.on{background:var(--wire-dim);box-shadow:inset 2px 0 0 var(--wire)}
+.story-item .t{font-weight:600;font-size:13.5px;display:flex;align-items:center;gap:8px}
+.story-item .d{font-family:var(--mono);font-size:11px;color:var(--faint);margin-top:5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.editor{display:flex;flex-direction:column;min-height:520px}
+.editor-bar{display:flex;align-items:center;gap:10px;padding:11px 16px;border-bottom:1px solid var(--line)}
+.editor-bar .fname{font-family:var(--mono);font-size:12.5px;color:var(--muted)}
+.editor-bar .dots{display:flex;gap:6px;margin-right:4px}
+.editor-bar .dots i{width:11px;height:11px;border-radius:50%}
+.dirty{width:7px;height:7px;border-radius:50%;background:var(--run);box-shadow:0 0 7px var(--run);opacity:0;transition:.2s}
+.dirty.on{opacity:1}
+.editor-wrap{position:relative;flex:1;min-height:430px;overflow:hidden}
+.yaml-hl,.yaml-ta{position:absolute;inset:0;margin:0;border:0;font-family:var(--mono);font-size:12.5px;line-height:1.85;padding:18px 20px;tab-size:2;white-space:pre;overflow:auto;word-wrap:normal}
+.yaml-hl{color:var(--txt);pointer-events:none;z-index:1}
+.yaml-ta{z-index:2;color:transparent;background:transparent;caret-color:var(--wire);resize:none;outline:none}
+.yaml-ta::selection{background:rgba(86,212,240,.28)}
+.yaml-hl .k{color:var(--wire)} .yaml-hl .s{color:#9be39b} .yaml-hl .n{color:var(--run)}
+.yaml-hl .c{color:var(--faint);font-style:italic} .yaml-hl .d{color:var(--assert)} .yaml-hl .v{color:var(--txt)}
+.editor-foot{padding:9px 16px;border-top:1px solid var(--line);font-family:var(--mono);font-size:11.5px;color:var(--faint);min-height:36px;display:flex;align-items:center;gap:8px}
+.editor-foot.ok{color:var(--pass)} .editor-foot.err{color:var(--fail)}
+
+.run-head{display:flex;align-items:center;gap:14px;margin-bottom:18px;flex-wrap:wrap}
+.rec-chk{display:inline-flex;align-items:center;gap:7px;font-size:12.5px;color:var(--muted);cursor:pointer;font-family:var(--mono)}
+.rec-chk input{width:15px;height:15px;accent-color:var(--run)}
+.run-input{height:38px;border:1px solid var(--line);border-radius:8px;background:var(--surface-2);color:var(--txt);padding:0 10px;font:11px var(--mono);min-width:190px}
+.run-vars{display:flex;gap:8px;flex-wrap:wrap;padding:0 0 12px}
+.run-vars label{display:grid;gap:4px;color:var(--muted);font:10px var(--mono)}
+.artifacts{display:flex;align-items:center;gap:10px;margin-bottom:18px;flex-wrap:wrap;padding:12px 16px;border:1px solid var(--line);border-radius:var(--r);background:var(--surface)}
+.artifacts .btn{padding:7px 13px;font-size:12.5px}
+.artifacts a.btn{text-decoration:none}
+.run-select{font-family:var(--ui);font-size:13.5px;font-weight:600;padding:10px 14px;border-radius:var(--r-sm);background:var(--surface-2);border:1px solid var(--line);color:var(--txt);min-width:280px}
+.monitor{display:grid;grid-template-columns:1.4fr 1fr;gap:18px;align-items:start}
+.viewport-card{overflow:hidden}
+.vp-chrome{display:flex;align-items:center;gap:9px;padding:10px 14px;background:var(--surface-2);border-bottom:1px solid var(--line)}
+.vp-chrome .tl{display:flex;gap:6px} .vp-chrome .tl i{width:11px;height:11px;border-radius:50%}
+.vp-url{flex:1;font-family:var(--mono);font-size:11px;color:var(--muted);background:var(--ink);padding:6px 11px;border-radius:6px;border:1px solid var(--line-soft);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.vp-stage{position:relative;height:360px;background:#0E1116;overflow:hidden}
+.vp-frame{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#0E1116;z-index:5}
+.mock{position:absolute;inset:0;padding:22px;transition:opacity .3s}
+.mock-title{font-family:var(--disp);font-weight:600;font-size:15px;color:#cdd6e3;margin-bottom:4px}
+.mock-sub{font-size:11px;color:var(--faint);font-family:var(--mono);margin-bottom:18px}
+.fld{margin-bottom:13px}
+.fld label{display:block;font-size:11px;color:var(--muted);margin-bottom:5px;font-family:var(--mono)}
+.fld .inp{height:34px;background:#141923;border:1px solid var(--line);border-radius:6px;display:flex;align-items:center;padding:0 11px;font-size:12.5px;color:var(--txt);font-family:var(--mono)}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:13px}
+.mock-btn{margin-top:8px;display:inline-flex;padding:8px 16px;border-radius:6px;background:#1f2735;border:1px solid var(--line);font-size:12.5px;font-weight:600;color:#cdd6e3}
+.target{position:relative;transition:.18s}
+.target.hot{box-shadow:0 0 0 2px var(--wire),0 0 22px var(--wire-dim);border-radius:7px}
+.target.hot .inp{border-color:var(--wire)}
+.target.ok{box-shadow:0 0 0 2px var(--pass)}
+.target.bad{box-shadow:0 0 0 2px var(--fail);animation:shake .3s}
+@keyframes shake{0%,100%{transform:translateX(0)}25%{transform:translateX(-4px)}75%{transform:translateX(4px)}}
+.cursor{position:absolute;width:18px;height:18px;z-index:20;left:50%;top:60%;transition:left .55s cubic-bezier(.5,.05,.3,1),top .55s cubic-bezier(.5,.05,.3,1);pointer-events:none;filter:drop-shadow(0 2px 5px rgba(0,0,0,.6))}
+.cursor.click::after{content:"";position:absolute;left:-9px;top:-9px;width:28px;height:28px;border-radius:50%;border:2px solid var(--wire);animation:ring .45s ease-out}
+@keyframes ring{from{transform:scale(.2);opacity:1}to{transform:scale(1.3);opacity:0}}
+.vp-idle{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;color:var(--faint);text-align:center;padding:30px}
+.vp-idle .big{font-family:var(--disp);font-size:15px;color:var(--muted)}
+.vp-verdict{position:absolute;inset:0;display:none;flex-direction:column;align-items:center;justify-content:center;gap:8px;backdrop-filter:blur(2px);z-index:25}
+.vp-verdict.show{display:flex;animation:fade .25s}
+.vp-verdict .badge{font-family:var(--disp);font-weight:700;font-size:30px;letter-spacing:1px}
+.vp-verdict.p{background:rgba(6,20,12,.78)} .vp-verdict.p .badge{color:var(--pass);text-shadow:0 0 26px var(--pass-dim)}
+.vp-verdict.f{background:rgba(22,8,11,.8)} .vp-verdict.f .badge{color:var(--fail);text-shadow:0 0 26px var(--fail-dim)}
+.vp-verdict .why{font-family:var(--mono);font-size:11.5px;color:var(--muted);max-width:80%;text-align:center}
+
+.side-stack{display:flex;flex-direction:column;gap:18px}
+.steps{max-height:248px;overflow:auto}
+.step{display:flex;align-items:flex-start;gap:11px;padding:11px 16px;border-bottom:1px solid var(--line-soft);font-size:12.5px;opacity:.5;transition:.2s}
+.step:last-child{border-bottom:none}
+.step.active{opacity:1;background:var(--surface-2)} .step.done{opacity:1}
+.step .num{font-family:var(--mono);font-size:10px;color:var(--faint);width:18px;flex:none;padding-top:2px}
+.step .ico{width:18px;height:18px;border-radius:5px;flex:none;display:grid;place-items:center;font-family:var(--mono);font-size:10px;font-weight:700;margin-top:1px}
+.step .body{flex:1;min-width:0}
+.step .act{font-family:var(--mono);font-weight:700;font-size:11px;letter-spacing:.5px}
+.step .det{color:var(--muted);font-size:11.5px;margin-top:2px;font-family:var(--mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.step .spin{width:13px;height:13px;border:2px solid var(--run);border-top-color:transparent;border-radius:50%;animation:spin .7s linear infinite;flex:none;margin-top:2px}
+.step .chk{font-size:13px;flex:none;margin-top:1px}
+@keyframes spin{to{transform:rotate(360deg)}}
+.ico.goto,.ico.click,.ico.type{background:var(--wire-dim);color:var(--wire)}
+.ico.wait,.ico.shot{background:rgba(139,149,168,.14);color:var(--muted)}
+.ico.assert{background:rgba(169,137,255,.15);color:var(--assert)}
+.term{background:#080A0E;border-radius:var(--r);border:1px solid var(--line);overflow:hidden;display:flex;flex-direction:column}
+.term-h{display:flex;align-items:center;gap:9px;padding:9px 14px;border-bottom:1px solid var(--line);font-family:var(--mono);font-size:11px;color:var(--faint)}
+.term-h .live{margin-left:auto;display:flex;align-items:center;gap:6px;color:var(--run)}
+.term-h .live i{width:6px;height:6px;border-radius:50%;background:var(--run);box-shadow:0 0 7px var(--run);animation:blink 1s infinite}
+@keyframes blink{50%{opacity:.3}}
+.log{font-family:var(--mono);font-size:11.5px;line-height:1.75;padding:13px 15px;height:220px;overflow:auto}
+.log .ln{display:flex;gap:9px;margin-bottom:2px;animation:logIn .2s}
+@keyframes logIn{from{opacity:0;transform:translateX(-4px)}to{opacity:1;transform:none}}
+.log .ts{color:var(--faint);flex:none} .log .lv{flex:none;font-weight:700}
+.log .lv.info{color:var(--wire)} .log .lv.ok{color:var(--pass)} .log .lv.warn{color:var(--run)} .log .lv.err{color:var(--fail)} .log .lv.cdp{color:var(--assert)}
+.log .msg{color:#c2cad8;white-space:pre-wrap;word-break:break-word} .log .empty{color:var(--faint)}
+
+.rep-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:22px}
+.bars{display:flex;align-items:flex-end;gap:10px;height:120px;padding:14px 18px 0}
+.bar{flex:1;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;gap:6px;height:100%}
+.bar .col{width:100%;border-radius:5px 5px 0 0;background:linear-gradient(180deg,var(--wire),rgba(86,212,240,.25))}
+.bar .lbl{font-family:var(--mono);font-size:10px;color:var(--faint)}
+table{width:100%;border-collapse:collapse}
+thead th{font-family:var(--mono);font-size:10.5px;letter-spacing:1px;color:var(--faint);text-transform:uppercase;text-align:left;padding:12px 18px;border-bottom:1px solid var(--line)}
+tbody td{padding:13px 18px;border-bottom:1px solid var(--line-soft);font-size:13px}
+tbody tr:hover{background:var(--surface-2)} tbody td.mono{font-family:var(--mono);font-size:12px;color:var(--muted)}
+.shot{aspect-ratio:16/10;border-radius:8px;border:1px solid var(--line);background:#0e1116;position:relative;overflow:hidden}
+.shot .ph{position:absolute;inset:0;display:grid;place-items:center;color:var(--faint);font-family:var(--mono);font-size:10px}
+.shot .cap{position:absolute;left:0;right:0;bottom:0;padding:7px 9px;font-family:var(--mono);font-size:10px;background:linear-gradient(transparent,rgba(8,10,14,.92));color:var(--muted)}
+.shot-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;padding:18px}
+
+#toast{position:fixed;right:20px;bottom:20px;z-index:90;display:flex;flex-direction:column;gap:9px}
+.toast{padding:12px 16px;border-radius:9px;border:1px solid var(--line);background:var(--raise);font-size:13px;box-shadow:0 8px 30px rgba(0,0,0,.45);display:flex;align-items:center;gap:10px;animation:fade .25s;max-width:340px}
+.toast.ok{border-color:rgba(74,222,128,.4)} .toast.ok b{color:var(--pass)}
+.toast.err{border-color:rgba(255,92,108,.4)} .toast.err b{color:var(--fail)}
+.toast b{font-family:var(--mono);font-size:11px;letter-spacing:.5px}
+
+.menu-btn{display:none}
+@media(max-width:900px){
+  .app{grid-template-columns:1fr}
+  .side{position:fixed;left:0;top:0;z-index:60;width:230px;transform:translateX(-105%);transition:.25s;box-shadow:0 0 40px rgba(0,0,0,.6)}
+  .side.open{transform:none}
+  .menu-btn{display:inline-grid;place-items:center;width:38px;height:38px;border-radius:8px;border:1px solid var(--line);background:var(--surface-2)}
+  .stat-grid{grid-template-columns:repeat(2,1fr)}
+  .ov-grid,.monitor,.story-layout,.rep-grid{grid-template-columns:1fr}
+  .shot-grid{grid-template-columns:repeat(2,1fr)}
+  .view{padding:18px} .topbar{padding:13px 16px}
+  .scrim{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:55;display:none}
+  .scrim.open{display:block}
+}
+@media(prefers-reduced-motion:reduce){*{animation-duration:.01ms!important;transition-duration:.01ms!important}}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="side" id="side">
+    <div class="brand">
+      <div class="logo"></div>
+      <div><b>TEIBTO Browser QA</b><span>pinned CDP · JSONL</span></div>
+    </div>
+    <div class="nav-label">CONSOLE</div>
+    <nav class="nav" id="nav">
+      <a data-v="overview" class="on"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>Overview</a>
+      <a data-v="stories"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16v16H4z"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>Stories</a>
+      <a data-v="run"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M10 8l5 4-5 4z" fill="currentColor" stroke="none"/></svg>Run &amp; Monitor</a>
+      <a data-v="reports"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 20V4M4 20h16M8 16v-5M13 16V8M18 16v-9"/></svg>Reports</a>
+    </nav>
+    <div class="side-foot">
+      <div id="footRunner"><span class="dot"></span>connecting…</div>
+      <div style="margin-top:6px;color:var(--faint)">no silent fallback · deterministic</div>
+    </div>
+  </aside>
+  <div class="scrim" id="scrim"></div>
+
+  <div class="main">
+    <header class="topbar">
+      <button class="menu-btn" id="menuBtn"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M3 12h18M3 18h18"/></svg></button>
+      <h1 id="vTitle">Overview</h1>
+      <span class="crumb" id="vCrumb">/ control-center</span>
+      <div class="spacer"></div>
+      <span class="pill" id="modePill"><span class="dot"></span>checking…</span>
+    </header>
+
+    <!-- OVERVIEW -->
+    <section class="view on" id="view-overview">
+      <div class="stat-grid">
+        <div class="stat card"><div class="k">Stories</div><div class="v" id="ovStories">—</div><div class="sub" id="ovStoriesSub">loading…</div></div>
+        <div class="stat card"><div class="k">Pass rate · 7d</div><div class="v" id="ovPass" style="color:var(--pass)">91<span style="font-size:18px">%</span></div><div class="sub" id="ovPassSub">128 / 141 demo runs</div></div>
+        <div class="stat card"><div class="k">Avg duration</div><div class="v" id="ovDuration">12<span style="font-size:18px">s</span></div><div class="sub" id="ovDurationSub">demo data</div></div>
+        <div class="stat card"><div class="k">Flaky watch</div><div class="v" id="ovFlaky" style="color:var(--run)">2</div><div class="sub" id="ovFlakySub">demo data</div></div>
+      </div>
+      <div class="ov-grid">
+        <div class="card">
+          <div class="panel-h"><b>Recent runs</b><span class="eyebrow">last 24h</span></div>
+          <div id="recentRuns"></div>
+        </div>
+        <div class="card">
+          <div class="panel-h"><b>Verdict mix</b><span class="eyebrow">7d</span></div>
+          <div class="donut-wrap">
+            <svg width="150" height="150" viewBox="0 0 42 42">
+              <circle cx="21" cy="21" r="15.9" fill="none" stroke="#1c2230" stroke-width="5"/>
+              <circle cx="21" cy="21" r="15.9" fill="none" stroke="var(--pass)" stroke-width="5" stroke-dasharray="91 9" stroke-dashoffset="25" stroke-linecap="round"/>
+              <circle cx="21" cy="21" r="15.9" fill="none" stroke="var(--fail)" stroke-width="5" stroke-dasharray="9 91" stroke-dashoffset="-66" stroke-linecap="round"/>
+              <text x="21" y="20" text-anchor="middle" fill="var(--txt)" font-family="Space Grotesk" font-size="8" font-weight="600">91%</text>
+              <text x="21" y="27" text-anchor="middle" fill="var(--faint)" font-family="JetBrains Mono" font-size="3">PASS</text>
+            </svg>
+            <div class="legend"><span><i style="background:var(--pass)"></i>Pass 128</span><span><i style="background:var(--fail)"></i>Fail 13</span></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- STORIES -->
+    <section class="view" id="view-stories">
+      <div class="story-layout">
+        <div class="card">
+          <div class="panel-h"><b>Stories</b><button class="btn" id="newStory" style="padding:6px 11px;font-size:12px">+ New</button></div>
+          <div id="storyList"></div>
+        </div>
+        <div class="card editor">
+          <div class="editor-bar">
+            <div class="dots"><i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i></div>
+            <span class="fname mono" id="yamlFile">—</span>
+            <span class="dirty" id="dirtyDot"></span>
+            <div class="spacer"></div>
+            <span class="tag" id="yamlTarget">—</span>
+            <button class="btn" id="saveBtn" style="padding:7px 13px;font-size:12px">Save</button>
+            <button class="btn run" id="editRun" style="padding:7px 13px;font-size:12px">▶ Run</button>
+          </div>
+          <div class="editor-wrap">
+            <pre class="yaml-hl mono" id="yamlHL" aria-hidden="true"></pre>
+            <textarea class="yaml-ta mono" id="yamlTA" spellcheck="false" wrap="off" autocapitalize="off" autocorrect="off"></textarea>
+          </div>
+          <div class="editor-foot mono" id="editorFoot">ready</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- RUN -->
+    <section class="view" id="view-run">
+      <div class="run-head">
+        <select class="run-select" id="runSelect"></select>
+        <input class="run-input" id="targetId" autocomplete="off" placeholder="CDP target id (or server TGT_ID)">
+        <button class="btn run" id="runBtn">▶ Run story</button>
+        <button class="btn" id="resetBtn" disabled>Reset</button>
+        <div class="spacer"></div>
+        <span class="pill" id="runStatus"><span class="dot" style="background:var(--faint);box-shadow:none"></span>idle</span>
+      </div>
+      <div class="run-vars" id="runVars"></div>
+      <div class="artifacts" id="artifacts" style="display:none">
+        <span class="eyebrow">artifacts · last run</span>
+        <a class="btn" id="dlReport" target="_blank">📄 qa-report.md</a>
+      </div>
+      <div class="monitor">
+        <div class="card viewport-card">
+          <div class="vp-chrome">
+            <div class="tl"><i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i></div>
+            <div class="vp-url mono" id="vpUrl">about:blank</div>
+          </div>
+          <div class="vp-stage" id="vpStage">
+            <div class="vp-idle" id="vpIdle">
+              <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="var(--faint)" stroke-width="1.5"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M3 8h18M8 21h8"/></svg>
+              <div class="big">Browser viewport idle</div>
+              <div class="mono" style="font-size:11px">เลือก story แล้วกด Run — ใช้ CDP JSONL session เดียวแบบ pinned target</div>
+            </div>
+            <div class="vp-verdict" id="vpVerdict"><div class="badge" id="verdictBadge">PASS</div><div class="why mono" id="verdictWhy"></div></div>
+          </div>
+        </div>
+        <div class="side-stack">
+          <div class="card">
+            <div class="panel-h"><b>Steps</b><span class="eyebrow" id="stepCount">0 / 0</span></div>
+            <div class="steps" id="stepList"><div style="padding:22px 18px;color:var(--faint);font-size:12.5px" class="mono">ยังไม่มี run — parsed steps จะโชว์ที่นี่</div></div>
+          </div>
+          <div class="term">
+            <div class="term-h"><span id="termSrc">cdp-jsonl · events</span><span class="live" id="termLive" style="display:none"><i></i>LIVE</span></div>
+            <div class="log" id="log"><div class="ln"><span class="empty">$ waiting for run…</span></div></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- REPORTS -->
+    <section class="view" id="view-reports">
+      <div class="rep-grid">
+        <div class="card"><div class="panel-h"><b>Pass rate · 14d</b><span class="eyebrow">trend</span></div><div class="bars" id="repBars"></div></div>
+        <div class="stat card"><div class="k">Total runs · 14d</div><div class="v">283</div><div class="sub">across stories</div></div>
+        <div class="stat card"><div class="k">Mean time to fail</div><div class="v">4.1<span style="font-size:18px">s</span></div><div class="sub">fail-fast · surfaced early</div></div>
+      </div>
+      <div class="card" style="margin-bottom:22px">
+        <div class="panel-h"><b>Run history</b><span class="eyebrow">latest 6</span></div>
+        <table><thead><tr><th>Story</th><th>Target</th><th>Verdict</th><th>Duration</th><th>Steps</th><th>When</th></tr></thead><tbody id="histBody"></tbody></table>
+      </div>
+      <div class="card">
+        <div class="panel-h"><b>Screenshots</b><span class="eyebrow">artifacts · last run</span></div>
+        <div class="shot-grid" id="shotGrid"></div>
+      </div>
+    </section>
+  </div>
+</div>
+<div id="toast"></div>
+
+<script>
+/* ============ embedded demo data (used when no backend) ============ */
+const DEMO = [
+  {id:'so_create',title:'Create Sales Order from Suitelet',target:'netsuite',file:'stories/so_create.story.yaml',
+   url:'/app/site/hosting/scriptlet.nl?script=customscript_so_entry&deploy=1',
+   yaml:`# @author Wichit Wongta
+story: "Create Sales Order from Suitelet"
+target: netsuite
+base: "https://{{account}}.app.netsuite.com"
+url: "/app/site/hosting/scriptlet.nl?script=customscript_so_entry&deploy=1"
+
+steps:
+  - goto: "{{base}}{{url}}"
+  - waitFor: "#so-form"            # no silent fallback
+  - type:
+      selector: "#cust"
+      text: "CHABAA TRADING"
+  - type:
+      selector: "#item"
+      text: "FG-ROLL-001"
+  - click: "#add-line"
+  - assert:
+      selector: "#grand-total"
+      contains: "12,500.00"
+  - screenshot: so_confirmed`,
+   steps:[
+     {i:0,a:'GOTO',t:'goto',d:'/scriptlet.nl?script=customscript_so_entry',sel:null},
+     {i:1,a:'WAIT',t:'wait',d:'waitFor #so-form',sel:'btn'},
+     {i:2,a:'TYPE',t:'type',d:'#cust ← "CHABAA TRADING"',sel:'cust'},
+     {i:3,a:'TYPE',t:'type',d:'#item ← "FG-ROLL-001"',sel:'item'},
+     {i:4,a:'CLICK',t:'click',d:'#add-line',sel:'btn'},
+     {i:5,a:'ASSERT',t:'assert',d:'#grand-total contains "12,500.00"',sel:'total'},
+     {i:6,a:'SHOT',t:'shot',d:'screenshot → so_confirmed.png',sel:null}
+   ]},
+  {id:'lot_pack2',title:'Pack2 stamps two roll lots (Sub-Group 662)',target:'netsuite',file:'stories/lot_pack2.story.yaml',
+   url:'/app/site/hosting/scriptlet.nl?script=customscript_pwoc&deploy=1',
+   yaml:`# @author Wichit Wongta
+story: "Pack2 stamps two roll lots (Sub-Group 662)"
+target: netsuite
+base: "https://{{account}}.app.netsuite.com"
+url: "/app/site/hosting/scriptlet.nl?script=customscript_pwoc&deploy=1"
+
+steps:
+  - goto: "{{base}}{{url}}"
+  - waitFor: "#pwoc-roll-grid"
+  - click: "[data-step='20-pack']"
+  - assert:
+      selector: "#feedlot_roll_2"   # 2nd lot must be stamped
+      notEmpty: true
+  - screenshot: pack2_lots`,
+   steps:[
+     {i:0,a:'GOTO',t:'goto',d:'/scriptlet.nl?script=customscript_pwoc',sel:null},
+     {i:1,a:'WAIT',t:'wait',d:'waitFor #pwoc-roll-grid',sel:'btn'},
+     {i:2,a:'CLICK',t:'click',d:"[data-step='20-pack']",sel:'btn'},
+     {i:3,a:'ASSERT',t:'assert',d:'#feedlot_roll_2 notEmpty',sel:'item'}
+   ]},
+  {id:'cart_web',title:'Guest checkout reaches confirmation',target:'web',file:'stories/cart_web.story.yaml',
+   url:'https://shop.example.com/cart',
+   yaml:`# @author Wichit Wongta
+story: "Guest checkout reaches confirmation"
+target: web
+base: "https://shop.example.com"
+
+steps:
+  - goto: "{{base}}/cart"
+  - waitFor: "#checkout-btn"
+  - click: "#checkout-btn"
+  - type:
+      selector: "#email"
+      text: "qa@porjai.ai"
+  - click: "#place-order"
+  - assert:
+      selector: "#order-confirm"
+      contains: "Order #"
+  - screenshot: order_confirmed`,
+   steps:[
+     {i:0,a:'GOTO',t:'goto',d:'https://shop.example.com/cart',sel:null},
+     {i:1,a:'WAIT',t:'wait',d:'waitFor #checkout-btn',sel:'btn'},
+     {i:2,a:'CLICK',t:'click',d:'#checkout-btn',sel:'btn'},
+     {i:3,a:'TYPE',t:'type',d:'#email ← "qa@porjai.ai"',sel:'cust'},
+     {i:4,a:'CLICK',t:'click',d:'#place-order',sel:'item'},
+     {i:5,a:'ASSERT',t:'assert',d:'#order-confirm contains "Order #"',sel:'total'},
+     {i:6,a:'SHOT',t:'shot',d:'screenshot → order_confirmed.png',sel:null}
+   ]}
+];
+const RECENT=[
+  {v:'pass',nm:'Create Sales Order',t:'netsuite',when:'2m ago',dur:'13.4s'},
+  {v:'fail',nm:'PWOC Pack2 dual-lot stamp',t:'netsuite',when:'14m ago',dur:'4.0s'},
+  {v:'pass',nm:'Web checkout flow',t:'web',when:'31m ago',dur:'9.7s'},
+  {v:'pass',nm:'MRP explosion By-Week',t:'netsuite',when:'1h ago',dur:'18.2s'},
+  {v:'flaky',nm:'WCS release pattern',t:'netsuite',when:'2h ago',dur:'11.0s'}
+];
+
+/* ============ helpers ============ */
+const $=s=>document.querySelector(s),$$=s=>document.querySelectorAll(s);
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+const vColor=v=>({pass:'var(--pass)',fail:'var(--fail)',flaky:'var(--run)'}[v]||'var(--faint)');
+function nowTs(){const d=new Date();return d.toTimeString().slice(0,8)+'.'+String(d.getMilliseconds()).padStart(3,'0').slice(0,2)}
+function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
+function toast(kind,title,msg){
+  const t=document.createElement('div'); t.className='toast '+kind;
+  t.innerHTML=`<b>${esc(title)}</b><span>${esc(msg||'')}</span>`;
+  $('#toast').appendChild(t); setTimeout(()=>t.remove(),3800);
+}
+function highlightYaml(src){
+  return src.split('\n').map(line=>{
+    if(/^\s*#/.test(line)) return '<span class="c">'+esc(line)+'</span>';
+    const m=line.match(/^(\s*-?\s*)([\w]+)(:)(.*)$/);
+    if(m){
+      let val=esc(m[4])
+        .replace(/(&quot;.*?&quot;|".*?")/g,'<span class="s">$1</span>')
+        .replace(/\b(true|false)\b/g,'<span class="n">$1</span>')
+        .replace(/(\s#.*)$/,'<span class="c">$1</span>');
+      const kc=['assert','notEmpty','contains'].includes(m[2])?'d':'k';
+      return esc(m[1])+'<span class="'+kc+'">'+esc(m[2])+'</span>'+m[3]+'<span class="v">'+val+'</span>';
+    }
+    return '<span class="v">'+esc(line)+'</span>';
+  }).join('\n');
+}
+
+/* ============ mode / data layer ============ */
+let LIVE=false, RUNNER='—';
+async function detectMode(){
+  try{
+    const r=await fetch('api/health',{cache:'no-store'});
+    if(r.ok){const j=await r.json(); LIVE=true; RUNNER=j.runner||'cdp-jsonl'; return}
+  }catch(e){}
+  LIVE=false;
+}
+async function apiStories(){
+  if(LIVE){const r=await fetch('api/stories'); return await r.json()}
+  return DEMO.map(s=>({id:s.id,title:s.title,target:s.target,file:s.file,url:s.url,step_count:s.steps.length}));
+}
+async function apiStory(id){
+  if(LIVE){
+    const r=await fetch('api/stories/'+encodeURIComponent(id));
+    if(!r.ok){const j=await r.json().catch(()=>({})); throw new Error(j.error||('HTTP '+r.status))}
+    return await r.json();
+  }
+  const s=DEMO.find(x=>x.id===id); if(!s) throw new Error('not found');
+  return {id:s.id,title:s.title,target:s.target,file:s.file,url:s.url,yaml:s.yaml,steps:s.steps};
+}
+async function apiSave(id,yaml){
+  if(!LIVE) throw new Error('demo mode — รัน node app/server.js เพื่อ save จริง');
+  const r=await fetch('api/stories/'+encodeURIComponent(id),{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({yaml})});
+  const j=await r.json().catch(()=>({})); if(!r.ok) throw new Error(j.error||('HTTP '+r.status)); return j;
+}
+
+/* ============ nav ============ */
+const titles={overview:['Overview','/ control-center'],stories:['Stories','/ stories'],run:['Run & Monitor','/ run'],reports:['Reports','/ reports']};
+$('#nav').addEventListener('click',e=>{const a=e.target.closest('a');if(!a)return;e.preventDefault();go(a.dataset.v)});
+function go(v){
+  $$('#nav a').forEach(x=>x.classList.toggle('on',x.dataset.v===v));
+  $$('.view').forEach(x=>x.classList.remove('on'));
+  $('#view-'+v).classList.add('on');
+  $('#vTitle').textContent=titles[v][0]; $('#vCrumb').textContent=titles[v][1];
+  closeMenu();
+}
+$('#menuBtn').addEventListener('click',()=>{$('#side').classList.add('open');$('#scrim').classList.add('open')});
+$('#scrim').addEventListener('click',closeMenu);
+function closeMenu(){$('#side').classList.remove('open');$('#scrim').classList.remove('open')}
+
+/* ============ overview ============ */
+$('#recentRuns').innerHTML=RECENT.map(r=>`
+  <div class="run-row">
+    <span class="v-dot" style="background:${vColor(r.v)};box-shadow:0 0 8px ${vColor(r.v)}"></span>
+    <span class="nm">${r.nm}</span><span class="tag ${r.t}">${r.t}</span>
+    <span class="meta">${r.dur}</span><span class="meta" style="width:62px;text-align:right">${r.when}</span>
+  </div>`).join('');
+
+/* ============ stories list + editor ============ */
+let META=[], activeId=null, loadedYaml='';
+async function loadStoryList(){
+  META=await apiStories();
+  $('#ovStories').textContent=META.length;
+  const ns=META.filter(s=>s.target==='netsuite').length, web=META.length-ns;
+  $('#ovStoriesSub').textContent=`${ns} NetSuite · ${web} web`;
+  renderStoryList();
+  $('#runSelect').innerHTML=META.map(s=>`<option value="${s.id}">${s.title} · ${s.target}</option>`).join('');
+  if(META[0]) await loadRunInputs(META[0].id);
+}
+async function loadRunInputs(id){
+  const story=await apiStory(id), host=$('#runVars');
+  host.innerHTML=(story.vars||[]).map(v=>`<label>${esc(v.label||v.name)}<input class="run-input run-var" data-name="${esc(v.name)}" type="${v.secret?'password':'text'}" value="${esc(v.default??'')}" autocomplete="off"></label>`).join('');
+}
+$('#runSelect').addEventListener('change',e=>loadRunInputs(e.target.value).catch(err=>toast('err','FLOW',err.message)));
+function renderStoryList(){
+  $('#storyList').innerHTML=META.map(s=>`
+    <div class="story-item ${s.id===activeId?'on':''}" data-id="${s.id}">
+      <div class="t"><span class="v-dot" style="width:8px;height:8px;border-radius:50%;background:${s.error?'var(--fail)':'var(--wire)'}"></span>${esc(s.title)}</div>
+      <div class="d">${esc(s.file||s.id)}</div>
+    </div>`).join('');
+}
+async function openStory(id){
+  try{
+    const s=await apiStory(id);
+    activeId=id; loadedYaml=s.yaml;
+    $('#yamlTA').value=s.yaml; syncHL();
+    $('#yamlFile').textContent=s.file||(id+'.story.yaml');
+    const tg=$('#yamlTarget'); tg.textContent=s.target; tg.className='tag '+s.target;
+    setDirty(false); setFoot('','ready');
+    renderStoryList();
+  }catch(e){ toast('err','LOAD FAILED',e.message) }
+}
+$('#storyList').addEventListener('click',e=>{const it=e.target.closest('.story-item');if(it)openStory(it.dataset.id)});
+
+const ta=$('#yamlTA'), hl=$('#yamlHL');
+function syncHL(){ hl.innerHTML=highlightYaml(ta.value)+'\n'; hl.scrollTop=ta.scrollTop; hl.scrollLeft=ta.scrollLeft }
+ta.addEventListener('input',()=>{syncHL(); setDirty(ta.value!==loadedYaml)});
+ta.addEventListener('scroll',()=>{hl.scrollTop=ta.scrollTop;hl.scrollLeft=ta.scrollLeft});
+ta.addEventListener('keydown',e=>{ if(e.key==='Tab'){e.preventDefault();const s=ta.selectionStart,en=ta.selectionEnd;ta.value=ta.value.slice(0,s)+'  '+ta.value.slice(en);ta.selectionStart=ta.selectionEnd=s+2;syncHL();setDirty(ta.value!==loadedYaml)} });
+function setDirty(on){$('#dirtyDot').classList.toggle('on',on)}
+function setFoot(kind,msg){const f=$('#editorFoot');f.className='editor-foot mono '+(kind||'');f.textContent=msg}
+
+$('#saveBtn').addEventListener('click',async()=>{
+  if(!activeId)return;
+  setFoot('','saving…');
+  try{
+    const s=await apiSave(activeId,ta.value);
+    loadedYaml=ta.value; setDirty(false);
+    setFoot('ok','✓ saved · '+(s.step_count||s.steps?.length||0)+' steps valid');
+    toast('ok','SAVED',activeId);
+    await loadStoryList();   // title may have changed
+  }catch(e){ setFoot('err','✕ '+e.message); toast('err','SAVE FAILED',e.message) }
+});
+$('#editRun').addEventListener('click',async()=>{ if(!activeId)return; $('#runSelect').value=activeId; await loadRunInputs(activeId); go('run'); setTimeout(startRun,250) });
+$('#newStory').addEventListener('click',()=>{
+  if(!LIVE){toast('err','DEMO MODE','รัน backend เพื่อสร้าง story ใหม่');return}
+  const id=prompt('story id (เช่น wcs_release):'); if(!id)return;
+  activeId=id; loadedYaml='';
+  ta.value=`story: ${id}\ntitle: New browser QA story\ntarget: web\nvars:\n  - { name: base_url, label: URL, default: "https://example.com" }\nscenarios:\n  - id: smoke\n    doc: false\n    steps:\n      - intent: Open page\n        action: open\n        target: "{{base_url}}"\n        wait: networkidle\n`;
+  syncHL(); setDirty(true); $('#yamlFile').textContent=id+'.story.yaml';
+  const tg=$('#yamlTarget');tg.textContent='netsuite';tg.className='tag netsuite';
+  setFoot('','new story — Save to create'); go('stories');
+});
+
+/* ============ run / monitor (WS live + local sim) ============ */
+let running=false, curWS=null, curSteps=[], runToken=0, curRunId=null, runShots=[];
+$('#runBtn').addEventListener('click',startRun);
+$('#resetBtn').addEventListener('click',resetRun);
+
+const MOCK_NS=`
+  <div class="mock-title">NetSuite · Suitelet</div><div class="mock-sub">CDP target · netsuite</div>
+  <div class="fld target" data-sel="cust"><label>Field A</label><div class="inp" data-val></div></div>
+  <div class="row2">
+    <div class="fld target" data-sel="item"><label>Field B</label><div class="inp" data-val></div></div>
+    <div class="fld target" data-sel="total"><label>Assert target</label><div class="inp" data-val></div></div>
+  </div>
+  <div class="target" data-sel="btn"><span class="mock-btn">Action</span></div>`;
+const MOCK_WEB=`
+  <div class="mock-title">Web page</div><div class="mock-sub">CDP target · web</div>
+  <div class="target" data-sel="btn"><span class="mock-btn">Primary action</span></div>
+  <div class="fld target" data-sel="cust" style="margin-top:16px"><label>Input</label><div class="inp" data-val></div></div>
+  <div class="row2" style="margin-top:6px">
+    <div class="target" data-sel="item"><span class="mock-btn">Submit</span></div>
+    <div class="fld target" data-sel="total"><label>Assert target</label><div class="inp" data-val></div></div>
+  </div>`;
+
+function setStatus(txt,col){$('#runStatus').innerHTML=`<span class="dot" style="background:${col};box-shadow:${col==='var(--faint)'?'none':'0 0 7px '+col}"></span>${txt}`}
+function logLine(lv,msg,ts){
+  const log=$('#log'); if(log.querySelector('.empty'))log.innerHTML='';
+  const d=document.createElement('div'); d.className='ln';
+  d.innerHTML=`<span class="ts">${ts||nowTs()}</span><span class="lv ${lv}">${String(lv).toUpperCase().padEnd(4)}</span><span class="msg">${esc(msg)}</span>`;
+  log.appendChild(d); log.scrollTop=log.scrollHeight;
+}
+function resetRun(){
+  if(running&&curRunId&&LIVE)fetch('/api/runs/'+curRunId+'/cancel',{method:'POST'}).catch(()=>{});
+  running=false; runToken++; if(curWS){try{curWS.close()}catch(e){} curWS=null}
+  const st=$('#vpStage'); st.querySelector('.mock')?.remove(); st.querySelector('.cursor')?.remove(); st.querySelector('.vp-frame')?.remove();
+  $('#vpIdle').style.display=''; $('#vpVerdict').className='vp-verdict'; $('#vpUrl').textContent='about:blank';
+  $('#stepList').innerHTML='<div style="padding:22px 18px;color:var(--faint);font-size:12.5px" class="mono">ยังไม่มี run — parsed steps จะโชว์ที่นี่</div>';
+  $('#stepCount').textContent='0 / 0';
+  $('#log').innerHTML='<div class="ln"><span class="empty">$ waiting for run…</span></div>';
+  $('#termLive').style.display='none'; setStatus('idle','var(--faint)');
+  $('#runBtn').disabled=false; $('#resetBtn').disabled=true;
+  $('#artifacts').style.display='none';
+  runShots=[]; curRunId=null;
+}
+function prepareViewport(story){
+  $('#vpIdle').style.display=LIVE?'':'none'; $('#vpVerdict').className='vp-verdict';
+  const st=$('#vpStage'); st.querySelector('.mock')?.remove(); st.querySelector('.cursor')?.remove(); st.querySelector('.vp-frame')?.remove();
+  if(LIVE){ $('#vpIdle .big').textContent='Waiting for first screenshot'; return; }
+  const mock=document.createElement('div'); mock.className='mock'; mock.innerHTML=story.target==='web'?MOCK_WEB:MOCK_NS;
+  st.insertBefore(mock,$('#vpVerdict'));
+  const cur=document.createElement('div'); cur.className='cursor';
+  cur.innerHTML='<svg width="18" height="18" viewBox="0 0 24 24"><path d="M5 3l14 7-6 2-2 6z" fill="#fff" stroke="#0a0c10" stroke-width="1.2"/></svg>';
+  st.appendChild(cur);
+  $('#vpUrl').textContent=story.url||'about:blank';
+}
+function buildSteps(steps){
+  curSteps=steps;
+  $('#stepList').innerHTML=steps.map(st=>`
+    <div class="step" data-i="${st.i}">
+      <span class="num">${String(st.i+1).padStart(2,'0')}</span>
+      <span class="ico ${st.t}">${iconFor(st.t)}</span>
+      <div class="body"><div class="act" style="color:${actColor(st.t)}">${st.a}</div><div class="det">${esc(st.d)}</div></div>
+      <span class="slot"></span>
+    </div>`).join('');
+  $('#stepCount').textContent='0 / '+steps.length;
+}
+function iconFor(t){return{goto:'→',click:'•',type:'T',wait:'⏱',assert:'✓',shot:'▣'}[t]||'·'}
+function actColor(t){return t==='assert'?'var(--assert)':(t==='wait'||t==='shot')?'var(--muted)':'var(--wire)'}
+
+let passedCount=0, totalCount=0, curTarget='netsuite';
+async function onStepStart(i){
+  const st=curSteps.find(s=>s.i===i); if(!st)return;
+  const row=$(`.step[data-i="${i}"]`); if(!row)return;
+  row.classList.add('active'); row.querySelector('.slot').innerHTML='<span class="spin"></span>';
+  row.scrollIntoView({block:'nearest',behavior:'smooth'});
+  const stage=$('#vpStage'), cur=stage.querySelector('.cursor'), mock=stage.querySelector('.mock');
+  const tEl=st.sel&&mock?mock.querySelector(`[data-sel="${st.sel}"]`):null;
+  if(tEl&&cur){
+    const sr=stage.getBoundingClientRect(), tr=tEl.getBoundingClientRect();
+    cur.style.left=(tr.left-sr.left+tr.width/2-9)+'px';
+    cur.style.top=(tr.top-sr.top+tr.height/2-2)+'px';
+    await sleep(520); tEl.classList.add('hot');
+  }
+  if(st.t==='click'&&cur){cur.classList.add('click'); setTimeout(()=>cur.classList.remove('click'),460)}
+  if(st.t==='type'&&tEl){const m=st.d.match(/"([^"]*)"\s*$/); if(m)typeInto(tEl,m[1])}
+}
+function onStepEnd(i,ok){
+  const st=curSteps.find(s=>s.i===i); const row=$(`.step[data-i="${i}"]`); if(!row)return;
+  const stage=$('#vpStage'), mock=stage.querySelector('.mock');
+  const tEl=st&&st.sel&&mock?mock.querySelector(`[data-sel="${st.sel}"]`):null;
+  row.classList.remove('active'); row.classList.add('done');
+  if(ok){
+    tEl?.classList.remove('hot'); tEl?.classList.add('ok');
+    row.querySelector('.slot').innerHTML = st&&st.t==='shot'?'<span class="chk" style="color:var(--muted)">⤓</span>':'<span class="chk" style="color:var(--pass)">✓</span>';
+    if(st&&st.t==='assert'&&tEl){const inp=tEl.querySelector('[data-val]'); if(inp)inp.textContent=curTarget==='web'?'Order #44192':'12,500.00'}
+    passedCount++;
+  }else{
+    tEl?.classList.remove('hot'); tEl?.classList.add('bad');
+    if(st&&st.sel&&tEl){const inp=tEl.querySelector('[data-val]'); if(inp)inp.textContent='(empty)'}
+    row.querySelector('.slot').innerHTML='<span class="chk" style="color:var(--fail)">✕</span>';
+  }
+  $('#stepCount').textContent=passedCount+' / '+totalCount;
+}
+async function typeInto(tEl,text){
+  const inp=tEl.querySelector('[data-val]'); if(!inp)return;
+  for(let i=0;i<text.length;i++){inp.textContent=text.slice(0,i+1); await sleep(34)}
+}
+function showFrame(b64){
+  const st=$('#vpStage'); let img=st.querySelector('.vp-frame');
+  if(!img){img=document.createElement('img');img.className='vp-frame';st.insertBefore(img,$('#vpVerdict'))}
+  img.src='data:image/png;base64,'+b64;
+}
+function onVerdict(ev){
+  const vp=$('#vpVerdict');
+  if(ev.verdict==='pass'){
+    setStatus('passed','var(--pass)'); logLine('ok',`VERDICT: PASS · ${ev.passed}/${ev.total} steps`);
+    $('#verdictBadge').textContent='PASS'; vp.className='vp-verdict p show';
+    $('#verdictWhy').textContent=ev.reason||'all assertions met';
+  }else if(ev.verdict==='unverified'){
+    setStatus('unverified','var(--run)'); logLine('warn',`VERDICT: UNVERIFIED · ${ev.passed}/${ev.total} assertions`);
+    $('#verdictBadge').textContent='UNVERIFIED'; vp.className='vp-verdict f show';
+    $('#verdictWhy').textContent=ev.reason||'state-changing action has no explicit assertion';
+  }else{
+    setStatus('failed','var(--fail)'); logLine('err',`VERDICT: FAIL · ${ev.passed}/${ev.total} steps`);
+    $('#verdictBadge').textContent='FAIL'; vp.className='vp-verdict f show';
+    $('#verdictWhy').textContent=ev.reason||'assertion not met';
+  }
+}
+function finishRun(){running=false; $('#termLive').style.display='none'; $('#runBtn').disabled=false; $('#resetBtn').disabled=false; if(curWS){try{curWS.close()}catch(e){} curWS=null}}
+
+function applyEvent(ev,token){
+  if(token!==runToken)return;
+  switch(ev.type){
+    case 'parsed': buildSteps(ev.steps); totalCount=ev.steps.length; break;
+    case 'log': logLine(ev.level,ev.msg,ev.ts); break;
+    case 'step':
+      if(ev.phase==='start'){ if(ev.log)logLine('cdp',ev.log,ev.ts); onStepStart(ev.i) }
+      else onStepEnd(ev.i, ev.phase==='pass');
+      break;
+    case 'frame': showFrame(ev.data); break;
+    case 'verdict': onVerdict(ev); finishRun(); break;
+    case 'error': logLine('err',ev.msg,ev.ts); setStatus('error','var(--fail)'); break;
+    case 'done': finishRun(); break;
+  }
+}
+
+async function startRun(){
+  if(running)return;
+  const id=$('#runSelect').value; if(!id)return;
+  resetRun(); const token=runToken;
+  let story; try{story=await apiStory(id)}catch(e){toast('err','RUN FAILED',e.message);return}
+  curTarget=story.target; passedCount=0; totalCount=(story.steps||[]).length;
+  prepareViewport(story);
+  running=true; $('#runBtn').disabled=true; $('#resetBtn').disabled=true;
+  setStatus('running','var(--run)'); $('#termLive').style.display='flex';
+  $('#termSrc').textContent = LIVE ? 'cdp-jsonl · SSE events' : 'cdp-jsonl · local sim';
+  $('#log').innerHTML=''; logLine('info',`run · story="${story.title}"`);
+  if(LIVE) runViaSSE(story,token); else runViaSim(story,token);
+}
+/* ---- LIVE via our SSE backend (POST /api/run → EventSource /api/events/:id) ---- */
+function srvUrl(p){ return p ? '/runs/'+p.replace(/\\/g,'/').split('/runs/')[1] : ''; }
+function showFrameUrl(url){
+  if(!url) return;
+  $('#vpIdle').style.display='none';
+  const st=$('#vpStage'); let img=st.querySelector('.vp-frame');
+  if(!img){ img=document.createElement('img'); img.className='vp-frame'; st.insertBefore(img,$('#vpVerdict')); }
+  img.src=url;
+}
+async function runViaSSE(story,token){
+  applyEvent({type:'parsed',steps:story.steps},token);
+  let runId;
+  try{
+    const vars={}; $$('.run-var').forEach(input=>vars[input.dataset.name]=input.value);
+    const payload={flow:story.id,vars}; const target=$('#targetId').value.trim(); if(target)payload.target_id=target;
+    const r=await fetch('/api/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+    const body=await r.json(); if(!r.ok)throw new Error(body.error||('HTTP '+r.status)); runId=body.run_id;
+  }catch(e){ applyEvent({type:'error',msg:'start run failed: '+e},token); finishRun(); return; }
+  if(token!==runToken)return;
+  curRunId=runId; runShots=[];
+  const es=new EventSource('/api/events/'+runId); curWS=es;
+  es.onmessage=e=>{ if(token!==runToken){es.close();return;} try{ mapEvent(JSON.parse(e.data),runId,token); }catch(err){ logLine('err','bad event'); } };
+  es.onerror=()=>{ es.close(); if(token===runToken && running){ logLine('warn','stream closed'); finishRun(); } };
+}
+function mapEvent(ev,runId,token){
+  switch(ev.type){
+    case 'step':
+      applyEvent({type:'step',i:(ev.global_index||ev.index)-1,phase:'start',log:ev.intent,ts:nowTs()},token); break;
+    case 'step_done':
+      if(ev.shot){ const u=srvUrl(ev.shot); showFrameUrl(u); $('#vpUrl').textContent=ev.shot.split(/[\\/]/).pop();
+        runShots.push({url:u,name:ev.index+'. '+ev.intent}); }
+      if(ev.detail) logLine(ev.status==='fail'?'err':'ok',ev.intent+' — '+ev.detail);
+      if(ev.status==='unverified')logLine('warn',ev.intent+' — explicit assertion required');
+      applyEvent({type:'step',i:(ev.global_index||ev.index)-1,phase: ev.status==='fail'?'fail':'pass'},token); break;
+    case 'errors':
+      if(!ev.empty) logLine('err','console errors: '+JSON.stringify(ev.msgs)); break;
+    case 'fatal':
+      logLine('err',(ev.error?.code?ev.error.code+': ':'')+(ev.error?.message||ev.message||'')); break;
+    case 'run_done':
+      $('#dlReport').href='/runs/'+runId+'/qa-report.md';
+      $('#artifacts').style.display='flex';
+      if(runShots.length) $('#shotGrid').innerHTML=runShots.map(s=>
+        `<div class="shot"><img src="${s.url}" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover" loading="lazy"><div class="cap">${esc(s.name)}</div></div>`).join('');
+      applyEvent({type:'verdict',verdict:ev.verdict.toLowerCase(),passed:ev.passed,total:ev.total,
+        reason: ev.verdict==='PASS'?'all assertions met · artifacts saved':
+          (ev.verdict==='UNVERIFIED'?'explicit assertion required — not reported as pass':'assertion not met — surfaced, not retried')},token); break;
+    case 'closed': applyEvent({type:'done'},token); break;
+  }
+}
+async function runViaSim(story,token){
+  const steps=story.steps;
+  applyEvent({type:'log',level:'warn',msg:'demo mode — local simulator (no backend). Deterministic replay.'},token);
+  applyEvent({type:'parsed',steps},token);
+  const SIMLOG={goto:'Page.navigate via CDP',wait:'selector attached in 470ms',type:'Input.insertText',click:'Input.dispatchMouseEvent',assert:'evaluate assertion',shot:'Page.captureScreenshot'};
+  for(const st of steps){
+    if(token!==runToken)return;
+    applyEvent({type:'step',i:st.i,phase:'start',log:SIMLOG[st.t]+' → '+st.d},token);
+    await sleep(620);
+    const isFail = st.t==='assert' && /notEmpty/.test(st.d);
+    if(isFail){
+      applyEvent({type:'log',level:'err',msg:`assert FAIL · ${st.d.replace(' notEmpty','')} was empty — 2nd lot not stamped`},token);
+      applyEvent({type:'step',i:st.i,phase:'fail'},token);
+      applyEvent({type:'log',level:'err',msg:'step failed — halting. no silent fallback, no retry.'},token);
+      applyEvent({type:'verdict',verdict:'fail',passed:passedCount,total:steps.length,reason:`${st.d} → assertion not met`},token);
+      return;
+    }
+    applyEvent({type:'step',i:st.i,phase:'pass'},token);
+    await sleep(280);
+  }
+  applyEvent({type:'verdict',verdict:'pass',passed:passedCount,total:steps.length,reason:'all assertions met · artifacts saved'},token);
+}
+
+/* ============ reports ============ */
+const trend=[88,92,85,94,90,96,89,93,91,87,95,90,92,91];
+$('#repBars').innerHTML=trend.map((p,i)=>`<div class="bar"><div class="col" style="height:${p}%;${p<90?'background:linear-gradient(180deg,var(--run),rgba(245,181,68,.2))':''}"></div><div class="lbl">${i+1}</div></div>`).join('');
+const HIST=[
+  {nm:'Create Sales Order',t:'netsuite',v:'pass',d:'13.4s',s:'7/7',w:'2m ago'},
+  {nm:'PWOC Pack2 dual-lot stamp',t:'netsuite',v:'fail',d:'4.0s',s:'3/4',w:'14m ago'},
+  {nm:'Web checkout flow',t:'web',v:'pass',d:'9.7s',s:'7/7',w:'31m ago'},
+  {nm:'MRP explosion By-Week',t:'netsuite',v:'pass',d:'18.2s',s:'11/11',w:'1h ago'},
+  {nm:'WCS release pattern',t:'netsuite',v:'flaky',d:'11.0s',s:'8/9',w:'2h ago'},
+  {nm:'Customer Master approval',t:'netsuite',v:'pass',d:'7.8s',s:'6/6',w:'3h ago'}
+];
+$('#histBody').innerHTML=HIST.map(h=>`<tr><td>${h.nm}</td><td><span class="tag ${h.t}">${h.t}</span></td><td><span class="tag ${h.v}">${h.v}</span></td><td class="mono">${h.d}</td><td class="mono">${h.s}</td><td class="mono">${h.w}</td></tr>`).join('');
+$('#shotGrid').innerHTML=['so_confirmed','add_line_grid','grand_total','order_summary'].map(n=>`<div class="shot"><div class="ph">▣ ${n}</div><div class="cap">${n}.png</div></div>`).join('');
+
+/* ============ init ============ */
+(async()=>{
+  await detectMode();
+  const pill=$('#modePill'), foot=$('#footRunner');
+  if(LIVE){
+    pill.className='pill live'; pill.innerHTML=`<span class="dot"></span>LIVE · runner=${RUNNER}`;
+    foot.innerHTML=`<span class="dot"></span>backend connected · ${RUNNER}`;
+    $('#ovPass').textContent='—'; $('#ovPassSub').textContent='history is not persisted';
+    $('#ovDuration').textContent='—'; $('#ovDurationSub').textContent='see each run log';
+    $('#ovFlaky').textContent='—'; $('#ovFlakySub').textContent='no retry masking';
+    $('#recentRuns').innerHTML='<div style="padding:22px;color:var(--faint)" class="mono">No persisted run history — artifacts stay under runs/</div>';
+    $('#repBars').innerHTML='';
+    $('#histBody').innerHTML='<tr><td colspan="6" class="mono" style="color:var(--faint)">No synthetic data in LIVE mode</td></tr>';
+    $('#shotGrid').innerHTML='<div style="padding:20px;color:var(--faint)" class="mono">Run a story to see screenshots</div>';
+  }else{
+    pill.className='pill demo'; pill.innerHTML=`<span class="dot"></span>DEMO · no backend`;
+    foot.innerHTML=`<span class="dot" style="background:var(--run);box-shadow:0 0 7px var(--run)"></span>demo mode · run backend to go live`;
+  }
+  await loadStoryList();
+  if(META[0]) openStory(META[0].id);
+})();
+</script>
+</body>
+</html>

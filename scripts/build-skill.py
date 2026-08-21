@@ -6,10 +6,8 @@ Run this to (re)generate it, then attach the output to a GitHub Release.
 
     python scripts/build-skill.py
 
-Bundle contents: SKILL.md + assets/* + references/* + examples/* + the runtime
-scripts/*.py (coverage-check, release-summary — referenced by the docs, so they
-must ship) + requirements.txt, under a `teibto-browser-qa/` prefix. README, docs,
-LICENSE, the build script itself, and .git are excluded.
+Bundle contents: SKILL.md, references/assets/examples, the flow schema and runtime,
+and the optional local UI. Everything is under a `teibto-browser-qa/` prefix.
 """
 import glob
 import os
@@ -25,6 +23,9 @@ def main():
     files += sorted(glob.glob("assets/*", root_dir=ROOT))
     files += sorted(glob.glob("references/*", root_dir=ROOT))
     files += sorted(glob.glob("examples/*", root_dir=ROOT))
+    files += sorted(glob.glob("schemas/*", root_dir=ROOT))
+    files += sorted(glob.glob("app/*.js", root_dir=ROOT))
+    files += sorted(glob.glob("app/public/*", root_dir=ROOT))
     # runtime scripts referenced by the docs (exclude the bundler itself)
     files += [f for f in sorted(glob.glob("scripts/*.py", root_dir=ROOT))
               if os.path.basename(f) != "build-skill.py"]

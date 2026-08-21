@@ -5,11 +5,12 @@ Workflow diagrams for every flow. GitHub renders mermaid natively. A short summa
 
 ## Contents
 1. [Overview: one pass, two outputs](#1-overview-one-pass-two-outputs)
-2. [Golden-rule action loop](#2-golden-rule-action-loop)
-3. [Seven QA layers](#3-seven-qa-layers)
-4. [PDF pipeline (paged.js)](#4-pdf-pipeline-pagedjs)
-5. [Highlight capture sub-flow](#5-highlight-capture-sub-flow)
-6. [Targets and setup](#6-targets-and-setup)
+2. [Batch runner boundary](#2-batch-runner-boundary)
+3. [Golden-rule action loop](#3-golden-rule-action-loop)
+4. [Seven QA layers](#4-seven-qa-layers)
+5. [PDF pipeline (paged.js)](#5-pdf-pipeline-pagedjs)
+6. [Highlight capture sub-flow](#6-highlight-capture-sub-flow)
+7. [Targets and setup](#7-targets-and-setup)
 
 ---
 
@@ -43,10 +44,29 @@ sequenceDiagram
 
 ---
 
-## 2. Golden-rule action loop
+## 2. Batch runner boundary
 
-The core idea that prevents a false pass: scroll into the viewport before clicking, fall back to a JS
-click if the native click does not land, then always assert the result rather than trusting `✓ Done`.
+The optional local UI and the CLI share one executor. A run never opens a driver process per step:
+
+```mermaid
+flowchart LR
+    yaml["flow YAML"] --> schema["flow.schema.json<br/>fail closed"]
+    ui["local UI<br/>127.0.0.1"] --> runner
+    schema --> runner["flow-runner.py<br/>events + report + shots"]
+    runner -->|"stdin/stdout JSONL<br/>one child per run"| session["cdp.py session<br/>bounded + pinned target"]
+    session -->|"one WebSocket"| chrome["Chrome target"]
+    runner --> artifacts["run-log.jsonl<br/>qa-report.md<br/>shots/"]
+```
+
+Secrets enter the runner through stdin, not argv. An action, wait, screenshot, console check, or
+transport failure stops the scenario. Unasserted state-changing actions produce `UNVERIFIED`.
+
+---
+
+## 3. Golden-rule action loop
+
+The core idea that prevents a false pass: use native input and assert the result rather than trusting
+`✓ Done`. A native click that does not land is a finding; the runner never hides it with JS click.
 
 ```mermaid
 flowchart TD
@@ -55,17 +75,16 @@ flowchart TD
     b -->|yes| d["click / fill &lt;sel&gt;"]
     c --> d
     d --> e{"did it actually happen?<br/>(re-render / nav)"}
-    e -->|"no (native click flaky)"| f["eval: querySelector(sel).click()"]
-    f --> g
-    e -->|"looks like it did"| g["assert state<br/>wait / get url / get count"]
+    e -->|no| x["❌ FAIL + evidence<br/>no silent JS fallback"]
+    e -->|yes| g["assert state<br/>wait / get url / get count"]
     g --> h{"result as expected?"}
-    h -->|no| x["❌ FAIL: errors --json, record"]
+    h -->|no| x
     h -->|yes| ok["✅ step passed, go to next"]
 ```
 
 ---
 
-## 3. Seven QA layers
+## 4. Seven QA layers
 
 Layers 1–4 run on every pass. Layers 5–7 are opt-in per scenario and return findings only — never a
 dump — so switching them on does not cost the context window.
@@ -100,7 +119,7 @@ Two things the table cannot show:
 
 ---
 
-## 4. PDF pipeline (paged.js)
+## 5. PDF pipeline (paged.js)
 
 `cdp.py pdf` (Chrome printToPDF) has no margin or paper option, so paged.js supplies a real table of contents and
 page numbers. The main trap is double-pagination (alternating blank pages), fixed with `@page size`
@@ -124,16 +143,16 @@ Full recipe: [`../references/pdf-reports.md`](../references/pdf-reports.md)
 
 ---
 
-## 5. Highlight capture sub-flow
+## 6. Highlight capture sub-flow
 
 Capture screenshots with a highlight ring on the click target. Bake in only the ring (no Thai text,
-since headless has no Thai font), then drive the flow with a JS click for reliability.
+since headless has no Thai font), then use the normal native click path.
 
 ```mermaid
 flowchart LR
     nav["navigate to the state to capture"] --> hl["eval: inject ring on target<br/>scrollIntoView + outline + glow<br/>🔴 click spot · 🟢 result spot"]
     hl --> shot["screenshot shots/NN.png"]
-    shot --> act["eval: querySelector(sel).click()"]
+    shot --> act["native click"]
     act --> asrt["assert (get url / get count)"]
     asrt --> nav
 ```
@@ -142,13 +161,13 @@ Snippet: [`../assets/highlight.js`](../assets/highlight.js)
 
 ---
 
-## 6. Targets and setup
+## 7. Targets and setup
 
 | Target | Setup / auth | Locator strategy | Watch out for |
 |---|---|---|---|
-| Generic web app | `open <url>` | `@ref` from `snapshot -i` or `[data-test=...]` | scrollintoview before clicking below-fold buttons |
-| NetSuite Suitelet | `--profile "<your-profile>"` (reuse session, avoid 2FA) | `@ref` or css; for iframe elements use `frame "#sel"` then `frame main` | async loads: `wait --fn "window.jQuery && jQuery.active===0"` |
-| Oracle APEX | `--session <name>` (isolated) | semantic: `find label "..." fill "..."`, `find role button click --name "..."` (dynamic IG) | test Thai input every time; `vitals --json` if present in that version |
+| Generic web app | Chrome with remote debugging + pinned `TGT_ID` | `@ref` from `a11y` or stable CSS/data-test | assert business state after native click |
+| NetSuite Suitelet | persistent Chrome profile (reuse login, avoid 2FA) | `@ref` or CSS; set `IFRAME` for iframe content | async loads: explicit app condition such as `jQuery.active===0` |
+| Oracle APEX | isolated Chrome profile and port per job | a11y ref or stable selector | dynamic IG state and Thai input need explicit assertions |
 
 ---
 

@@ -1,6 +1,6 @@
 # Example flow — saucedemo.com: Login → Add to cart → Checkout.
 # Runnable end-to-end and used as the reference for references/flow-spec.md.
-# Drive it step-by-step with agent-browser (see SKILL.md §4), or batch the steps.
+# Drive it step-by-step with cdp.py, or batch it with scripts/flow-runner.py.
 
 story: saucedemo
 title: Swag Labs — end-to-end purchase

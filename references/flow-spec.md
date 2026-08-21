@@ -4,12 +4,40 @@ test-design.md ตัดสิน *จะทดสอบอะไร*. ไฟล
 เขียน flow เป็น YAML declarative แทน ad-hoc command ต่อรอบ. ตัวอย่างรันได้จริง:
 `examples/saucedemo.yaml`.
 
+## รันแบบ batch (canonical runner)
+
+```powershell
+$env:TGT_ID = '<target id จาก cdp.py newtab หรือ tabs>'
+$env:TEIBTO_CDP_SCRIPT = 'D:\path\to\teibto-dev-standards\scripts\cdp.py'
+'{"username":"qa-user","password":"..."}' |
+  py scripts/flow-runner.py --flow examples/saucedemo.yaml --out runs/manual --vars-json -
+```
+
+- flow ทุกไฟล์ผ่าน `schemas/flow.schema.json` และ field ที่ไม่รู้จักทำให้หยุดทันที
+- secret ส่งผ่าน stdin (`--vars-json -`), ไม่อยู่ใน process argv/log/report
+- หนึ่ง run ใช้ target ที่ pin และ `cdp.py session --jsonl` เพียง process/WebSocket เดียว
+- `click` ใช้ native input เท่านั้น; ไม่มี JS fallback เงียบ
+- action/wait/assert/screenshot/console ล้ม = หยุด scenario และ verdict `FAIL`
+- action ที่เปลี่ยน state แต่ไม่มี explicit assertion = verdict `UNVERIFIED`, ไม่ใช่ `PASS`
+- artifact อยู่ที่ `<out>/run-log.jsonl`, `<out>/qa-report.md`, `<out>/shots/`
+
+Local UI (ไม่จำเป็นต่อ CI):
+
+```powershell
+$env:TGT_ID = '<target id>'       # หรือกรอกในหน้า Run
+node app/server.js                # bind 127.0.0.1:4173 เท่านั้นโดย default
+```
+
+UI ส่ง secret เข้า runner ผ่าน stdin และมี cancellation endpoint; ไม่มี daemon/dashboard/video/ffmpeg.
+
 **ทำไมต้องเป็นไฟล์:** 1 flow file = 1 repro ถาวร (กติกา "1 bug = 1 repro"), diff ได้, รันซ้ำ
 regression ได้, เติม vars ต่างค่าเพื่อยิง edge case ได้โดยไม่แก้ logic.
 
 ---
 
 ## Schema
+
+ไฟล์ authoritative คือ `schemas/flow.schema.json`; ตัวอย่างด้านล่างเป็น quick reference เท่านั้น
 
 ```yaml
 story: <slug>                    # id สั้นๆ ของ flow (ใช้ตั้งชื่อโฟลเดอร์ artifact)
@@ -38,7 +66,8 @@ scenarios:
 ```
 
 **assert forms ที่ใช้บ่อย:** `url_contains: "..."` · `{ target: "<sel>", contains: "<text>" }`.
-ทุก step ที่เปลี่ยน state **ควรมี assert** — ไม่งั้นเป็น false-pass (ดู gotchas ข้อ 2).
+ทุก step ที่เปลี่ยน application state **ต้องมี assert** — runner คืน `UNVERIFIED` ถ้าไม่มี
+(การ `fill` ตรวจ value หลังกรอกให้อัตโนมัติ แต่ action ที่ submit/เปลี่ยนข้อมูลยังต้อง assert ผลธุรกิจ).
 
 **Traceability (สำหรับทีม):** `ticket`/`requirement` + `acceptance` ทำให้ตอบได้ว่า *test นี้ยืนยัน
 req ไหน* และ *req นี้ครอบด้วย scenario ไหน*. 1 acceptance criterion → 1 scenario (map 1:1) →
@@ -47,47 +76,13 @@ qa-report + user-guide อ้าง req เดียวกัน = ปิด loo
 
 ---
 
-## v2 fields (optional, additive — flow เดิมไม่มีก็รันได้)
+## Fields ที่ยังไม่อยู่ใน executable flow
 
-field ใหม่ทั้งหมด **optional มี default** — flow เก่าที่ไม่มี field เหล่านี้รันได้เหมือนเดิม
-(backward-compatible). ใส่เมื่อ scope เกิน smoke.
-
-```yaml
-# --- ระดับไฟล์: test data (Phase 2 — ดู test-data.md) ---
-fixtures:                          # default: none
-  - id: FX-001
-    setup: seed/qa_so_seed.sql     # ref ไป seed script / SuiteQL / SQL (idempotent)
-    idempotent: true
-teardown:                          # default: none — ต้องมี destructive guard (test-data.md §5)
-  - cleanup/qa_so_cleanup.md
-
-scenarios:
-  - id: SC-001
-    # ... steps เดิม ...
-    verifiable: browser            # browser | code-only (default: browser) — ดู test-design.md ✅/⚠️
-
-    # --- reliability (Phase 3 — ดู reliability-policy.md) ---
-    retry_on: [infra]              # default: [] — retry ได้เฉพาะ infra error, assertion ห้าม retry
-    quarantine: false              # default: false — flaky ที่ยังรันแต่ไม่นับ gate
-
-    # --- a11y + perf (Phase 4 — ดู a11y-layer.md / perf-layer.md) ---
-    a11y: false                    # default: false — true = รัน axe-core layer, คืน count+top (token-safe)
-    perf_budget:                   # default: null — ไม่วัด
-      save_ms: 3000                # เพดานเวลา save (ms); วัดเกิน = FAIL
-
-    # --- visual (Phase 5 — ดู visual-regression.md) ---
-    mask_regions: []               # default: [] — CSS selectors ของ dynamic content (date/running number)
-    diff_threshold: 0.02           # default: 0.02 (2%) — pixel diff ที่ยอมได้ กัน anti-aliasing
-
-    # --- CI candidate (Phase 6 — เกณฑ์ graduate ใน TEAM-PROCESS.md) ---
-    ci_candidate: false            # default: false — true = flow นิ่งพอจะ port เข้า Playwright CI
-```
-
-`fixtures`/`teardown` เก็บเป็น **ref ไปไฟล์** ไม่ฝัง logic ลง flow.yaml (คง brain/hands).
-`verifiable` ระบุว่า scenario นี้พิสูจน์ผ่าน browser ได้จริง หรือเป็น code-only (Dev ทดสอบ) —
-ค่านี้ไหลเข้า coverage manifest (`coverage-model.md`).
-`retry_on` รับเฉพาะ `infra`; assertion fail **ห้าม retry** (`reliability-policy.md` §2).
-`quarantine: true` → scenario ยังรันแต่ **ไม่ทำ gate เขียว** (`coverage-model.md`).
+`fixtures`, `teardown`, `retry_on`, `quarantine`, `a11y`, `perf_budget`, `mask_regions`,
+`diff_threshold` และ `ci_candidate` เคยถูกเสนอเป็น v2 metadata แต่ canonical runner ยังไม่ implement.
+Schema จึงปฏิเสธ field เหล่านี้แทนการรับแล้ว ignore เงียบ ๆ. เก็บ release/quarantine/coverage state
+ไว้ใน `qa/<feature>/coverage.yaml`; ทำ setup/teardown แยกจาก browser run พร้อม destructive guard.
+ถ้าจะเพิ่ม field ใด ให้เพิ่ม schema + execution behavior + failure test ใน PR เดียวกัน
 
 ---
 
@@ -100,7 +95,7 @@ scenarios:
    - happy path: `doc: true` (ใช้ทำ guide).
    - adversarial: scenario แยก `doc: false` — ยิง edge value ผ่าน `vars` (ไทย/emoji/boundary/
      injection payload) แล้ว assert ว่า error **surface** (ไม่ใช่ Pass เงียบ).
-3. **Run** — ขับตาม step. flow ยาว → รวบเป็น `batch` (ดู commands.md) คืน `run-log.json`.
+3. **Run** — ขับด้วย `scripts/flow-runner.py` ผ่าน JSONL session เดียว คืน `run-log.jsonl`.
    screenshot ทุก step เฉพาะ scenario `doc:true`; adversarial ถ่ายเฉพาะตอนเจอ bug.
 4. **Report** — `qa-report.md` (ตาราง Phase 3) + ป้อน bug เข้า `assets/bug-report-template.html`,
    guide จาก scenario `doc:true` เข้า `assets/guide-template.html`.
@@ -109,7 +104,7 @@ scenarios:
 ```
 qa/<feature>/
   flow.yaml            # test case ทั้งหมด (happy + adversarial scenarios)
-  run-log.json         # ผลจาก batch --json (ลำดับคำสั่ง + ผลทุก step)
+  run-log.jsonl        # event/result ที่ตรวจ correlation และลำดับย้อนหลังได้
   shots/               # screenshot (artifact ไม่เข้า context)
   qa-report.md         # verdict + ตาราง case + severity
   guide/               # user-guide / bug-report ที่ generate

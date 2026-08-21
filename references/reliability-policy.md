@@ -8,18 +8,18 @@
 
 ## 1. Retry ได้เฉพาะ infra error (ไม่ใช่ผล assertion)
 
-infra error = ปัญหา "ต่อ browser/daemon ไม่ติด" ไม่เกี่ยวกับ correctness ของแอป. retry ได้
+infra error = ปัญหา transport/CDP หลุด ไม่เกี่ยวกับ correctness ของแอป. retry ได้
 **max 2 ครั้ง + backoff** (เช่น 2s, 5s). enumerate ให้ชัด — retry เฉพาะรายการนี้:
 
 | Infra error | อาการ | อ้างอิง |
 |---|---|---|
-| `os error 10060` | connection attempt failed บน long-poll wait / หลัง kill daemon | gotchas.md §3 |
-| daemon stall / session ค้าง | ทุกคำสั่ง timeout, `.pid`/`.port` ชี้ daemon ตาย | gotchas.md §3 |
-| cold-start timeout | `open` ค้างแม้หน้าโหลดแล้ว (Windows) | gotchas.md, runner cold-start |
-| CDP disconnect | browser หลุด CDP กลาง flow | — |
+| `PORT_UNREACHABLE` | Chrome/CDP port ไม่ตอบก่อนเริ่ม session | `cdp.py doctor` |
+| `WS_DISCONNECTED` / `WS_ERROR` | WebSocket หลุดกลาง flow | cdp.py session protocol |
+| `CONTEXT_DESTROYED` | navigation ทำให้ execution context เปลี่ยน | retry 1 ครั้งเฉพาะ safe read ใน cdp.py |
 
-**ก่อน retry ต้อง reset สาเหตุ** ไม่ใช่ยิงซ้ำเฉยๆ: เช่น 10060 ที่ค้าง → ลบ session file
-แล้วค่อยสั่งใหม่. retry ที่ไม่ reset สาเหตุ = วน fail เปล่า.
+`flow-runner.py` ไม่ replay action เอง: transport error ทำให้ run ปัจจุบัน FAIL และปิด bounded child
+process. การ retry ทั้ง scenario ต้องเป็นการตัดสินใจของ orchestration ภายนอกหลังตรวจสาเหตุแล้ว
+เท่านั้น เพื่อไม่กด action ที่เปลี่ยน state ซ้ำโดยไม่รู้ตัว
 
 ---
 
@@ -30,7 +30,7 @@ infra error = ปัญหา "ต่อ browser/daemon ไม่ติด" ไ�
 
 - assertion fail → บันทึกเป็น **FAIL ทันที** พร้อม repro (test-design.md Phase 3).
 - ถ้าสงสัยว่า fail เพราะ timing (อ่านเร็วเกิน ยังไม่ render) → นั่นคือ **การ wait ที่ผิด** ไม่ใช่เหตุ
-  retry: แก้ด้วย `wait <selector ผลลัพธ์>` / `wait --load networkidle` ก่อน assert (gotchas.md §2)
+  retry: แก้ด้วย `wait "<เงื่อนไขผลลัพธ์>"` ก่อน assert (gotchas.md §2)
   แล้ว assert **ครั้งเดียว**. อย่าเปลี่ยน "รอให้ถูก" เป็น "ยิงซ้ำจนบังเอิญผ่าน".
 
 เส้นแบ่ง: **ต่อ browser ไม่ติด = retry ได้. แอปให้ผลผิด = FAIL.** ถ้าแยกไม่ออก ให้ถือเป็น FAIL.
@@ -61,20 +61,16 @@ scenario ที่ flaky จริง (ไม่ใช่ bug แต่ยัง
 
 ---
 
-## 4. Schema ใน flow.yaml (retry_on / quarantine)
+## 4. Retry/quarantine ไม่ใช่ field ของ executable flow
 
-optional มี default (backward-compatible):
-```yaml
-scenarios:
-  - id: SC-001
-    retry_on: [infra]        # default: [] — [] = ไม่ retry อะไรเลย. ใส่ได้เฉพาะ infra
-    quarantine: false        # default: false
-```
-`retry_on` รับได้แค่ `infra` (จาก §1). **`assertion` ไม่เคยเป็นค่าที่ใส่ได้** — โดยตั้งใจ (§2).
+Canonical runner ไม่ retry action และ schema ปฏิเสธ `retry_on`/`quarantine` เพื่อไม่ให้ config ที่ดู
+เหมือนทำงานถูก ignore เงียบ ๆ. ถ้าต้อง quarantine ให้บันทึกใน coverage manifest ตาม §3; orchestration
+ภายนอกที่ retry ทั้ง scenario ต้องแยก transport error จาก assertion และเก็บ retry เป็น run ใหม่เสมอ
 
 ---
 
 ## Cross-links
-- อาการ infra จริง + วิธี reset: [`gotchas.md`](gotchas.md) §3 (os 10060 / session ค้าง), §8 (record/daemon PATH).
+- อาการ infra จริง + diagnosis: `py cdp.py doctor`; bounded transport contract ดู
+  [`flow-spec.md`](flow-spec.md) และ `Teibto/teibto-dev-standards` `docs/TOOLSTACK.md`.
 - เส้นแบ่ง Pass/Fail + mindset: [`test-design.md`](test-design.md).
 - gate + quarantine ในตัวเลข: [`coverage-model.md`](coverage-model.md).

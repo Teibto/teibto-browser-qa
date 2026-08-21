@@ -7,8 +7,9 @@ How to change this skill without breaking the discipline it is built on. New her
 
 - Chrome + `py -m pip install websocket-client pillow numpy` — needed to run `self-test/smoke-test.sh`.
   driver อยู่ที่ `~/.claude/skills/netsuite-qa-browser/references/cdp.py` (override ด้วย `NS_CDP`).
-- Python 3.10+ with PyYAML: `pip install -r requirements.txt` — for the `scripts/`.
-- Optional: `pymupdf` (for `self-test/pdf/pdf-test.sh`), `ffmpeg` (only if you touch the video recipe).
+- Python 3.10+ with PyYAML/jsonschema: `pip install -r requirements.txt` — for the `scripts/`.
+- Node.js 20+ only when changing the optional local UI.
+- Optional: `pymupdf` (for `self-test/pdf/pdf-test.sh`).
 
 ## The change loop
 
@@ -56,6 +57,9 @@ add or update its row with honest provenance:
 ## Running the checks
 
 ```bash
+python -m unittest discover -s tests -v
+node --check app/server.js
+bash tests/test-flow-runner-live.sh  # real Chrome + shared cdp.py; skips if either is unavailable
 bash self-test/smoke-test.sh      # syntax/recipe/reproducible claims + efficiency gates
 bash self-test/pdf/pdf-test.sh    # PDF pagination A/B (needs pymupdf + network for paged.js CDN)
 ```
@@ -66,6 +70,7 @@ Re-run after any Chrome or `cdp.py` version bump — this is the drift detector.
 
 | Script | What it does | Usage |
 |---|---|---|
+| `scripts/flow-runner.py` | Strict flow executor using one pinned, bounded `cdp.py` JSONL session per run. | `python scripts/flow-runner.py --help` |
 | `scripts/build-skill.py` | Zips `SKILL.md` + `assets/` + `references/` + `examples/` + runtime scripts into `teibto-browser-qa.skill` (a git-ignored build artifact). | `python scripts/build-skill.py` |
 | `scripts/coverage-check.py` | Release gate as an exit code: reads a `qa/<feature>/coverage.yaml` and returns 0 (pass) / 1 (fail) / 2 (malformed). | `python scripts/coverage-check.py qa/<feature>/coverage.yaml` |
 | `scripts/release-summary.py` | Rolls every `qa/*/coverage.yaml` into one sign-off table, reusing the gate logic. | `python scripts/release-summary.py [qa_dir]` |

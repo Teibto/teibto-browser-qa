@@ -1,6 +1,7 @@
 # teibto-browser-qa
 
 [![Release](https://img.shields.io/github/v/release/Teibto/teibto-browser-qa?logo=github&label=release&color=5A3FD6)](https://github.com/Teibto/teibto-browser-qa/releases/latest)
+[![CI](https://github.com/Teibto/teibto-browser-qa/actions/workflows/ci.yml/badge.svg)](https://github.com/Teibto/teibto-browser-qa/actions/workflows/ci.yml)
 [![Claude Code](https://img.shields.io/badge/Claude%20Code-skill-5A3FD6?logo=anthropic)](https://docs.anthropic.com/claude/docs/skills)
 [![driver](https://img.shields.io/badge/driver-CDP%20direct%20(cdp.py)-orange?logo=googlechrome)](https://github.com/Teibto/teibto-dev-standards)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
@@ -62,6 +63,8 @@ Golden rule: a command that exits 0 only means it was *sent* — always assert t
 - **Reproducible specs.** Test cases live as YAML with `requirement` and `acceptance` fields, so a requirement, its test, and its guide share one id.
 - **Documents that ship.** User guides and bug reports export to PDF with a cover, table of contents, page numbers, and highlighted screenshots.
 - **Evidence per step.** Capture screenshots and structured results that can be reviewed without a daemon, dashboard, or video dependency.
+- **One process per batch run.** `flow-runner.py` validates the flow, pins one target, and keeps one
+  bounded `cdp.py session --jsonl` process/WebSocket for every step.
 - **Fits a team.** A lifecycle playbook, a release gate, and a RACI table live in [`docs/TEAM-PROCESS.md`](docs/TEAM-PROCESS.md).
 
 ## Gotchas it protects against
@@ -87,7 +90,8 @@ git clone https://github.com/Teibto/teibto-browser-qa.git ~/.claude/skills/teibt
 
 Then install the driver's dependencies:
 ```bash
-py -m pip install websocket-client pillow numpy   # pillow/numpy only for visual diff
+py -m pip install -r requirements.txt             # flow runner + repo scripts
+py -m pip install websocket-client pillow numpy   # CDP driver; pillow/numpy only for visual diff
 ```
 
 `cdp.py` ships with the team skills (`~/.claude/skills/netsuite-qa-browser/references/cdp.py`); point `NS_CDP` elsewhere if you vendor it into a project. Requirements: Chrome, Python 3.10+, and `git` only if you build the `.skill` bundle. Full setup and every command: [`references/commands.md`](references/commands.md).
@@ -121,6 +125,25 @@ Keep the Chrome you launched and reuse it — the profile directory holds the lo
 
 For a real multi-step flow, see [`examples/saucedemo.yaml`](examples/saucedemo.yaml) and [`references/flow-spec.md`](references/flow-spec.md).
 
+### Batch a flow through one CDP session
+
+Pin the page target first; shared mode deliberately refuses to guess a tab:
+
+```powershell
+$env:TGT_ID = '<page target id>'
+$env:TEIBTO_CDP_SCRIPT = 'D:\path\to\teibto-dev-standards\scripts\cdp.py'
+'{"username":"standard_user","password":"..."}' |
+  py scripts/flow-runner.py --flow examples/saucedemo.yaml --out runs/manual --vars-json -
+```
+
+The runner writes `run-log.jsonl`, `qa-report.md`, and `shots/`. Secrets travel over stdin and are
+redacted from events/reports. It stops on command, wait, assertion, screenshot, console, or transport
+failure; an unasserted state-changing action is `UNVERIFIED`, never `PASS`.
+
+Optional local UI: set `TGT_ID` (or enter it in the page), then run `node app/server.js` and open
+`http://127.0.0.1:4173`. The server binds locally, uses the same runner, and has no browser daemon,
+dashboard, video, or ffmpeg dependency.
+
 ## Project structure
 
 ```
@@ -145,15 +168,21 @@ teibto-browser-qa/
 │   ├── guide-template.html        user-guide PDF (edit the data array)
 │   ├── bug-report-template.html   bug-report PDF (edit the bugs array)
 │   ├── highlight.js               inject a highlight ring before screenshot
-│   └── pointer.js                 place a pointer ring for video/live
+│   └── pointer.js                 place a pointer ring on still evidence
 ├── examples/
 │   └── saucedemo.yaml             runnable flow (happy path + adversarial)
+├── schemas/
+│   └── flow.schema.json           authoritative, fail-closed executable-flow schema
+├── app/
+│   ├── server.js                  local-only UI/API (SSE + cancellation)
+│   └── public/index.html          flow editor and run monitor
 ├── qa/
 │   └── _template/coverage.yaml    coverage manifest starter (release gate)
 ├── self-test/                     mechanical claim checks (drift detector)
 │   ├── smoke-test.sh              syntax/recipe/reproducible claims + efficiency gates
 │   └── pdf/pdf-test.sh            PDF pagination A/B
 └── scripts/
+    ├── flow-runner.py             one flow → one pinned bounded CDP JSONL session
     ├── build-skill.py             build the installable .skill bundle
     ├── validate-skill.py          fail-closed identity + flow validation
     ├── coverage-check.py          release gate as an exit code
@@ -166,6 +195,7 @@ Python tooling (`pip install -r requirements.txt`, PyYAML):
 
 | Script | What it does | Usage |
 |---|---|---|
+| `scripts/flow-runner.py` | Validate and execute a YAML flow through one pinned `cdp.py session --jsonl`; emit JSONL events, report, and screenshots. | `python scripts/flow-runner.py --flow <flow.yaml> --out <dir> --target-id <id>` |
 | `scripts/build-skill.py` | Bundle the skill into `teibto-browser-qa.skill` (a git-ignored build artifact attached to Releases). | `python scripts/build-skill.py` |
 | `scripts/coverage-check.py` | Release gate → exit code: reads a `qa/<feature>/coverage.yaml`, returns 0 pass / 1 fail / 2 malformed. | `python scripts/coverage-check.py qa/<feature>/coverage.yaml` |
 | `scripts/release-summary.py` | Roll every `qa/*/coverage.yaml` into one QA-Lead sign-off table. | `python scripts/release-summary.py [qa_dir]` |
