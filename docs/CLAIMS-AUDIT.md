@@ -1,4 +1,4 @@
-# Claims Audit — agent-browser-qa (+ netsuite-qa-browser cross-ref)
+# Claims Audit — teibto-browser-qa (+ netsuite-qa-browser cross-ref)
 
 Audited: 2026-07-14 · by: Claude Code · env: Win11, agent-browser 0.27.0, Chrome 150
 **Round 5 (2026-08-02):** transport ย้ายเป็น CDP ตรง (`cdp.py`) — claim ที่ผูกกับ **daemon**
@@ -90,7 +90,7 @@ with no A/B** (the class the black-window="GPU" bug belonged to).
 | 17 | about:blank = black but benign; verify get url → retry open | abq #9 | causal | **A/B verified 2026-07-14** | LOW | ✅ |
 | 18 | CDP screenshot immune to occlusion | abq #9 / ns §0 | causal | **verified 2026-07-14** (cover 8s) | LOW | (cover) |
 
-**abq** = agent-browser-qa · **ns** = netsuite-qa-browser
+**abq** = teibto-browser-qa · **ns** = netsuite-qa-browser
 
 Rows #6, #7, #9, #10, #13, #17 are exercised by `self-test/smoke-test.sh` (all green on 2026-07-14 on
 0.27.0; re-verified on 0.32.1 — see Round 4; batch was measured ~5× fewer round-trips than sequential).

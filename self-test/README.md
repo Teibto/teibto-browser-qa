@@ -1,4 +1,4 @@
-# self-test — regression harness for agent-browser-qa
+# self-test — regression harness for teibto-browser-qa
 
 Machine-checks the skill's **syntax / recipe / reproducible-causal** claims against a real
 Chrome ผ่าน `cdp.py` so a wrong or drifted claim is caught mechanically, not by accident.

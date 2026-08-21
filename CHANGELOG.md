@@ -4,9 +4,17 @@
 
 > **ที่มาของไฟล์นี้:** repo นี้เขียน release note ด้วยมือมาตลอด (v1.0.0–v1.5.0) · ไฟล์นี้เพิ่มเข้ามา
 > ตอน 2026-08-04 เพื่อให้ CI ออก GitHub Release เองตอน push tag ตาม Playbook R7 ของทีม ·
-> **เนื้อเต็มของ v1.0.0–v1.4.0 อยู่ที่ [หน้า Releases](https://github.com/wichtking/agent-browser-qa/releases)**
+> **เนื้อเต็มของ v1.0.0–v1.4.0 อยู่ที่ [หน้า Releases](https://github.com/Teibto/teibto-browser-qa/releases)**
 > ไม่ได้ copy มาซ้ำที่นี่ เพราะจะกลายเป็นสองแหล่งที่ drift จากกันได้ · ตั้งแต่ v1.6.0 เป็นต้นไป
 > ไฟล์นี้คือต้นฉบับ และ Release body ถูก generate จากมัน
+
+## [Unreleased]
+
+### Changed
+
+- ย้าย canonical ownership จากบัญชีส่วนตัวมา `Teibto/teibto-browser-qa` และเปลี่ยน skill/bundle
+  identity เป็น `teibto-browser-qa` โดยคง Git history, issues และ Releases เดิม (#47)
+- เพิ่ม PR quality gate และบังคับให้ release-on-tag ผ่าน gate เดียวกันก่อนสร้าง bundle พร้อม checksum
 
 ## [1.6.3] - 2026-08-16
 
@@ -178,24 +186,24 @@ driver กลางของทีมที่ [`Teibto/teibto-dev-standards`](h
 ## [1.4.0] - 2026-07-17
 
 **agent-browser 0.32.1 baseline + onboarding docs** —
-[เนื้อเต็ม](https://github.com/wichtking/agent-browser-qa/releases/tag/v1.4.0)
+[เนื้อเต็ม](https://github.com/Teibto/teibto-browser-qa/releases/tag/v1.4.0)
 
 ## [1.3.0] - 2026-07-17
 
 **token optimization, parallel-terminal safety, release badge** —
-[เนื้อเต็ม](https://github.com/wichtking/agent-browser-qa/releases/tag/v1.3.0)
+[เนื้อเต็ม](https://github.com/Teibto/teibto-browser-qa/releases/tag/v1.3.0)
 
 ## [1.2.0] - 2026-07-09
 
 **enforceable QA gate + test-data + a11y/perf/visual layers** —
-[เนื้อเต็ม](https://github.com/wichtking/agent-browser-qa/releases/tag/v1.2.0)
+[เนื้อเต็ม](https://github.com/Teibto/teibto-browser-qa/releases/tag/v1.2.0)
 
 ## [1.1.0] - 2026-07-07
 
 **test design, flow specs, English docs** —
-[เนื้อเต็ม](https://github.com/wichtking/agent-browser-qa/releases/tag/v1.1.0)
+[เนื้อเต็ม](https://github.com/Teibto/teibto-browser-qa/releases/tag/v1.1.0)
 
 ## [1.0.0] - 2026-06-25
 
 **agent-browser-qa — release แรก** —
-[เนื้อเต็ม](https://github.com/wichtking/agent-browser-qa/releases/tag/v1.0.0)
+[เนื้อเต็ม](https://github.com/Teibto/teibto-browser-qa/releases/tag/v1.0.0)

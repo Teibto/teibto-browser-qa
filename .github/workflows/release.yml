@@ -3,10 +3,8 @@
 # `git push --tags` สร้างแค่ tag ส่วน Release เป็นคนละ object ที่ต้องสร้างแยก ถ้าปล่อยเป็นงานมือ
 # จะหลุดเงียบข้าม release (repo มาตรฐานเองหลุดไป 20 tag จนหน้า Releases ค้างอยู่หลายเวอร์ชัน)
 #
-# ★ repo นี้ไม่เคยมี CI มาก่อน — workflow นี้ทำ **เฉพาะ release-on-tag** ไม่ได้เพิ่ม quality-gate
-#   (secret-scan / shellcheck / self-test) เพราะเป็นคนละการตัดสินใจ ถ้าจะเพิ่มให้เปิด issue แยก
-# ★ ต้อง build + แนบ `.skill` bundle ด้วย — flow มือเดิมแนบมาตลอด ถ้า automate แล้วลืมข้อนี้
-#   bundle จะหายเงียบ ๆ และคนที่ install แบบ one-file จะโหลดไม่ได้
+# Release เรียก reusable quality gate ก่อนเสมอ เพื่อไม่ให้ tag bypass ด่าน PR
+# และแนบทั้ง `.skill` bundle กับ SHA-256 checksum
 # @author Wichit Wongta @since 2026-08-04
 
 name: release
@@ -16,8 +14,12 @@ on:
     tags: ["v*"]
 
 jobs:
+  quality-gate:
+    uses: ./.github/workflows/ci.yml
+
   release:
     name: publish-release
+    needs: quality-gate
     runs-on: ubuntu-latest
     permissions:
       contents: write # default token เป็น read-only สร้าง Release ไม่ได้
@@ -31,6 +33,9 @@ jobs:
       - name: Build .skill bundle
         run: python3 scripts/build-skill.py
 
+      - name: Create checksum
+        run: sha256sum teibto-browser-qa.skill > teibto-browser-qa.skill.sha256
+
       # สคริปต์ idempotent: มี Release อยู่แล้ว = SKIP ไม่เขียนทับ (re-run workflow ได้ปลอดภัย)
       # badge Latest ไปตามเลขเวอร์ชัน ไม่ใช่ลำดับที่สร้าง
       - name: Create GitHub Release from CHANGELOG
@@ -43,4 +48,8 @@ jobs:
       - name: Attach .skill bundle to the release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release upload "${GITHUB_REF_NAME}" agent-browser-qa.skill --clobber
+        run: >-
+          gh release upload "${GITHUB_REF_NAME}"
+          teibto-browser-qa.skill
+          teibto-browser-qa.skill.sha256
+          --clobber

@@ -61,7 +61,7 @@ The ⚠️ code-only rows in `test-design.md` are not covered by the browser. De
 QA report should cite them as verified by dev tests or unverified in browser, never marked Pass.
 
 ### 4. Test (two distinct roles, kept separate)
-| | agent-browser-qa | CI regression suite (Playwright/Cypress) |
+| | teibto-browser-qa | CI regression suite (Playwright/Cypress) |
 |---|---|---|
 | Trigger | before a release, person + agent | every commit, headless, deterministic |
 | Goal | acceptance, exploratory, and docs | fast pass/fail gate, no flakiness tolerated |

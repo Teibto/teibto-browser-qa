@@ -1,17 +1,19 @@
-# agent-browser-qa
+# teibto-browser-qa
 
-[![Release](https://img.shields.io/github/v/release/wichtking/agent-browser-qa?logo=github&label=release&color=5A3FD6)](https://github.com/wichtking/agent-browser-qa/releases/latest)
+[![Release](https://img.shields.io/github/v/release/Teibto/teibto-browser-qa?logo=github&label=release&color=5A3FD6)](https://github.com/Teibto/teibto-browser-qa/releases/latest)
 [![Claude Code](https://img.shields.io/badge/Claude%20Code-skill-5A3FD6?logo=anthropic)](https://docs.anthropic.com/claude/docs/skills)
 [![driver](https://img.shields.io/badge/driver-CDP%20direct%20(cdp.py)-orange?logo=googlechrome)](https://github.com/Teibto/teibto-dev-standards)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
 <p align="center">
-  <img src="docs/banner.png" alt="agent-browser-qa: browser QA and docs from one real browser run" width="100%">
+  <img src="docs/banner.png" alt="teibto-browser-qa: browser QA and docs from one real browser run" width="100%">
 </p>
 
 A Claude Code skill for browser QA and documentation. Drive a real browser through a flow once and get two things back: a QA verdict, and a polished user guide or bug report.
 
-> **Transport note (2026-08-02):** this skill used to drive Chrome through the `agent-browser` CLI and its background daemon. It now talks **straight to Chrome over CDP** via `cdp.py` — the team's shared driver in [`Teibto/teibto-dev-standards`](https://github.com/Teibto/teibto-dev-standards). The daemon was dropped because it hung without saying why (`os error 10060` loops, silently dead Chrome) and could not answer JavaScript dialogs at all — `beforeunload` wedged it permanently. The repo keeps its name for continuity. Command-by-command mapping: [`references/commands.md`](references/commands.md).
+> **Transport note (2026-08-02):** this skill used to drive Chrome through the `agent-browser` CLI and its background daemon. It now talks **straight to Chrome over CDP** via `cdp.py` — the team's shared driver in [`Teibto/teibto-dev-standards`](https://github.com/Teibto/teibto-dev-standards). The daemon was dropped because it hung without saying why (`os error 10060` loops, silently dead Chrome) and could not answer JavaScript dialogs at all — `beforeunload` wedged it permanently. Command-by-command mapping: [`references/commands.md`](references/commands.md).
+
+> **Renamed 2026-08-21:** `agent-browser-qa` moved to `Teibto/teibto-browser-qa`. GitHub redirects the old repository URL, but installed skill folders are not redirected. Install only `teibto-browser-qa`; remove the old junction after updating callers so the same capability is not discovered twice.
 
 The reference files under [`references/`](references) are working notes kept in Thai. This README and [`SKILL.md`](SKILL.md) are in English.
 
@@ -59,7 +61,7 @@ Golden rule: a command that exits 0 only means it was *sent* — always assert t
 - **Token-aware.** Assertions are short commands and screenshots are saved to files, so testing a large app doesn't fill the context window.
 - **Reproducible specs.** Test cases live as YAML with `requirement` and `acceptance` fields, so a requirement, its test, and its guide share one id.
 - **Documents that ship.** User guides and bug reports export to PDF with a cover, table of contents, page numbers, and highlighted screenshots.
-- **Records runs.** Capture a flow as video, watch it live, or add a pointer ring so the recording shows where each action lands.
+- **Evidence per step.** Capture screenshots and structured results that can be reviewed without a daemon, dashboard, or video dependency.
 - **Fits a team.** A lifecycle playbook, a release gate, and a RACI table live in [`docs/TEAM-PROCESS.md`](docs/TEAM-PROCESS.md).
 
 ## Gotchas it protects against
@@ -76,11 +78,11 @@ Full detail with evidence: [`references/gotchas.md`](references/gotchas.md).
 
 ## Install
 
-Option A, one file: download `agent-browser-qa.skill` from the [Releases](https://github.com/wichtking/agent-browser-qa/releases) page and install it through the Claude Code skill installer.
+Option A, one file: download `teibto-browser-qa.skill` from the [Releases](https://github.com/Teibto/teibto-browser-qa/releases) page and install it through the Claude Code skill installer.
 
 Option B, clone into your skills directory:
 ```bash
-git clone https://github.com/wichtking/agent-browser-qa.git ~/.claude/skills/agent-browser-qa
+git clone https://github.com/Teibto/teibto-browser-qa.git ~/.claude/skills/teibto-browser-qa
 ```
 
 Then install the driver's dependencies:
@@ -89,6 +91,9 @@ py -m pip install websocket-client pillow numpy   # pillow/numpy only for visual
 ```
 
 `cdp.py` ships with the team skills (`~/.claude/skills/netsuite-qa-browser/references/cdp.py`); point `NS_CDP` elsewhere if you vendor it into a project. Requirements: Chrome, Python 3.10+, and `git` only if you build the `.skill` bundle. Full setup and every command: [`references/commands.md`](references/commands.md).
+
+When upgrading from the old name, update callers first and then remove
+`~/.claude/skills/agent-browser-qa`; do not keep both skill directories installed.
 
 Maintainers: the `.skill` bundle is a build artifact and is not committed. Rebuild it with `python scripts/build-skill.py` and attach the output to a GitHub Release.
 
@@ -119,7 +124,7 @@ For a real multi-step flow, see [`examples/saucedemo.yaml`](examples/saucedemo.y
 ## Project structure
 
 ```
-agent-browser-qa/
+teibto-browser-qa/
 ├── README.md                      this file
 ├── SKILL.md                       overview, golden rules, workflow
 ├── CLAUDE.md                      orientation for an agent/dev working on the repo
@@ -150,6 +155,7 @@ agent-browser-qa/
 │   └── pdf/pdf-test.sh            PDF pagination A/B
 └── scripts/
     ├── build-skill.py             build the installable .skill bundle
+    ├── validate-skill.py          fail-closed identity + flow validation
     ├── coverage-check.py          release gate as an exit code
     └── release-summary.py         roll every coverage.yaml into one sign-off table
 ```
@@ -160,7 +166,7 @@ Python tooling (`pip install -r requirements.txt`, PyYAML):
 
 | Script | What it does | Usage |
 |---|---|---|
-| `scripts/build-skill.py` | Bundle the skill into `agent-browser-qa.skill` (a git-ignored build artifact attached to Releases). | `python scripts/build-skill.py` |
+| `scripts/build-skill.py` | Bundle the skill into `teibto-browser-qa.skill` (a git-ignored build artifact attached to Releases). | `python scripts/build-skill.py` |
 | `scripts/coverage-check.py` | Release gate → exit code: reads a `qa/<feature>/coverage.yaml`, returns 0 pass / 1 fail / 2 malformed. | `python scripts/coverage-check.py qa/<feature>/coverage.yaml` |
 | `scripts/release-summary.py` | Roll every `qa/*/coverage.yaml` into one QA-Lead sign-off table. | `python scripts/release-summary.py [qa_dir]` |
 
@@ -194,7 +200,7 @@ Mechanical checks live in [`self-test/`](self-test) — run `bash self-test/smok
 
 This skill is a playbook around an upstream tool; it does not reproduce or replace the CLI.
 
-- [vercel-labs/agent-browser](https://github.com/vercel-labs/agent-browser) — the Rust CLI this skill was originally built on, and where the repo name comes from. No longer a dependency (see the transport note at the top); credit and license for the CLI belong to the upstream authors.
+- [vercel-labs/agent-browser](https://github.com/vercel-labs/agent-browser) — the Rust CLI this skill was originally built on. It is no longer a dependency; credit and license for the original CLI belong to the upstream authors.
 - [`Teibto/teibto-dev-standards`](https://github.com/Teibto/teibto-dev-standards) — home of `cdp.py`, the shared CDP driver this skill now drives Chrome with.
 - [saucedemo.com](https://www.saucedemo.com) — the Sauce Labs demo app used for examples and evidence runs.
 - [Paged.js](https://pagedjs.org/) — PDF pagination.

@@ -1,5 +1,5 @@
 ---
-name: agent-browser-qa
+name: teibto-browser-qa
 description: >-
   Drive a real browser (CDP ตรง ผ่าน cdp.py) through a web flow and produce QA results +
   documentation from the live run. Trigger for: smoke-test/QA a web app flow (login,
