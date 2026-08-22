@@ -76,7 +76,7 @@ AB run config/verify-sb2.txt > out/after.json
 สคริปต์ apply ต้องหน้าตาแบบนี้ — **assert หลังทุก field ไม่ใช่หลังทั้งชุด**:
 
 ```
-nav <url ของหน้า setup> 3
+nav <url ของหน้า setup> --until=load --timeout=30
 shot out/before.png
 fill #companyname Teibto Co., Ltd.
 get value #companyname

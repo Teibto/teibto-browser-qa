@@ -2,7 +2,7 @@
 <!-- ============================================================================
   USER GUIDE TEMPLATE (teibto-browser-qa skill)
   วิธีใช้: 1) แก้ META + data[] ในแท็ก <script> ด้านล่าง  2) วาง screenshot ใน shots/
-           3) AB nav <ไฟล์นี้> → wait 6000 → AB pdf out.pdf
+           3) AB nav <ไฟล์นี้> --until=load → wait .pagedjs_page → AB pdf out.pdf
   โครง data: scenario { title,color(s1..s4),ov{what,why,when}, steps[ {act,crumb[],url,img,
              do,res,why, fields[[ชื่อ,รายละเอียด,ตัวอย่าง]], note?, warn?} ] }
   ใช้ D (=="—") ในช่อง "ตัวอย่าง" เมื่อไม่มีค่า. ดู references/pdf-reports.md สำหรับ gotcha PDF.

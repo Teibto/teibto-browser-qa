@@ -28,7 +28,7 @@ sequenceDiagram
     participant B as Chrome / CDP
     U->>C: QA page X and make a guide/report
     C->>A: nav URL (installs console collector)
-    A->>B: navigate + poll until the page is really there
+    A->>B: navigate + match main-frame commit/load
     loop each step
         C->>A: shot (file)
         C->>A: click / fill (real Input events)
@@ -72,10 +72,7 @@ The core idea that prevents a false pass: use native input and assert the result
 
 ```mermaid
 flowchart TD
-    a["want to interact with element"] --> b{"in viewport?"}
-    b -->|"below fold / unsure"| c["scrollintoview &lt;sel&gt;"]
-    b -->|yes| d["click / fill &lt;sel&gt;"]
-    c --> d
+    a["want to interact with element"] --> d["trusted click / fill&lt;br/&gt;click auto-scrolls"]
     d --> e{"did it actually happen?<br/>(re-render / nav)"}
     e -->|no| x["❌ FAIL + evidence<br/>no silent JS fallback"]
     e -->|yes| g["assert state<br/>wait / get url / get count"]
@@ -88,8 +85,9 @@ flowchart TD
 
 ## 4. Seven QA layers
 
-Layers 1–4 run on every pass. Layers 5–7 are opt-in per scenario and return findings only — never a
-dump — so switching them on does not cost the context window.
+Smoke, functional assertions, and error surfacing form the normal live pass. Visual, a11y,
+performance, and UX/UI checks are selected when the scenario needs them and return findings only,
+never a raw dump.
 
 ```mermaid
 flowchart LR
@@ -132,7 +130,7 @@ flowchart TD
     t["pick a template<br/>guide / bug-report"] --> ed["edit the data array<br/>(content from the real run)"]
     ed --> sh["place screenshots in shots/"]
     sh --> op["cdp.py nav &lt;html&gt;"]
-    op --> wt["wait 6000<br/>(let paged.js lay out)"]
+    op --> wt["wait for .pagedjs_page<br/>(bounded condition)"]
     wt --> ck{".pagedjs_page count<br/>= expected?"}
     ck -->|"~2x (blank pages)"| fx["fix double-pagination:<br/>@page size 182x250mm (smaller than print area)<br/>+ .pagedjs_page margin only in @media screen"]
     fx --> wt
@@ -168,23 +166,11 @@ Snippet: [`../assets/highlight.js`](../assets/highlight.js)
 | Target | Setup / auth | Locator strategy | Watch out for |
 |---|---|---|---|
 | Generic web app | Chrome with remote debugging + pinned `TGT_ID` | `@ref` from `a11y` or stable CSS/data-test | assert business state after native click |
-| NetSuite Suitelet | persistent Chrome profile (reuse login, avoid 2FA) | `@ref` or CSS; set `IFRAME` for iframe content | async loads: explicit app condition such as `jQuery.active===0` |
+| NetSuite Suitelet | persistent Chrome profile (reuse login, avoid 2FA) | `@ref` or CSS; set `IFRAME` for iframe content | wait for a page-specific observable result |
 | Oracle APEX | isolated Chrome profile and port per job | a11y ref or stable selector | dynamic IG state and Thai input need explicit assertions |
 
 ---
 
-The diagrams reflect the real workflow used with `cdp.py` (CDP ตรง) on Windows.
-
-## ที่ตัดออกและทำไม — video / live view
-
-`record start/stop` (วิดีโอ), `stream enable`, `dashboard start` (`localhost:4848`) เป็นฟีเจอร์ของ
-**daemon** ที่ถูกทิ้งไปพร้อมกัน · CDP ตรงทำได้แต่ต้องเขียน `Page.startScreencast` แล้วต่อเฟรม
-base64 เป็นวิดีโอเอง + พึ่ง ffmpeg เหมือนเดิม — งานเขียนและงานดูแลไม่คุ้มกับที่ **pipeline ทำเอกสาร
-ของ skill นี้ใช้ screenshot ต่อ step อยู่แล้ว** ซึ่งเป็น artifact ที่ดีกว่าสำหรับ user guide/bug report
-(อ้างอิงหน้าได้, diff ได้, ไม่ต้องเปิดดูทั้งคลิป)
-
-**ที่เสียไปจริง:** ไม่มีหน้าจอกลางให้คนนอกดูสดระหว่าง agent ขับ · ทดแทนด้วย headed Chrome
-(คนดูที่หน้าจอเครื่องนั้นได้) + `shot` ต่อ step
-
-**ถ้าวันหนึ่งต้องการวิดีโอจริง ๆ:** เปิด issue ที่ `Teibto/teibto-dev-standards` เพื่อเติม
-`screencast` ลง `cdp.py` — อย่าเขียน driver ตัวที่สองในสกิลนี้
+The diagrams reflect the current direct-CDP workflow on Windows. Screenshots and structured events
+are the supported evidence artifacts; video and remote live-view orchestration are outside this
+repository's scope.

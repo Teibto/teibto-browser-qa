@@ -37,6 +37,9 @@ class PackagingTests(unittest.TestCase):
             validator.validate_flow(example)
         validator.validate_flow(ROOT / "tests" / "fixtures" / "live-flow.yaml")
 
+    def test_local_markdown_links_validate(self) -> None:
+        load_validator().validate_doc_links()
+
     def test_bundle_has_one_canonical_root(self) -> None:
         subprocess.run(
             [sys.executable, str(ROOT / "scripts" / "build-skill.py")],
@@ -54,6 +57,7 @@ class PackagingTests(unittest.TestCase):
         self.assertIn("teibto-browser-qa/app/public/index.html", names)
         self.assertTrue(all(name.startswith("teibto-browser-qa/") for name in names))
         self.assertFalse(any("agent-browser-qa/" in name for name in names))
+        self.assertNotIn("teibto-browser-qa/references/test-data.md", names)
 
 
 if __name__ == "__main__":

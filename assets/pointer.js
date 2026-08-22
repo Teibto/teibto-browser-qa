@@ -38,11 +38,12 @@ function point(selector) {
 // --- one-liner สำหรับวางใน AB eval "..." (แทน SEL ด้วย selector) ---
 // (function(s){var p=document.getElementById('__ptr');if(!p){p=document.createElement('div');p.id='__ptr';p.style.cssText='position:fixed;z-index:2147483647;width:26px;height:26px;margin:-13px 0 0 -13px;border:3px solid #ff2d55;border-radius:50%;background:rgba(255,45,85,.2);box-shadow:0 0 0 5px rgba(255,45,85,.22),0 0 16px #ff2d55;pointer-events:none;transition:left .45s ease,top .45s ease;left:50%;top:50%';document.body.appendChild(p);}var e=document.querySelector(s);if(!e)return 'noel:'+s;e.scrollIntoView({block:'center'});var r=e.getBoundingClientRect();p.style.left=(r.left+r.width/2)+'px';p.style.top=(r.top+r.height/2)+'px';p.animate([{transform:'scale(1.8)'},{transform:'scale(1)'}],{duration:450});return 'ok';})('SEL')
 
-// ตัวอย่าง flow อัดวิดีโอมี pointer (bash/pwsh) — point ก่อน → wait → act:
+// ตัวอย่าง headed inspection ที่มี pointer — point ก่อน → รอ animation แบบ cosmetic → act:
 //   PT="(function(s){...})"                              # เก็บ snippet ไว้ในตัวแปร
-//   (การอัดวิดีโอถูกตัดออกแล้ว — ดู docs/ARCHITECTURE.md §ที่ตัดออกและทำไม)
+//   ใช้กับ headed inspection หรือภาพนิ่ง; video/live-view orchestration อยู่นอก scope ของ repo นี้
 //   ใช้ชี้จุดก่อน shot แต่ละ step แทน:
-//   AB eval "$PT('#user-name')" && AB wait 650 && AB fill '#user-name' 'standard_user'
-//   AB eval "$PT('#login-button')" && AB wait 650 && AB eval "document.querySelector('#login-button').click()"
+//   AB eval "$PT('#user-name')" && sleep 0.65 && AB fill '#user-name' 'standard_user'
+//   AB eval "$PT('#login-button')" && sleep 0.65 && AB click '#login-button'
+//   AB wait "location.pathname === '/inventory.html'" 20 0.05
 //   ...
 //   AB shot guide/step-03.png                            # ภาพนิ่งที่มีวงชี้จุดคลิก

@@ -1,241 +1,60 @@
-# Claims Audit — teibto-browser-qa (+ netsuite-qa-browser cross-ref)
+# Claims Audit — teibto-browser-qa
 
-Audited: 2026-07-14 · by: Claude Code · env: Win11, agent-browser 0.27.0, Chrome 150
-**Round 5 (2026-08-02):** transport ย้ายเป็น CDP ตรง (`cdp.py`) — claim ที่ผูกกับ **daemon**
-ถูกถอนทั้งหมด (10060 ทุกสายพันธุ์, session file, batch shape, record/ffmpeg, dashboard) ·
-claim ที่ผูกกับ **Chrome/หน้าเว็บ** ยังอยู่และถูก re-verify ด้วย `self-test/smoke-test.sh`
-รอบใหม่ (30 เคส) · claim ใหม่ที่เพิ่ม: console collector ผูกกับหน้า · `viewport` ข้าม invocation
-ไม่มีผล · element-scoped `shot` ตก top-layer popup
+Current ledger for operational claims that can change a QA verdict. Historical transport/version
+rounds were removed from the active documentation in issue #54; their full provenance remains in Git
+history and `CHANGELOG.md`.
 
-**Round 6 (2026-08-16):** วัดใหม่บน **Chrome 151** พร้อมคำสั่งชุด `run`/`lens`/`steady`/`netlog`/`stub`
-(`Teibto/teibto-dev-standards` #188/#190/#192 · `tests/test-cdp.sh` 88 เคสกับ Chrome จริง)
+## Evidence boundary
 
-**Round 7 (2026-08-22):** canonical CDP protocol v2 + runner latency/async-wait evidence อยู่ท้ายไฟล์;
-driver real-Chrome suite 123 เคส และ Browser QA live flow วัด phase ก่อน–หลังแบบ isolated (#259/#52).
+- Browser QA release under review: `v2.1.0` (`2e65cec`).
+- Canonical driver: `teibto-dev-standards v0.82.0` (`df8121f`).
+- Performance runs: Windows host, Chrome `151.0.7922.140`, 2026-08-22.
+- The tested `scripts/cdp.py` blob was `ce5b376df249cb479f902751bbbb4df7898889d0`, identical to
+  the blob at canonical tag `v0.82.0`.
+- Driver internals are owned by canonical `tests/test-cdp.sh`; this repository keeps thin consumer
+  checks in `self-test/smoke-test.sh` plus runner unit/live tests.
 
-| claim | สถานะ | Risk | Smoke |
-|---|---|---|---|
-| **"`viewport` ข้าม invocation ไม่มีผล" (Round 5) — หยาบเกินไป** | **แก้แล้ว** วัดจริงพบว่ามันแยกร่าง: **ขนาดหน้าต่างค้าง** ข้าม invocation (Chrome resize หน้าต่างจริง) ส่วน **dsf/mobile ไม่ค้าง** · เป็นเหตุผลที่เทส T11e กับ T18e ในชุดเดียวกันดูขัดกันเองแต่ผ่านทั้งคู่มาตลอด | MED (version-pinned: Chrome 151) | T19a/T19b |
-| `clearDeviceMetricsOverride` ไม่คืนขนาดหน้าต่าง — คืนตอน websocket ปิดเท่านั้น | measured | MED (version-pinned) | T20g/T20t |
-| หน้าที่ไม่มี `<meta name=viewport>` ได้ layout 980px ใต้ mobile emulation | measured (พฤติกรรมมาตรฐานของ mobile browser ไม่ใช่ของ Chrome เวอร์ชันนี้อย่างเดียว) | LOW | T20h |
-| `:focus-visible` ต้องมาจาก Tab จริง — `el.focus()` ไม่ติด | measured (ยืนยันซ้ำจาก gotchas §16) | LOW | T20l/T20n |
-| `console` ของหน้าไม่เห็น HTTP 4xx/5xx ที่แอป `catch` เอง — `lens netlog` เห็น | measured (เคสคู่ในเทสเดียวกัน) | LOW | T21b/T21c |
-| `Fetch.fulfillRequest` เปลี่ยนหน้าจอเข้าสถานะ empty/error ได้จริง | measured บน HTTP server จริงในเทส | LOW | T21f/T21h |
+Status terms:
 
-**การแบ่งเทสระหว่างสองรีโป (ตัดสินใจ 2026-08-16):** `tests/test-cdp.sh` ของ `teibto-dev-standards`
-เป็นเจ้าของเทสลึกของ `cdp.py` — **ไม่ mirror มาที่นี่** เพราะจะกลายเป็นสองแหล่งที่ drift จากกัน
-(ปัญหาเดียวกับที่ CHANGELOG ของ repo นี้เคยเจอกับ Release body) · `self-test/smoke-test.sh`
-ของ repo นี้เก็บ **claim-check บาง ๆ ของสิ่งที่สกิลนี้สัญญาไว้** — ที่เพิ่มในรอบนี้: `run` ทำให้
-override อยู่ข้ามคำสั่งได้จริง (พร้อมเคสคู่), `lens layout` FAIL/PASS บนหน้าที่ผิด/ถูก,
-**`lens netlog` ที่ไม่ได้ `netlog on` = `UNVERIFIED`**, และ `steady` นอกโหมด `run` รายงาน `skipped`
+- **verified** — reproduced by a deterministic test;
+- **measured** — observed number with method/environment recorded;
+- **version-pinned** — true for the recorded Chrome/driver and must be rechecked on a bump;
+- **inferred** — plausible but not reproduced; never use alone for a `PASS`/`FAIL` verdict;
+- **principle** — a reporting/safety rule rather than a browser behavior.
 
-คอลัมน์ Smoke ข้างบนจึงหมายถึง "มีเทสที่ต้นทาง (`tests/test-cdp.sh`)" ส่วน claim ที่สกิลนี้เป็นคน
-สัญญาเองมีเทสของตัวเองใน `self-test/` แล้ว
+## Current driver and runner claims
 
-**ปิดค้างจาก Round 4:** flag ที่ค้างไว้ว่า "0.32 rejects unsafe startup arguments อาจกระทบ flag
-แก้จอดำ" (CLAIMS-AUDIT #8 · issue #29) — A/B แล้วพบว่า **ไม่กระทบ** (flag ทั้ง 5 ตัว live ใน
-`chrome://version` เพราะ launcher เปิด Chrome เองแล้วค่อย connect) และตั้งแต่ v1.5.0 ที่ทิ้ง daemon
-ไป ข้อกังวลนี้ก็ไม่มีเจ้าของแล้ว — สกิลนี้เปิด Chrome เองเสมอ ไม่มีชั้นไหนมา forward arg ให้
-
-**claim ใหม่ของ PDF template (Round 6):** ค่าใน `data[]`/`bugs[]`/`META` ถูก HTML-escape ที่ขอบ
-ของข้อมูล — measured, มีเทสใน `self-test/smoke-test.sh` (payload ไม่ execute · `<` ไม่หาย ·
-markup ของเทมเพลตยัง render · `document.title` ไม่ถูก escape ทับ) · **ข้อจำกัดที่ escape แก้ไม่ได้**:
-`</script>` ที่พิมพ์ตรง ๆ ในไฟล์ทำให้หน้าว่างทั้งหน้าตั้งแต่ชั้น HTML parser → `pdf-reports.md`
-
-> **Round 4 (2026-07-17):** baseline re-verified on **agent-browser 0.32.1**. Two claims drifted —
-> below-fold `click` now auto-scrolls (rows #13, abq #1) and `batch --json` shape changed (row #10).
-> Rows below are the original 0.27.0 audit; the drift is captured in **Round 4** at the bottom.
-
-**Goal:** find claims that might be "written wrong" before they bite — especially **causal claims
-with no A/B** (the class the black-window="GPU" bug belonged to).
-
-**Scoring:**
-- Type: `causal` (symptom→cause→fix) · `syntax` · `recipe` · `principle` · `efficiency`
-- Provenance: does the line carry "verified/observed <date/version>"?
-- Risk: **HIGH** = causal + no A/B/provenance · **MED** = inferred/intermittent or version-pinned · **LOW** = has A/B, or syntax the smoke harness checks
-- Smoke: covered by `self-test/smoke-test.sh`?
-
----
-
-## Executive summary
-
-1. **The skill authors already have good provenance discipline** — most high-risk claims carry an
-   inline "verified <date>" / "verified v0.27.0". **The black-window="GPU" claim was the outlier**
-   (a causal claim stated as fact with no A/B). Fixed → gotchas #9 is now a 3-mechanism model.
-2. **Remaining risk classes:**
-   - **Intermittent-infra** (os 10060 causes) — causal but hard to reproduce → *inference*, not A/B → label "inferred".
-   - **Version-pinned** (Chrome 150 / CfT / 0.27.0 / specific NetSuite accounts) — drift risk on upgrade.
-   - **Syntax/recipe** — machine-checkable → let `self-test/smoke-test.sh` verify them.
-3. **No remaining "GPU-2" causal claim** in the audited surface (gotchas #1–9, netsuite §0–1 tables, commands.md).
-
----
-
-## Claim risk table (by risk)
-
-| # | Claim | Location | Type | Provenance | Risk | Smoke |
-|---|-------|----------|------|-----------|------|-------|
-| 1 | occlusion (`CalculateNativeWinOcclusion`) = primary black-window cause | ns §0 / abq #9 | causal | launcher (primary) but **not synthetically reproduced on Chrome 150** | MED | hard |
-| 2 | GPU-compositing → black, fix `--disable-gpu` | ns §1 / abq #9 | causal | no A/B; scoped as conditional | MED | hard |
-| 3 | long-poll `wait` → os 10060 (Windows) | abq #3 | causal | "observed 2026-07-05", intermittent, inferred | MED | hard |
-| 4 | stale session file → 10060 on every command until killed | abq #3 / ns §1 | causal | "observed 2026-07-05" | MED | partial |
-| 5 | `record` needs ffmpeg + PATH not refreshed in old daemon | abq #8 | causal | detailed, verified | MED | partial |
-| 6 | `get attr <sel> <name>` — selector before name | commands / #4 | syntax | confirmed | LOW | ✅ |
-| 7 | `find <locator> <val> <action>` — action first, name as flag | commands / #4 | syntax | confirmed | LOW | ✅ |
-| 8 | PowerShell eats `@eN` (splatting) → must quote | abq #4 | syntax | observed | LOW | (pwsh) |
-| 9 | `eval` shares global scope → bare `let x` collides | abq #4 / ns §4 | syntax | "observed 2×" | LOW | ✅ |
-| 10 | `batch --json` → array of `{command,result,error,success}` | commands | recipe | v0.27 verified; **shape drifted on 0.32.1 → Round 4** | LOW | ⚠️ |
-| 11 | `press Alt+ArrowDown` opens native dropdown + screenshot captures it | commands | recipe | "verified headed+headless CfT150" | LOW | manual |
-| 12 | element-scoped `screenshot <sel>` drops top-layer popup | commands | recipe | stated | LOW | manual |
-| 13 | click does NOT auto-scroll → below-fold = silent no-op; scrollintoview fixes | abq #1 | causal | in-file minimal repro (≤0.27); **FIXED on 0.32.1 → Round 4** | LOW | ⚠️ |
-| 14 | `✓ Done` ≠ success → assert state | abq #2 | principle | — | LOW | n/a |
-| 15 | JS click (`eval …click()`) fires handler reliably | abq #7 | recipe | confirmed | LOW | ✅ |
-| 16 | headless CfT has no Thai font → boxes | abq #5 | causal | stated | LOW | (render) |
-| 17 | about:blank = black but benign; verify get url → retry open | abq #9 | causal | **A/B verified 2026-07-14** | LOW | ✅ |
-| 18 | CDP screenshot immune to occlusion | abq #9 / ns §0 | causal | **verified 2026-07-14** (cover 8s) | LOW | (cover) |
-
-**abq** = teibto-browser-qa · **ns** = netsuite-qa-browser
-
-Rows #6, #7, #9, #10, #13, #17 are exercised by `self-test/smoke-test.sh` (all green on 2026-07-14 on
-0.27.0; re-verified on 0.32.1 — see Round 4; batch was measured ~5× fewer round-trips than sequential).
-
----
-
-## Actions
-
-**A. Complete provenance labels** — #3, #4 (10060 causes) are *inferred*; add "inferred, intermittent"
-so a reader doesn't mistake them for an A/B result.
-
-**B. Smoke harness covers the reproducible rows** — re-run `self-test/smoke-test.sh` on every
-Chrome / `cdp.py` bump; it is the automatic drift detector.
-
-**C. Claims the harness can't cover (#1–#5, intermittent/conditional)** — rely on the provenance date
-and re-verify on a tool bump; do not promote to "fact" without an A/B.
-
-**D. Round-2 audited (2026-07-14):** `reliability-policy.md`, `perf-layer.md`, `a11y-layer.md`,
-`visual-regression.md`, `flow-spec.md`, `pdf-reports.md`, `test-design.md` — see below.
-
----
-
-## Round 2 — reference / layer files (2026-07-14)
-
-~65 falsifiable claims across 7 files (3 parallel audits, verbatim claim + provenance extraction).
-
-**Headline: these files carry almost NO inline provenance markers** — unlike `gotchas.md` /
-`netsuite-qa-browser` which are well-marked "verified <date>". Only markers found: axe-core `4.10.0`,
-printToPDF paper `Letter (~196×259mm)`, and `test-design.md`'s race recipe cites "PWOC #39 — repro +
-verify fix 100%".
-
-**But low overall alarm**, because the claim MIX here differs from gotchas:
-- **Spec/schema** (flow YAML fields, defaults, `retry_on` enum) — definitional, self-consistent → low risk.
-- **Tool-pinned recipes** (axe rule ids, `axe.run` shape, `vitals` fields, paged.js counters) — drift
-  class; correctness = "does the tool still behave this way" → caught by **re-running**, not by reading.
-  These silently break on an axe/Chrome bump. A dedicated layer smoke test would help.
-- **Genuine unverified causal claims** — the "GPU class" — consolidated below.
-
-### Consolidated HIGH-risk (unverified causal stated as fact)
-
-| claim | file | adjudication |
+| Claim | Status | Evidence |
 |---|---|---|
-| `@page` margin-box `counter(page)` doesn't work in Chrome `printToPDF` (justifies paged.js) | pdf-reports L32 | **REFUTED on Chrome 150 (2026-07-14)** — `@bottom-center{content:counter(page)}` DID render in `AB pdf` (footer on all 3 test pages). Version-drift: broke on old Chrome, works now. pdf-reports.md updated + paged.js kept (still needed for TOC `target-counter`). |
-| paged.js + printToPDF **double-pagination** (blank even pages, page# ×2) | pdf-reports L41 | **CONFIRMED (2026-07-14)** — no fixes → 3 logical pages became **6** PDF pages, even pages footer-only; fixes → clean 3. Matches the wording exactly. `verified` added + `self-test/pdf/` shipped. |
-| headless has no Thai font → boxes | pdf-reports L67 | duplicate of gotchas #5; widely-known → low real risk |
-| wait-before-assert fixes timing-flaky assert | reliability §2 | restates golden rule #2 (verified); testable but timing-flaky to automate |
-| don't `mark_end` at click's `✓ Done` = bogus number | perf §2 | corollary of golden rule #2 (verified) |
-| ~~delete `~/.agent-browser/<session>.*` fixes stuck 10060~~ | reliability §1 | **ถอนแล้ว (2026-08-02)** — ไม่มี daemon ไม่มี session file อีกต่อไป |
+| Runner requires `teibto-cdp-jsonl` protocol v2+ and verifies `input-settle=none` | verified | `tests/test_flow_runner.py` protocol/incompatibility cases |
+| Event-bound navigation waits for the new main-frame commit/load and fails on cancel/timeout | verified | canonical `tests/test-cdp.sh` T16c–T16j; runner live test |
+| Collector is installed before next-document scripts and resets per page | verified | canonical T15/T16d; `self-test/smoke-test.sh` console checks |
+| Fast input settle is scoped to direct runner input; `pick`/`lens` retain normal settle | verified | canonical session probe T19u/v |
+| Async fill/click outcomes remain bounded and observable | verified | delayed 150 ms input normalization and 300 ms trusted-click fixture in `tests/test-flow-runner-live.sh` |
+| Runner telemetry separates driver duration, runner wall time, attempts, and failing phase | verified | unit event assertions plus live `run-log.jsonl` parsing |
+| Missing/old driver fails as `DRIVER_INCOMPATIBLE` rather than using a silent fallback | verified | `tests/test_flow_runner.py` |
+| Success/failure screenshots follow scenario/step capture policy | verified | runner unit tests and live fixture |
 
-→ Both PDF candidates now **resolved by an A/B** (`self-test/pdf/pdf-test.sh`): one was a stale claim
-(Chrome caught up), one was real (verified + regression-tested). **No open "GPU-2" candidate remains**
-in the audited surface. The lesson recurred: an unverified causal claim was 50/50 — one wrong, one right.
+## Performance evidence
 
-### Remaining (optional)
+The comparison measures summed live step time, excluding Chrome startup:
 
-- **Layer-recipe drift test** (not built): inject axe-core, assert `axe.run` returns the documented
-  `{violations}` shape + a known rule id fires; run `vitals --json` and assert LCP/CLS/TTFB/INP fields
-  exist. Catches tool-version drift on the a11y/perf recipes.
-- The spec/schema claims (flow YAML) are validated by the flow runner + `examples/saucedemo.yaml` —
-  running that example end-to-end is their regression check.
-- **Layer-recipe drift test** (optional): inject axe-core, assert `axe.run` returns the documented
-  `{violations}` shape + a known rule id fires; run `vitals --json` and assert the LCP/CLS/TTFB/INP
-  fields exist. Catches tool-version drift on the a11y/perf recipes.
-- The spec/schema claims (flow YAML) are validated by the flow runner itself + `examples/saucedemo.yaml`
-  — running that example end-to-end is their regression check.
+| Sample | Runs | Median step flow | Result |
+|---|---:|---:|---|
+| main baseline (`teibto-browser-qa@3ecafee`, driver `6656b9c`) | 5 isolated runs | 4,373.865 ms | fixed navigation/input settling |
+| protocol-v2 candidate | 20 fresh child sessions on one temporary Chrome target | 622.523 ms | 20/20 pass |
+| issue #54 revalidation | 20 fresh child sessions on one temporary Chrome target | 972.687 ms | 20/20 pass |
 
----
+Measured improvement: **85.8%**. Candidate medians were startup 181.014 ms, open 30.552 ms, fill
+171.488 ms, click 396.767 ms, and total run 823.390 ms. The fixture intentionally waits 150/300 ms
+for application outcomes; those delays remain visible across action/wait timing rather than being erased.
 
-## Round 3 — post-refactor claims (2026-07-17)
+The issue #54 revalidation medians were startup 208.707 ms, open 41.492 ms, fill 206.611 ms, click
+739.543 ms, and total run 1,299.784 ms. The run verifies compatibility and records host variance; it
+does not replace the controlled release comparison or create a cross-machine latency gate.
 
-Five doc PRs merged (NetSuite scope-out + networkidle caveat #2, PDF template scoped-read #4, trim
-black-window rule #4 #8, batch rationale #9, README networkidle #10). Two of them add a claim the
-ledger must carry; one shifted line refs (fixed in the Round-2 table above: L23→L32, L30→L41, L54→L67).
-
-| # | Claim | Location | Type | Provenance | Risk | Smoke |
-|---|-------|----------|------|-----------|------|-------|
-| 19 | `wait --load networkidle` never settles on NetSuite → use `wait --fn "jQuery.active===0"` | SKILL §3/§4 · commands.md · README · pdf boundary | causal | **cross-ref to netsuite-qa-browser; NOT A/B'd in this repo** | MED | no (harness has no NetSuite) |
-| 20 | scoped Read of the template `<script>` block saves ~half the tokens vs the whole file | pdf-reports step 2 | efficiency | **measured 2026-07-17** — tiktoken o200k_base: guide 4,029→1,890 tok (53%), bug-report 54%; byte proxy 49%/52% | LOW | ✅ (drift gate ≥40%) |
-
-**On #19 (the one to watch):** this is a causal claim of the exact class the audit exists to flag —
-stated as fact, no A/B here. It is **inherited** from `netsuite-qa-browser` (where NetSuite lives), not
-proven in this repo. Do not promote it to "verified" in this skill; if a NetSuite target is ever added
-to the harness, A/B it (networkidle vs `jQuery.active===0`) then relabel. Trimming rule #4 (#8) removed
-a *duplicate* of gotchas #9, not a claim — no ledger change beyond the line-ref fix.
-
-`self-test/smoke-test.sh` now gates #20 with a pure-file check (`<script>` block ≥40% smaller than the
-full template) — runs without a browser, so it stays green even where the browser harness can't.
-
----
-
-## Round 4 — 0.32.1 upgrade drift (2026-07-17)
-
-Upgraded the local install 0.27.0 → **0.32.1** and re-ran `self-test/smoke-test.sh` (the drift
-detector). 14/15 passed; the one failure plus a follow-up A/B surfaced **two** real behavior changes.
-Both were reproduced deterministically, not inferred.
-
-| # | Claim (as of 0.27) | 0.32.1 result | adjudication |
-|---|---|---|---|
-| 13 | below-fold `click` = silent no-op; must `scrollintoview` first | **FIXED** — `click` auto-scrolls the element into view and fires. A/B: button `top=1629`, `innerH=569`, `inView=false`, `scrollY 0→1089` after click, handler ran. | Behavior changed. Docs version-noted (SKILL rule #1, gotchas #1, README table): 0.3x auto-scrolls; ≤0.27 no-op; `scrollintoview` is now a safe habit. Fixing version not in release notes / not bisected — confirmed present in 0.32.1. |
-| 10 | `batch --json` item = `{command:"get url", result:<value>, error, success}` | **SHAPE CHANGED** — `command` is an **array** `["get","url"]`; `result` is an **object** `{lifecycle, <named value>}` (e.g. `result.url`). Four keys unchanged. | commands.md updated: read the value at `result.<field>`. The smoke-test #10 checks only key presence, so it passed despite the shape change — a harness gap (see below). |
-
-**Not drifted (re-verified on 0.32.1):** `wait --load networkidle` → `✓ Done`; `get attr` order;
-`find` order; `eval` global scope; `about:blank` benign; the pure-file scoped-read gate.
-
-**Harness lesson:** smoke-test #10 asserts key *presence*, not *shape* — it stayed green while
-`command`/`result` restructured. #10 now also asserts `command` is an array; #13 now asserts the
-auto-scroll behavior. A presence check is not a shape check — a version bump can restructure a value
-while keeping its keys.
-
-**Upstream context (0.28–0.32 release notes):** no headline "click auto-scroll" fix; 0.32.0 did land
-"completed-page waits resolve immediately when already ready" (touches `wait --load`) and security
-hardening that "rejects unsafe startup arguments" — the latter is **not** re-verified here against the
-black-window launch flags (`--disable-gpu`, `--disable-features=CalculateNativeWinOcclusion`) because
-that launcher lives in another repo. Flag for manual check before relying on those flags on 0.3x.
-
----
-
-## Round 7 — bounded CDP protocol v2 latency (2026-08-22)
-
-Claims below are version-pinned to the real Chrome installed on the Windows test host and the
-canonical `cdp.py` branch for teibto-dev-standards#259. They are measurements, not universal
-machine-specific budgets.
-
-| Claim | Evidence | Adjudication |
-|---|---|---|
-| Event-bound `nav` prevents old-document readiness and keeps dialog/redirect behavior bounded | canonical real-Chrome `tests/test-cdp.sh` T16c–T16j | **verified**: server redirect, delayed 300 ms response, beforeunload dismiss/accept and final-page DOM all covered |
-| Collector captures load-time console errors without accumulating across pages | canonical T15 + T16d | **verified**: preload catches a script error on the redirect final document; per-page reset tests remain green |
-| `--input-settle=none` is scoped and explicit waits retain async correctness | canonical T19u/v + this repo `tests/test-flow-runner-live.sh` | **verified**: direct input ≥4× faster than fixed by relative gate; `pick`/`lens` retain settle; live fixture normalizes input after 150 ms and updates trusted click outcome after 300 ms |
-| Runner step-flow median is materially faster and stable under async delay | five isolated baseline runs + 20 final fast-policy runs | **measured**: 4,373.865 → 622.523 ms median summed step time (**85.8% faster**); 20/20 PASS, zero false FAIL; median `run_done` including 181.014 ms startup = 823.390 ms |
-
-Final 20-run result (one temporary Chrome/target, a fresh bounded child session each run):
-
-```text
-{"runs":20,"failures":0,"median_ms":{"startup_ms":181.014,"open_ms":30.552,
-"fill_ms":171.488,"click_ms":396.767,"step_total_ms":622.523,"run_total_ms":823.39}}
-```
-
-Baseline came from main commits `teibto-browser-qa@3ecafee` +
-`teibto-dev-standards@6656b9c`, five isolated runs of the same three-step live runner shape. The new
-fixture deliberately adds 150/300 ms application delays, so the improvement is conservative: those
-delays now appear in the wait phase instead of being hidden by fixed driver sleeps. Reproduce the
-post-change integration run with:
+Absolute milliseconds are evidence for this host, not a cross-machine CI budget. The portable driver
+gate is ratio-based in canonical `tests/cdp-session-probe.py`. Reproduce with:
 
 ```powershell
 $env:TEIBTO_CDP_SCRIPT = '<teibto-dev-standards>/scripts/cdp.py'
@@ -243,5 +62,46 @@ $env:LIVE_RUNS = '20'
 & 'C:\Program Files\Git\bin\bash.exe' tests/test-flow-runner-live.sh
 ```
 
-The portable performance gate is ratio-based in canonical `tests/cdp-session-probe.py`; the absolute
-milliseconds above remain evidence only and are not used as a cross-machine CI threshold.
+## Current browser/document claims
+
+| Claim | Status | Local evidence/limit |
+|---|---|---|
+| `click` scrolls the target into view and fires a trusted handler | verified | smoke fixture below-fold button |
+| Exit 0 does not prove the business outcome | principle | every state-changing flow step requires an assertion |
+| Missing element is distinct from an empty value | verified | smoke `get` checks |
+| Eval shares page global scope; an IIFE avoids repeated `let` collisions | verified | smoke paired case |
+| One-shot device-scale/mobile override does not survive its WebSocket | verified, version-pinned | smoke paired `viewport`/`shot`; canonical driver tests own deeper behavior |
+| `lens netlog` without `netlog on` is `UNVERIFIED`, never `PASS` | verified | smoke paired lens case |
+| CDP console cannot prove absence of caught HTTP failures | verified | canonical console vs netlog paired test |
+| PDF template data is HTML-escaped and script payloads do not execute | verified | smoke template payload case |
+| paged.js fixes prevent the controlled double-pagination fixture | verified, version-pinned | `self-test/pdf/pdf-test.sh` with PyMuPDF |
+| `about:blank` can explain an apparently black headed window | verified | smoke URL case |
+| GPU/occlusion is the cause of a black headed window | inferred | not reproducible on the recorded host; diagnose URL and CDP screenshot first |
+| Headless Thai font availability and native popup capture vary by host/Chrome | version-pinned | require a current render/manual evidence check |
+
+## Executable-flow authority
+
+`schemas/flow.schema.json` is authoritative and rejects unknown fields. `fixtures`, `teardown`,
+`retry_on`, `quarantine`, `a11y`, `perf_budget`, `mask_regions`, `diff_threshold`, and `ci_candidate`
+are **not executable fields** in v2.1.0. Their recipes/state live outside the flow until schema,
+execution behavior, reporting, and failure tests ship together.
+
+This rule closed contradictory documentation found in `test-data.md`, `a11y-layer.md`,
+`perf-layer.md`, `visual-regression.md`, and `TEAM-PROCESS.md` during issue #54.
+
+## Withdrawn claims
+
+- Operational instructions for the retired transport, session files, daemon recovery, recording, and
+  old command shapes are historical and must not appear in current runbooks.
+- Old-version claims that below-fold click does not auto-scroll were superseded by the canonical
+  trusted-click behavior and current smoke test.
+- A generic NetSuite `networkidle`/jQuery prescription was never A/B verified here and was replaced by
+  page-specific observable waits.
+- Proposed flow fields listed above were documentation proposals, not implemented behavior. Examples
+  that presented them as accepted schema were removed.
+
+## Revalidation rule
+
+After any Chrome or canonical `cdp.py` bump, run unit tests, the live runner test, and
+`self-test/smoke-test.sh`; run the PDF test when Chrome/PDF assets change. Update this ledger only from
+the resulting evidence. Do not promote an inferred or unrun condition to `PASS`.

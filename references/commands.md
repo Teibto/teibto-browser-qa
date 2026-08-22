@@ -1,7 +1,7 @@
 # Command Reference — `cdp.py` (CDP ตรง)
 
 transport ของ skill นี้คือ **`cdp.py`** ซึ่งเป็น asset กลางของ `Teibto/teibto-dev-standards`
-(`scripts/cdp.py`) — ทีมเลิกใช้ `agent-browser` daemon แล้ว เหตุผลและตารางแปลงอยู่ท้ายไฟล์นี้
+(`scripts/cdp.py`). Flow runner ต้องใช้ JSONL protocol v2+; ad-hoc command ใช้ policy ปกติของ driver.
 
 ## เตรียม (ครั้งเดียวต่อเครื่อง)
 
@@ -19,22 +19,21 @@ AB(){ py "$NS_CDP" "$@"; }
 # Chrome ของงานนี้ (profile ถาวร = เก็บ login ไว้ ไม่ต้อง 2FA ซ้ำ)
 "/c/Program Files/Google/Chrome/Application/chrome.exe" \
   --user-data-dir="$(cygpath -w "$PWD/.qa-profiles/run")" --remote-debugging-port=$CDP_PORT \
-  --no-sandbox --no-first-run --no-default-browser-check about:blank &
+  --no-first-run --no-default-browser-check about:blank &
 until curl -sf "http://127.0.0.1:$CDP_PORT/json/version" >/dev/null; do sleep 1; done
 
 # แท็บของงานเราพร้อม marker เฉพาะ แล้วปักหมุด — ห้ามทำงานบนแท็บที่คนอื่นเปิดไว้
 export TGT_ID=$(AB newtab "<url>?job=<ชื่องาน>")
 ```
 
-**pre-flight ทั้งหมดเหลือแค่ `curl /json/version`** — ไม่มี daemon ให้ warm, ไม่มี session file
-ให้ล้าง, ไม่มี cold-start loop ที่ค้างเป็นนาที
+Pre-flight ด้วย `curl /json/version`, ปัก `TGT_ID` และยืนยันว่า target เป็นแท็บของงานนี้.
 
 ## Navigate / Interact
 
 | คำสั่ง | ใช้ทำ |
 |---|---|
-| `nav <url> [wait]` | เปิดหน้า แล้ว drain event ตามวินาที (default 3; ยังตอบ JS dialog) · ติดตั้ง console collector |
-| `nav <url> --until=load [--timeout=N]` | protocol v2: รอ main-frame commit/load จริงสำหรับ runner; cancel/timeout = fail loud |
+| `nav <url> --until=load [--timeout=N]` | เปิดหน้าและรอ main-frame commit/load ของ document ใหม่; cancel/timeout = fail loud |
+| `nav <url> [wait]` | legacy compatibility: fixed event drain ตามวินาที (default 3) |
 | `click <sel\|@ref>` | คลิก **จริง** ด้วย Input event · `scrollIntoView` ให้ในตัว |
 | `fill <sel\|@ref> <text>` | โฟกัสจริง → ล้าง → พิมพ์จริง → Tab |
 | `type <text>` | พิมพ์ลง element ที่โฟกัสอยู่ |
@@ -43,8 +42,8 @@ export TGT_ID=$(AB newtab "<url>?job=<ชื่องาน>")
 | `setfile <sel> <path>` | แนบไฟล์เข้า `<input type=file>` (พิมพ์ path ตรง ๆ ไม่ได้ browser กัน) |
 | `newtab [url]` · `close <substring>` | จัดการแท็บของงานเรา |
 
-`eval <js>` = ทางหนีที่ชัวร์เสมอ — element ที่ locator ไหนก็จับไม่ติด ใช้
-`eval "document.querySelector('SEL').click()"` (แล้ว QA เรื่อง clickability จริงแยกต่างหาก)
+ใช้ `eval` สำหรับ read/assert หรือตั้ง test-only state ที่ตั้งใจไว้ ไม่ใช้ `element.click()` เป็น
+fallback ของ action เพราะ synthetic click จะซ่อนปัญหา clickability และ trusted-input behavior.
 
 ## อ่านข้อมูล (ผลลัพธ์สั้น — ปลอดภัยต่อ token)
 
@@ -63,7 +62,7 @@ export TGT_ID=$(AB newtab "<url>?job=<ชื่องาน>")
 
 ## หา element แบบ semantic (ทน dynamic UI)
 
-`a11y` คือตัวแทนของ `find role/label/text` — มันคืน role + ชื่อ + ref มาให้เลย:
+`a11y` คืน role + accessible name + ref สำหรับค้น element แบบ semantic:
 
 ```bash
 AB a11y "Submit"          # → [{"ref":"@42","role":"button","name":"Submit","value":""}]
@@ -78,7 +77,7 @@ ref เป็น `backendNodeId` ซึ่ง **คงที่ตลอดอ�
 ```bash
 AB wait "document.readyState==='complete'" 20 0.05   # arg 3 = poll interval (วินาที)
 AB wait "!!document.querySelector('#done')" 15
-AB wait "window.jQuery ? jQuery.active===0 : true" 20     # หน้า async ที่ใช้ jQuery (NetSuite)
+AB wait "document.querySelector('#status')?.textContent==='saved'" 20 0.05
 ```
 
 `wait` **exit 1 เมื่อหมดเวลา** → ใช้กับ `&&` / `set -e` ได้ตรง ๆ ให้ flow หยุดตรงจุดที่พังจริง
@@ -102,8 +101,7 @@ AB wait "window.jQuery ? jQuery.active===0 : true" 20     # หน้า async �
 
 ⚠️ **path ของ `shot`/`pdf` ต้องเป็น Windows-style (`cygpath -w`)** — ส่ง path แบบ Git-Bash
 (`/d/...`) ไฟล์**ไม่ถูกเขียนและคำสั่ง exit 0 ไม่ฟ้องอะไรเลย** (Windows Python ตีความ `/d/x`
-เป็น `<ไดรฟ์ปัจจุบัน>:\d\x`) · หลัง `shot` ให้ `ls` ยืนยันว่าไฟล์มีจริงก่อนอ้างเป็นหลักฐานเสมอ
-— เจอจริง 2026-08-10 (QA ar_aging บน SB2: รายงานเกือบอ้างภาพที่ไม่มีอยู่จริง)
+เป็น `<ไดรฟ์ปัจจุบัน>:\d\x`) · หลัง `shot` ให้ยืนยันว่าไฟล์มีจริงก่อนอ้างเป็นหลักฐานเสมอ.
 
 ⚠️ **`--dsf` ต้องส่งที่ `shot` ไม่ใช่สั่ง `viewport` แยกก่อน** — `Emulation.setDeviceMetricsOverride`
 ผูกกับ session ของ CDP และถูกยกเลิกทันทีที่ปิด websocket · `cdp.py` เปิด WebSocket ใหม่ทุกคำสั่ง
@@ -153,7 +151,7 @@ cat > steps.txt <<'EOF'
 netlog on
 steady --tz=Asia/Bangkok
 stub /api/orders 200 --bodyfile=D:\qa\empty.json
-nav https://app.example.com/orders 3
+nav https://app.example.com/orders --until=load --timeout=30
 lens layout
 lens netlog
 EOF
@@ -167,8 +165,7 @@ AB run steps.txt
 | **หนึ่ง `run` = หนึ่งแท็บ** | `tabs`/`newtab`/`close`/`diff` ถูกปฏิเสธ — แท็บถูกเลือกตอนต่อครั้งเดียว |
 | JSON ใน `--body=` | double quote โดน shlex กิน → ใช้ `--bodyfile=` หรือครอบ single quote |
 
-**ไม่ใช่ daemon:** lifetime ของ session = lifetime ของ process — จบสคริปต์คือจบ ไม่มี state ค้าง
-ไม่มี TTL ไม่มี orphan (เหตุผลที่ทีมทิ้ง `agent-browser` ยังใช้ได้อยู่)
+Lifetime ของ `run` เท่ากับ process; เมื่อสคริปต์จบ WebSocket และ override จบพร้อมกัน.
 
 ## `lens` / `steady` / `netlog` / `stub` — ชั้น UX/UI
 
@@ -196,18 +193,17 @@ AB lens layout
 รายละเอียดการใช้งาน + ตารางว่าแต่ละ lens โกหกได้ยังไง → `ux-lens.md` ·
 สิ่งที่ CDP แตะไม่ได้เลย → `cdp-limits.md`
 
-## ลด round-trip ในงานยาว
+## ลด round-trip โดยไม่ซ่อน action
 
-ทุกคำสั่ง `cdp.py` = หนึ่ง process + หนึ่ง WebSocket handshake · flow ยาว ๆ ให้รวมงานเป็น
-**JS ก้อนเดียวแล้วยิงด้วย `evalf`**:
+งาน repeatable ใช้ `flow-runner.py` เพื่อ reuse JSONL session. งาน ad-hoc รวม **read-only probes** ที่
+เกี่ยวข้องกันเป็น `evalf` หนึ่งก้อน แต่ action ที่เปลี่ยน state ต้องใช้ trusted command และ assert แยก:
 
 ```bash
 cat > /tmp/step.js <<'JS'
 (function(){
-  var out = {};
-  document.querySelector('#user').value = 'demo';
-  document.querySelector('#login').click();
-  out.url = location.href;
+  var out = {url: location.href};
+  out.title = document.title;
+  out.rows = document.querySelectorAll('[data-test=row]').length;
   out.errors = (window.__cdpLog || []).length;
   return JSON.stringify(out);
 })()
@@ -217,9 +213,8 @@ AB evalf /tmp/step.js
 
 - คืน **JSON ก้อนเดียว** = อ่านง่าย token น้อย และเป็น run-log ในตัว
 - **อย่ายัด assertion ที่ output ยาว** (`get html` ทั้งหน้า) ลงไป — ผลกลับเข้า context ทั้งก้อน
-- แต่ **action ที่เปลี่ยน state ควรแยกคำสั่ง** เพื่อ assert ทีละขั้น — รวมทุกอย่างเป็นก้อนเดียว
-  แล้วพังกลางทางจะไม่รู้ว่าพังขั้นไหน · และ synthetic `.click()` ใน `eval` ไม่ใช่ trusted click
-  (dropdown/component หลายตัวไม่รับ) — ปุ่มสำคัญยังต้อง `AB click`
+- **action ที่เปลี่ยน state ต้องแยกคำสั่ง** เพื่อ assert ทีละขั้น. Synthetic `.click()` ใน `eval`
+  ไม่ใช่ trusted click; ปุ่มสำคัญต้องใช้ `AB click`.
 
 ## Session / iframe / แท็บ
 
@@ -229,31 +224,3 @@ AB evalf /tmp/step.js
 | ใช้ login เดิมไม่ต้อง 2FA ซ้ำ | `--user-data-dir` ชี้ profile ถาวรตัวเดิม (ห้ามลบตอนเก็บกวาด) |
 | element ใน iframe | `IFRAME="#frameSel" AB get text "#inner"` — มีผลกับ `eval`/`is`/`get`/`click`/`fill` (same-origin) |
 | ปักหมุดแท็บของงานเรา | `export TGT_ID=$(AB newtab "<url>?job=x")` — ไม่ match = error พร้อมรายชื่อแท็บ ไม่ fallback เงียบ |
-
-## ตารางแปลงจาก `agent-browser` เดิม
-
-| agent-browser | `cdp.py` |
-|---|---|
-| `open <url>` | `nav <url> [wait]` |
-| `get url` / `get title` | `url` / `get text "title"` |
-| `get text/value/attr/count <sel>` | เหมือนกัน |
-| `is visible/enabled/checked <sel>` | เหมือนกัน |
-| `click` · `fill` · `type` · `press` | `click` · `fill` · `type` · `key` |
-| `scrollintoview <sel>` + `click` | `click` (scrollIntoView ให้ในตัว) |
-| `snapshot -i` + ref `@eN` | `a11y [คำค้น]` + ref `@<backendNodeId>` |
-| `find role button click --name "X"` | `a11y "X"` แล้ว `click "@<ref>"` |
-| `errors --json` / `console --json` | `console` — **collector ผูกกับหน้า ไม่ใช่ buffer สะสม** |
-| `wait --fn "<js>"` · `wait <sel>` · `wait --load networkidle` | `wait "<js>" [timeout] [poll]` |
-| `screenshot <path>` · `screenshot <sel> <path>` | `shot <path>` · `shot <path> <sel>` |
-| `diff screenshot --baseline <a> -o <b>` | `diff <a> <b> [out]` |
-| `pdf <path>` | `pdf <path>` |
-| `set viewport <w> <h> <dsf>` | `shot ... --vw= --vh= --dsf=` (ดูคำเตือนข้างบน) |
-| `upload <sel> <path>` | `setfile <sel> <path>` |
-| `frame "#sel"` … `frame main` | `IFRAME=#sel` เฉพาะคำสั่งที่ต้องการ (ไม่มี state ค้างให้ลืมออก) |
-| `tab new` · `tab close` | `newtab` · `close <marker>` |
-| `batch "<cmd>" ...` | รวมเป็น JS ก้อนเดียวแล้ว `evalf` |
-| `--session` · `--profile` | `CDP_PORT` + `--user-data-dir` ของ Chrome |
-| `connect` · `close --all` · `-Reset` · daemon recovery | **ไม่มีแล้ว** — ไม่มี daemon ให้ recover |
-| `record start/stop` · `stream` · `dashboard` | **ตัดทิ้ง** — ดู `docs/ARCHITECTURE.md` §ที่ตัดออกและทำไม |
-| `state save/load` · `auth save/login` | ใช้ profile ถาวรแทน (cookie export ข้าม profile ใช้ไม่ได้ตั้งแต่ Chrome 149) |
-| `mcp` | ไม่มี |

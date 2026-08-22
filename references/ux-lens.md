@@ -42,7 +42,7 @@ cat > qa/orders/lens.txt <<'EOF'
 netlog on
 steady --tz=Asia/Bangkok --locale=th-TH
 stub /api/orders 200 --bodyfile=D:\qa\empty.json
-nav https://app.example.com/orders 3
+nav https://app.example.com/orders --until=load --timeout=30
 lens layout
 lens theme
 lens focus 30

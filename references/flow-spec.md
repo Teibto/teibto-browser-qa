@@ -89,13 +89,18 @@ qa-report + user-guide อ้าง req เดียวกัน = ปิด loo
 
 ---
 
-## Fields ที่ยังไม่อยู่ใน executable flow
+## สิ่งที่ไม่ใช่ executable flow field
 
-`fixtures`, `teardown`, `retry_on`, `quarantine`, `a11y`, `perf_budget`, `mask_regions`,
-`diff_threshold` และ `ci_candidate` เคยถูกเสนอเป็น v2 metadata แต่ canonical runner ยังไม่ implement.
-Schema จึงปฏิเสธ field เหล่านี้แทนการรับแล้ว ignore เงียบ ๆ. เก็บ release/quarantine/coverage state
-ไว้ใน `qa/<feature>/coverage.yaml`; ทำ setup/teardown แยกจาก browser run พร้อม destructive guard.
-ถ้าจะเพิ่ม field ใด ให้เพิ่ม schema + execution behavior + failure test ใน PR เดียวกัน
+Runner ปัจจุบันไม่รองรับ `fixtures`, `teardown`, `retry_on`, `quarantine`, `a11y`, `perf_budget`,
+`mask_regions`, `diff_threshold` หรือ `ci_candidate`; fail-closed schema ปฏิเสธทั้งหมดแทนการรับแล้ว
+ignore เงียบ ๆ.
+
+- เก็บ release/quarantine/coverage state ใน `qa/<feature>/coverage.yaml`.
+- ทำ setup/teardown เป็น orchestration แยก โดยใช้ scoped marker, identify-before-mutate และ dirty-state
+  reporting ตาม [`test-design.md`](test-design.md) §Stateful test isolation.
+- รัน a11y/perf/visual recipes แยกหลัง flow ถึง state ที่ต้องการ แล้วแนบผลเข้ารายงาน.
+
+การเพิ่ม field ต้องส่ง schema, execution behavior, report behavior และ failure test ใน PR เดียวกัน.
 
 ---
 

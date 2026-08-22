@@ -35,7 +35,7 @@ process. การ retry ทั้ง scenario ต้องเป็นการ
 
 Runner protocol v2 ตัด fixed input settle เฉพาะ `click`/`fill`/`press` ที่ runner ส่งตรง. `fill`
 จึง poll ค่า exact แบบ bounded หลัง action; click/press ต้องมี `wait` ของ observable outcome ก่อน
-assert. เวลาของแอปอยู่ใน wait phase ไม่ใช่ถูกลบออก. `networkidle` ใช้เฉพาะ navigation-ready;
+assert. เวลาของแอปยังอยู่ใน action/wait timing ไม่ได้ถูกลบออก. `networkidle` ใช้เฉพาะ navigation-ready;
 AJAX/component state ใช้ selector หรือ `fn:<js>` ที่เจาะจง.
 
 เส้นแบ่ง: **ต่อ browser ไม่ติด = retry ได้. แอปให้ผลผิด = FAIL.** ถ้าแยกไม่ออก ให้ถือเป็น FAIL.
@@ -51,7 +51,7 @@ scenario ที่ flaky จริง (ไม่ใช่ bug แต่ยัง
   ```
   | scenario | เหตุผล flaky | วันที่ (YYYY-MM-DD) | เจ้าของ | ticket |
   |---|---|---|---|---|
-  | SC-014 | 10060 สุ่มขึ้นช่วง checkout ~1/5 รอบ | 2026-07-09 | wichit | PROJ-88 |
+  | SC-014 | WS_DISCONNECTED ระหว่าง checkout 1/5 รอบ | 2026-08-22 | owner | PROJ-88 |
   ```
 - quarantine เป็น **หนี้ที่มองเห็น** ไม่ใช่ที่ซ่อน bug — ต้องมีเจ้าของ + ticket + วันที่ เพื่อทวงคืน.
 
