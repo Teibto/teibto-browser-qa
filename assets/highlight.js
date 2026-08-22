@@ -19,9 +19,9 @@ function highlight(selector, color) {
 // --- one-liner สำหรับวางใน AB eval "..." ---
 // (function(s,c){var e=document.querySelector(s);if(!e)return'NOEL';e.scrollIntoView({block:'center'});e.style.outline='4px solid '+c;e.style.outlineOffset='3px';e.style.boxShadow='0 0 0 6px '+c+'55, 0 0 22px '+c;e.style.borderRadius='8px';return'HL_OK';})('SEL','#ff2d55')
 
-// ตัวอย่าง flow เก็บภาพไฮไลต์ (ขับด้วย JS click ให้ชัวร์ตามกฎทอง):
+// ตัวอย่าง flow เก็บภาพไฮไลต์ แล้วใช้ trusted click:
 //   HL="(function(s,c){...})"                       # เก็บ snippet ไว้ในตัวแปร bash
 //   AB eval "$HL('[data-test=login-button]','#ff2d55')"
 //   AB shot shots/01-login.png
-//   AB eval "document.querySelector('[data-test=login-button]').click()"
-//   AB wait --load networkidle && AB url   # assert ผล
+//   AB click "[data-test=login-button]"
+//   AB wait "location.pathname==='/home'" 20 0.05   # assert observable outcome

@@ -89,10 +89,10 @@ for run in range(1, count + 1):
     assert len(steps) == 3 and all(item["status"] != "fail" for item in steps), steps
     fill = steps[1]["timings"]["phases"]
     click = steps[2]["timings"]["phases"]
-    assert fill["wait"]["wall_ms"] >= 100, fill
-    assert click["wait"]["driver_ms"] >= 250, click
-    assert fill["action"]["driver_ms"] < fill["wait"]["wall_ms"], fill
-    assert click["action"]["driver_ms"] < click["wait"]["driver_ms"], click
+    # The browser event may begin its timer before the action command returns, so the
+    # portable contract is action + wait wall time—not a particular phase split.
+    assert fill["action"]["wall_ms"] + fill["wait"]["wall_ms"] >= 140, fill
+    assert click["action"]["wall_ms"] + click["wait"]["wall_ms"] >= 280, click
     assert "assert" in click and "capture" in click, click
     assert next(item for item in events if item["type"] == "errors").get("timing"), events
     done = next(item for item in events if item["type"] == "run_done")

@@ -1,66 +1,57 @@
-# perf layer — วัดเวลา save/load จริง เทียบ budget (token-safe)
+# Performance layer — วัดเวลาโดยไม่ซ่อน application latency
 
-เพิ่มเลเยอร์ที่ผูกกับงาน optimize ที่มีอยู่ (เช่น "save ควร < 3s"). แนวคิด: วัดเวลาจริงผ่าน
-browser timing API แล้ว **คืนแค่ตัวเลข ms + pass/fail เทียบ budget** — สั้น token-safe
-ไม่ dump timing entry ทั้งก้อน.
+เก็บเฉพาะตัวเลขที่ตอบ budget ของ scenario. ห้าม dump Navigation/Resource Timing ทั้งก้อน และห้าม
+เอา driver duration ไปอ้างเป็นเวลาที่ผู้ใช้รอ.
 
----
+## Navigation timing
 
-## 1. Navigation / load timing (หน้าโหลด)
+หลัง `nav --until=load` อ่าน Navigation Timing API แบบย่อ:
 
-ใช้ Navigation Timing API — คืนแค่ตัวเลขที่ต้องการ:
-```
+```bash
 AB eval "(function(){var n=performance.getEntriesByType('navigation')[0]||{};
-  return JSON.stringify({ttfb:Math.round(n.responseStart),
-    dom:Math.round(n.domContentLoadedEventEnd),
-    load:Math.round(n.loadEventEnd)});})()" --json
-# -> {"ttfb":210,"dom":880,"load":1450}
-```
-ไม่มีคำสั่ง `vitals` สำเร็จรูป — อ่านค่าเองจาก `performance` API ผ่าน `eval` (ตัวอย่างข้างล่าง)
-(framework-agnostic, ใช้กับ APEX ได้). ทั้งคู่คืนตัวเลขสั้น ไม่ต้อง reduce มาก.
-
----
-
-## 2. Save-time pattern (NetSuite form) — สำคัญ
-
-save duration ของ NetSuite form วัดจาก **mark ก่อน submit → measure หลัง confirmation/redirect**.
-ใช้ `performance.mark` + `performance.measure` (custom mark) เพราะ Navigation Timing วัดแค่ page load
-ไม่ครอบ round-trip ของ save:
-
-```
-# 1) ก่อนกด Save: ตั้ง mark
-AB eval "performance.mark('save_start'); 'marked'"
-
-# 2) กด Save (ปุ่มมักอยู่ท้ายฟอร์ม → scrollintoview ก่อน, gotchas §1)
-AB click  # (scrollIntoView อยู่ในตัวแล้ว) "#btn_save" && AB eval "document.querySelector('#btn_save').click()"
-
-# 3) รอ "save เสร็จจริง" — ไม่ใช่ ✓Done: รอ confirmation/redirect (gotchas §2)
-AB wait --fn "window.jQuery ? jQuery.active===0 : true"   # NetSuite async settle
-#   (หรือรอ url เปลี่ยนเข้า record view / รอ banner 'saved')
-
-# 4) measure ช่วง save แล้วคืนแค่ ms
-AB eval "performance.mark('save_end');
-  performance.measure('save','save_start','save_end');
-  var m=performance.getEntriesByName('save')[0];
-  JSON.stringify({save_ms:Math.round(m.duration)});" --json
-# -> {"save_ms":2360}
+  return JSON.stringify({ttfb_ms:Math.round(n.responseStart||0),
+    dom_ms:Math.round(n.domContentLoadedEventEnd||0),
+    load_ms:Math.round(n.loadEventEnd||0)});})()"
 ```
 
-**จุดวัดต้องเป็น "save เสร็จจริง"** — ผูกกับ signal ที่พิสูจน์ผล (jQuery.active===0 / redirect /
-banner) ตาม gotchas §2. อย่า mark_end ตอน `✓Done` ของ click เพราะยังไม่เสร็จ = ตัวเลขหลอก.
+`load_ms` เป็น browser lifecycle ไม่ใช่หลักฐานว่าข้อมูลของแอปพร้อม. ถ้าหน้ามี async component ให้
+รอและวัด observable outcome ที่ Acceptance Criteria ระบุ เช่น status text, row count หรือ enabled
+state.
 
----
+## Action-to-outcome timing
 
-## 3. เทียบ budget
+สำหรับ flow YAML ใช้ `run-log.jsonl` เป็นแหล่งหลัก:
 
-```yaml
-scenarios:
-  - id: SC-001
-    perf_budget:              # default: null (ไม่วัด)
-      save_ms: 3000           # เพดานเวลา save (ms)
+- `action.driver_ms` = เวลาที่ driver ใช้ส่ง trusted input;
+- `wait.wall_ms` = เวลาที่ application ใช้จน observable condition เป็นจริง;
+- `step.total_ms` = runner wall time รวม assertion/capture ที่เปิดใช้;
+- `attempts` และ `failing_phase` ใช้แยก transport retry จาก application failure.
+
+Runner protocol v2 ตัดเฉพาะ fixed input settle และย้ายเวลาที่ต้องรอจริงไปอยู่ใน bounded outcome
+wait. อย่าสรุปว่า action เร็วขึ้นจาก `driver_ms` อย่างเดียว.
+
+งาน ad-hoc ที่อยู่ใน document เดิมใช้ mark ก่อน trusted action แล้ววัดหลัง bounded wait:
+
+```bash
+AB eval "performance.clearMarks('qa_start');performance.mark('qa_start');'marked'"
+AB click "#save"
+AB wait "document.querySelector('#status')?.textContent==='saved'" 20 0.05
+AB eval "performance.mark('qa_end');performance.measure('qa_action','qa_start','qa_end');
+  JSON.stringify({action_to_outcome_ms:Math.round(performance.getEntriesByName('qa_action').at(-1).duration)})"
 ```
-เกณฑ์: `save_ms` วัดได้ > budget → **FAIL (report, surface)**; ≤ budget → pass. บันทึกใน qa-report
-แค่บรรทัดเดียว: `save: 2360ms / budget 3000ms → PASS`. ผูกกลับงาน optimize ได้ตรงๆ.
 
-**Acceptance:** perf layer วัด save duration ได้จริงในตัวอย่าง form (§2); output = ms + pass/fail
-(§3, token-safe); optional (flow เดิมไม่มี perf_budget ไม่พัง).
+ถ้า action navigate ไป document ใหม่ performance mark เดิมจะหาย ให้ใช้ runner phase telemetry หรือ
+Navigation Timing ของ document ใหม่แทน.
+
+## Budget และรายงาน
+
+`perf_budget` ยังไม่ใช่ executable `flow.yaml` field. เก็บ budget ใน Acceptance Criteria หรือ
+coverage manifest แล้วเปรียบเทียบกับค่าที่วัดได้ในรายงาน เช่น:
+
+```text
+checkout confirmation: 842 ms / budget 1,500 ms -> PASS
+source: step SC-CHECKOUT-01 wait.wall_ms
+```
+
+รายงาน environment, จำนวนรอบ และ median/p95 เมื่อใช้ตัวเลขตัดสิน release. รอบเดียวเหมาะกับ diagnosis
+แต่ไม่พอสำหรับ claim เรื่อง performance regression.

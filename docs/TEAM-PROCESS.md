@@ -60,28 +60,12 @@ Acceptance Criteria and produces both a QA verdict and the user guide from the s
 The ⚠️ code-only rows in `test-design.md` are not covered by the browser. Dev must cover them, and the
 QA report should cite them as verified by dev tests or unverified in browser, never marked Pass.
 
-### 4. Test (two distinct roles, kept separate)
-| | teibto-browser-qa | CI regression suite (Playwright/Cypress) |
-|---|---|---|
-| Trigger | before a release, person + agent | every commit, headless, deterministic |
-| Goal | acceptance, exploratory, and docs | fast pass/fail gate, no flakiness tolerated |
-| Environment | dev machine (Windows cold-start / 10060 realities) | clean CI runner |
-| Output | qa-report.md, user guide, bug reports | red/green |
+### 4. Test boundary
 
-Do not turn `flow.yaml` runs into the CI suite. The gotchas (ffmpeg, session stalls, os 10060) are
-single-machine realities that make it flaky in CI. A stable subset of flows can be ported to
-Playwright for CI, but that is a separate, deterministic artifact.
-
-**Graduating a flow to Playwright CI.** Mark a scenario `ci_candidate: true` (flow.yaml) only when
-it has earned it, then port it. Criteria:
-- It is a happy or functional path (not an exploratory/adversarial hunt).
-- It has run green for 3+ consecutive releases with no quarantine in that window.
-- It depends on no single-machine gotcha (no ffmpeg/video, no `--profile` session reuse, no manual
-  2FA) and its data is seeded idempotently (Phase 2) so a clean CI runner can set it up.
-- Its assertions are deterministic (no reliance on wall-clock time or a running number's value).
-
-The ported Playwright test is the CI artifact; the `flow.yaml` scenario stays as the acceptance/repro
-source. `ci_candidate` only signals readiness — it does not turn the flow.yaml run into CI.
+`teibto-browser-qa` owns a live acceptance/exploratory pass and its reviewable evidence. A separate
+deterministic CI suite may reuse the same Acceptance Criteria, but it is not generated or operated by
+this skill. Do not add CI-only metadata to `flow.yaml`: the fail-closed schema rejects fields that the
+runner cannot execute.
 
 ### 5. Userguide (regenerate every release)
 The guide comes from a real run, so it is only correct for the UI at run time. A UI change silently
@@ -133,7 +117,7 @@ Version QA artifacts with the feature, in the app repo, not on one person's mach
 ```
 <app-repo>/qa/<feature>/
   flow.yaml            # scenarios with requirement + acceptance
-  run-log.json         # batch --json output (audit trail)
+  run-log.jsonl        # ordered runner events and phase timings (audit trail)
   baseline/            # visual-regression baselines (versioned)
   shots/               # per-step screenshots
   qa-report.md         # verdict + severity, cites ticket ids

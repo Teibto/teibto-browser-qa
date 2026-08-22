@@ -17,7 +17,7 @@ axe-core เป็น JS ตัวเดียว inject ได้ผ่าน `
 AB eval "if(!window.axe){var s=document.createElement('script');
   s.src='https://cdnjs.cloudflare.com/ajax/libs/axe-core/4.10.0/axe.min.js';
   document.head.appendChild(s);} 'loading'"
-AB wait --fn "window.axe && typeof axe.run==='function'"   # รอ axe พร้อม
+AB wait "window.axe && typeof axe.run==='function'" 20 0.05
 ```
 
 ## 2. รัน axe แล้ว reduce ให้ token-safe (สำคัญสุด)
@@ -34,7 +34,7 @@ AB eval "axe.run(document,{resultTypes:['violations']}).then(function(r){
     by_impact:{critical:0,serious:0,moderate:0,minor:0,
       ...r.violations.reduce(function(a,v){a[v.impact]=(a[v.impact]||0)+1;return a;},{})},
     top:top});
-})" --json
+})"
 ```
 
 output ที่ได้ (สั้น, เข้า context ได้):
@@ -62,15 +62,9 @@ focus order ที่ axe จับไม่หมด ตรวจเสริ�
 
 ---
 
-## 4. Schema ใน flow.yaml
+## 4. ต่อเข้ากับ flow ปัจจุบัน
 
-optional มี default:
-```yaml
-scenarios:
-  - id: SC-001
-    a11y: false          # default: false — true = รัน a11y layer หลัง scenario ถึง state หลัก
-```
-`a11y: true` → หลังเดิน scenario ถึงหน้าเป้าหมาย รัน §1–2 แล้วบันทึกผล (count + top) ใน qa-report.
-เกณฑ์ fail: มี violation impact `critical`/`serious` = FAIL (surface, ไม่กลืน); moderate/minor = warn.
-
-**Acceptance:** layer คืน JSON ย่อ (§2) ไม่ทำ context ล้น; optional (flow เดิมไม่พัง).
+`a11y` ยังไม่ใช่ field ของ executable flow. ให้ runner เดินถึง state เป้าหมายก่อน แล้วรัน §1–2 เป็น
+ขั้นตรวจแยกบน `TGT_ID` เดิมและแนบ JSON ย่อเข้า `qa-report.md`. ถ้าทีมกำหนด policy ว่า
+`critical`/`serious` block release ให้บันทึกเกณฑ์นั้นใน Acceptance Criteria หรือ coverage manifest;
+อย่าฝัง field ที่ schema จะปฏิเสธลง `flow.yaml`.

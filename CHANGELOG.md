@@ -10,6 +10,36 @@
 
 ## [Unreleased]
 
+## [2.2.0] - 2026-08-22
+
+**Current v2 browser guidance with stale transport history and unsupported flow examples removed.**
+
+### Changed
+
+- Reworked `SKILL.md` into safety invariants plus progressive routing, and replaced the README with a
+  current v2.1/v0.82 install, smoke, runner, local-UI, and documentation map (#54).
+- Condensed the claims audit to current verified/measured/version-pinned evidence while keeping
+  withdrawn history discoverable through this changelog and Git history (#54).
+- Updated architecture, team process, contributor, command, gotcha, self-test, a11y, performance,
+  visual-regression, and test-design guidance to match the executable runner/schema (#54).
+
+### Removed
+
+- Removed orphaned `references/test-data.md`; its generic state-isolation and destructive guardrails
+  now live in `references/test-design.md`, while product-specific NetSuite/APEX cleanup recipes are
+  outside this generic skill (#54).
+- Removed operational migration tables, retired daemon troubleshooting, pre-current-driver behavior,
+  and unsupported video/live-view instructions from active runbooks (#54).
+
+### Fixed
+
+- Removed examples for rejected `fixtures`, `teardown`, `a11y`, `perf_budget`, `mask_regions`,
+  `diff_threshold`, and `ci_candidate` flow fields, plus old wait/find/batch command syntax (#54).
+- Added fail-closed validation for repository-local Markdown links and aligned the smoke-test guide
+  with the checks that the current harness actually runs (#54).
+- Removed a flaky live-test comparison between driver latency and application wait duration; the
+  harness now verifies the observable async delays without treating host timings as a CI budget (#54).
+
 ## [2.1.0] - 2026-08-22
 
 ### Added

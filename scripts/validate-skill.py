@@ -3,10 +3,12 @@
 
 from __future__ import annotations
 
+import json
+import re
 import sys
 from pathlib import Path
+from urllib.parse import unquote
 
-import json
 import yaml
 from jsonschema import Draft202012Validator
 
@@ -22,6 +24,7 @@ ACTIVE_TEXT_FILES = [
     ROOT / "scripts" / "build-skill.py",
     ROOT / ".github" / "workflows" / "release.yml",
 ]
+MARKDOWN_LINK_RE = re.compile(r"!?\[[^\]]*\]\(([^)\s]+)(?:\s+['\"][^)]*['\"])?\)")
 
 
 class ValidationError(ValueError):
@@ -81,16 +84,42 @@ def validate_active_names() -> None:
         raise ValidationError(f"stale operational identity in: {', '.join(hits)}")
 
 
+def validate_doc_links() -> None:
+    """Fail on repository-local Markdown links whose target no longer exists."""
+    root = ROOT.resolve()
+    broken = []
+    for path in sorted(ROOT.rglob("*.md")):
+        text = path.read_text(encoding="utf-8")
+        for match in MARKDOWN_LINK_RE.finditer(text):
+            target = match.group(1).strip("<>")
+            if target.startswith(("#", "http://", "https://", "mailto:")):
+                continue
+            relative = unquote(target.split("#", 1)[0].split("?", 1)[0])
+            if not relative:
+                continue
+            candidate = (path.parent / relative).resolve()
+            try:
+                candidate.relative_to(root)
+            except ValueError:
+                broken.append(f"{path.relative_to(ROOT)} -> {target} (outside repo)")
+                continue
+            if not candidate.exists():
+                broken.append(f"{path.relative_to(ROOT)} -> {target}")
+    if broken:
+        raise ValidationError("broken local Markdown links: " + "; ".join(broken))
+
+
 def main() -> int:
     try:
         validate_skill()
         for path in sorted((ROOT / "examples").glob("*.yaml")):
             validate_flow(path)
         validate_active_names()
+        validate_doc_links()
     except (OSError, yaml.YAMLError, ValidationError) as exc:
         print(f"FAIL: {exc}", file=sys.stderr)
         return 1
-    print("PASS: skill identity, active names, and example flows")
+    print("PASS: skill identity, active names, example flows, and local Markdown links")
     return 0
 
 

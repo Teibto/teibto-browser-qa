@@ -1,14 +1,8 @@
 # กับดักที่เจอจริง + วิธีแก้ (transport = CDP ตรง)
 
-รวมบั๊ก/ข้อจำกัด/ความเข้าใจผิดที่เสียเวลาไปจริง (Chrome for Testing / Chrome 150 · Windows 11).
-เรียงตามความสำคัญ. **อ่านก่อนเริ่มขับ browser** เพราะหลายอันทำให้ automation "ผ่านแบบหลอก"
-(false pass) ตรวจจับยาก.
-
-> **ที่หายไปพร้อม agent-browser daemon** (Teibto/teibto-dev-standards#111): `os error 10060`
-> ทุกสายพันธุ์ · session file ค้างชี้ daemon ตาย · "daemon version mismatch, restarting" ·
-> `connect` ค้าง 2 นาที · zombie daemon บน port สุ่ม · daemon/Chrome ค้างสะสมข้ามคืน ·
-> `record` ที่ต้อง restart daemon หลังติดตั้ง ffmpeg — **ไม่ต้องไล่หาอีกแล้ว**
-> ถ้ายังเจอ แปลว่ามีสคริปต์เก่าที่ยังเรียก daemon ค้างอยู่
+รวมข้อจำกัดและความเข้าใจผิดที่ทำให้ direct-CDP automation ผ่านหรือ fail แบบหลอกบน Windows.
+พฤติกรรมที่ขึ้นกับ Chrome/driver ระบุ provenance ใน `docs/CLAIMS-AUDIT.md`; รัน self-test ใหม่เมื่อ
+เวอร์ชันเปลี่ยน.
 
 ## TOC
 
@@ -22,7 +16,7 @@
 8. Chrome PDF viewer สคริปต์ไม่ได้
 9. headed window จอดำ — แยก 3 กลไก อย่าเหมารวมว่า "GPU"
 10. หลาย terminal ขับพร้อมกัน — แยก port + profile
-11. `nav <url> <n>` อาร์กิวเมนต์ที่สองเป็น "วินาที" ไม่ใช่เงื่อนไข JS
+11. ใช้ event-bound navigation; positional `<n>` เป็น legacy fixed drain ไม่ใช่เงื่อนไข JS
 12. Chrome บังคับหน้าต่างกว้างขั้นต่ำ ~500px — วัด layout ที่ 320/390 ตรง ๆ ไม่ได้
 13. อ่าน state ทันทีหลังสั่ง scroll = อ่านก่อน handler ที่ deferred ด้วย rAF ทำงาน
 14. เปลี่ยน CSS custom property แล้ววัดในสคริปต์เดียวกัน = ได้ค่า `var()` ค้าง (fail ปลอม)
@@ -44,9 +38,8 @@
 อ่าน state ทันทีหลัง click บางครั้ง race (ยังไม่ render) → ใช้ `wait <เงื่อนไขของผลลัพธ์>`
 แทนการอ่านดิบ · การ "อ่านเร็วเกิน" ทำให้เข้าใจผิดว่า click ไม่ติดทั้งที่ติด
 
-`cdp.py click` ยิง **Input event จริง** พร้อม `scrollIntoView` ให้แล้ว — ปัญหา "คลิกใต้ fold แล้ว
-เป็น no-op เงียบ ๆ" ของตัวขับรุ่นเก่าจึงไม่เกิด **แต่กฎ assert ยังอยู่** เพราะ handler ของแอป
-อาจไม่ทำงานด้วยเหตุอื่น (element ถูก overlay ทับ, handler ยังไม่ bind, ปุ่ม disabled)
+`cdp.py click` ยิง **Input event จริง** พร้อม `scrollIntoView` ให้แล้ว แต่กฎ assert ยังอยู่ เพราะ
+handler ของแอปอาจไม่ทำงานด้วยเหตุอื่น เช่น overlay, handler ที่ยังไม่ bind หรือปุ่ม disabled.
 
 ---
 
@@ -61,8 +54,7 @@
   เปิดไว้) → `console` จะ **error ไม่ใช่คืน `[]`** โดยเจตนา เพราะ "ไม่มี error" กับ "ไม่ได้เฝ้าอยู่"
   คนละเรื่อง · เจอ error นี้ให้ `nav` ซ้ำ หรือ inject collector เอง
 - **collector ตายพร้อมหน้า** — navigate แล้ว log เริ่มใหม่ · **นี่คือพฤติกรรมที่ต้องการ**:
-  buffer สะสมข้ามหน้า (แบบที่ `agent-browser errors` ทำ) ทำให้ error ของหน้าก่อนถูกนับเป็นของ
-  หน้านี้ ซึ่งเป็น false PASS ที่จับยากมาก
+  buffer สะสมข้ามหน้าจะทำให้ error ของหน้าก่อนถูกนับเป็นของหน้าปัจจุบัน.
 - `cdp.py` protocol v2 register collector ด้วย `Page.addScriptToEvaluateOnNewDocument` ก่อน `nav`
   ใน connection เดียวกัน จึงจับ load-time error ได้; post-nav eval ใช้ verify/fallback
 - **หน้าที่เปิด/เปลี่ยนไปก่อน connection ปัจจุบัน register collector ยังจับย้อนหลังไม่ได้** — เช่น
@@ -74,7 +66,7 @@
 ## 3. dialog ถูกตอบอัตโนมัติ — สะดวกแต่เปลี่ยนข้อมูลจริงได้ [HIGH]
 
 `cdp.py` เปิด `Page.enable` ตั้งแต่ต่อ session แล้วตอบทุก `alert`/`confirm`/`prompt`/**`beforeunload`**
-ให้อัตโนมัติ (default = accept) — นี่คือเหตุผลหลักที่ทิ้ง daemon เพราะมันทำข้อนี้ไม่ได้เลย
+ตาม `DIALOG` policy.
 
 **แต่ "ตอบได้" ไม่ได้แปลว่า "ควรตอบ":**
 
@@ -152,41 +144,22 @@ media แล้ว eval **ในคำสั่งเดียว**
 
 ## 9. headed window จอดำ — แยก 3 กลไก อย่าเหมารวมว่า "GPU" [MEDIUM]
 
-ถาม 2 คำถามก่อนเสมอ — (1) `AB url` เป็น `about:blank` ไหม? (2) หน้าต่างถูก **บัง/background**
-อยู่ไหม (terminal ทับ, QA window อยู่หลัง)?
+เริ่มจากหลักฐาน ไม่เดาสาเหตุจากสีของหน้าต่าง:
 
-**กลไก A — `about:blank` cosmetic (benign, เจอบ่อยสุด).** `about:blank` พื้น dark theme ว่างเปล่า
-= ดำ เป็นเรื่องปกติ ไม่ใช่ paint พัง · ทดสอบจับภาพหน้าต่างจริงตรงพิกัด: ดำ ⟺ `url == about:blank`
-เท่านั้น; พอ navigate หน้าจริง render ปกติทันที **ทั้งมีและไม่มี `--disable-gpu`**
-แปลว่า browser **ยังไม่ได้ navigate ไปเป้าหมาย** → เช็ค `AB url` แล้ว `nav` ซ้ำ
+1. `AB url` เป็น `about:blank` → browser ยังไม่อยู่หน้าเป้าหมาย; ใช้ event-bound `nav`.
+2. URL ถูกแต่ `AB shot evidence.png` ได้หน้าปกติ → ปัญหาอยู่ที่ native window/occlusion ไม่ใช่ DOM;
+   ใช้ screenshot เป็นหลักฐานและทำ headed-window diagnosis แยก.
+3. URL ถูกและ screenshot ผิดด้วย → เก็บ URL, screenshot, console และเปิด driver/app bug; ห้ามเติม
+   GPU flags แบบเดาแล้วประกาศว่าแก้แล้ว.
 
-**กลไก B — GPU-compositing black rectangle.** automation Chrome บน Windows headed บางเงื่อนไข
-paint content เป็นสี่เหลี่ยมดำทั้งที่ url เป็นหน้าจริง · แก้: `--disable-gpu --disable-software-rasterizer`
-
-**กลไก C — occluded/background window หยุด paint ("the real repeat offender").** Chrome บน Windows
-มี feature `CalculateNativeWinOcclusion`: หน้าต่างที่ถูกบัง/background ถูกมองว่า hidden แล้ว
-**หยุด render** → จอดำ · QA window ถูก background ตลอดเวลาที่ agent ขับ → โดนเต็ม ๆ · แก้:
-`--disable-features=CalculateNativeWinOcclusion --disable-backgrounding-occluded-windows
---disable-renderer-backgrounding`
-
-**สิ่งที่วัดได้เอง (bound):** ทดสอบบนเครื่องนี้ (Chrome 150, จับภาพหน้าต่างจริง + cover window 9 วิ)
-บน example.com **และหน้า NetSuite Login จริง** มี/ไม่มี flag → **reproduce B และ C ไม่ได้เลย**
-reproduce ได้แค่ A · สรุป: B/C เป็น **conditional จริง** (background นานเป็นนาที / GPU driver เฉพาะ /
-Chrome รุ่นเก่า) ที่ cover สังเคราะห์สั้น ๆ trigger ไม่ติด — flag set มาจาก session จริงยาว ๆ
-จึงยังเชื่อถือได้ แค่ trigger ไม่ง่ายบน Chrome 150
-
-**ที่ยืนยันแน่:** **CDP screenshot ภูมิคุ้มกัน occlusion** (capture จาก renderer compositor ไม่ใช่
-native window) → ถูกบังอยู่ก็ยังได้ภาพหน้าจริง → **artifact ของ guide/report ไม่พังแม้จอจะดำ**
-
-**Decision rule:** `AB url` ก่อน → `about:blank` = กลไก A (nav ซ้ำ, benign) · url เป็นหน้าจริง +
-หน้าต่างถูกบัง = B/C → relaunch พร้อม flag set · `AB shot` ใช้ได้เสมอไม่ว่ากรณีไหน
+`AB shot` จับจาก renderer จึงเป็นหลักฐานที่น่าเชื่อกว่าการมองหน้าต่างที่อาจถูกบัง. GPU/occlusion
+สาเหตุเฉพาะเครื่องยังเป็น version-pinned inference ใน claims ledger ไม่ใช่ default diagnosis.
 
 ---
 
 ## 10. หลาย terminal ขับพร้อมกัน — แยก port + profile [HIGH — เมื่อรันขนาน]
 
-**กลไกเปลี่ยนไปจากยุค daemon:** ไม่มี "session name" ให้ชนกันแล้ว · สิ่งที่ชนกันคือ **Chrome
-instance** และ **cookie jar ของ profile**
+สิ่งที่ชนกันคือ **Chrome instance**, CDP port และ **cookie jar ของ profile**.
 
 ```bash
 # terminal ที่ 1
@@ -203,8 +176,8 @@ export CDP_PORT=9401; chrome --user-data-dir=<...>/.qa-profiles/run-b --remote-d
   400 ทั้ง origin เพราะ cookie บวม · **ไล่ฝั่งแอปกี่ชั่วโมงก็ไม่เจอเพราะมันไม่ได้พังจริง**
 - ต้องใช้ login เดิมจริง ๆ → **seed สำเนา profile ต่อ terminal** ไม่ใช่แชร์ตัวเดียวกัน
 
-**เก็บกวาด:** ไม่มี daemon ให้ล้าง · ปิดแท็บของงานเราด้วย `AB close "<marker ของงาน>"` แล้วจบ ·
-**ห้ามลบ `.qa-profiles/`** ถ้ามี login อยู่ (จะต้อง 2FA ใหม่) · Chrome ที่เราเปิดเองปิดได้ตามปกติ
+**เก็บกวาด:** ปิดแท็บของงานเราด้วย `AB close "<marker ของงาน>"` · **ห้ามลบ `.qa-profiles/`**
+ถ้ามี login อยู่ (จะต้อง 2FA ใหม่) · Chrome ที่เราเปิดเองปิดได้ตามปกติ
 — แต่ **ห้าม `taskkill chrome` มั่ว** เพราะ Chrome ส่วนตัวของผู้ใช้ปนอยู่ ให้กรองด้วย
 `--user-data-dir` ของ QA เท่านั้น:
 
@@ -216,20 +189,16 @@ Get-CimInstance Win32_Process -Filter "Name='chrome.exe'" |
 
 ---
 
-## 11. `nav <url> <n>` อาร์กิวเมนต์ที่สองเป็น "วินาที" ไม่ใช่เงื่อนไข JS [LOW — แต่ทำ flow ตายตรงคำสั่งแรก]
-
-`AB nav "<url>" "document.readyState==='complete'"` **ไม่ใช่** syntax ที่มี — อาร์กิวเมนต์ที่สอง
-ของ `nav` คือจำนวนวินาทีที่ drain event เท่านั้น ส่งสตริงไปได้
-`ValueError: could not convert string to float` แล้ว flow ตายตรงนั้น (เจอจริง 2026-08-14)
+## 11. ใช้ event-bound navigation; positional `<n>` เป็น legacy fixed drain [HIGH]
 
 ```bash
-AB nav "<url>" 3                                    # drain 3 วิ
-AB wait "document.readyState==='complete'" 15       # เงื่อนไขอยู่ที่ wait เท่านั้น
+AB nav "<url>" --until=load --timeout=30             # preferred: ผูกกับ document ใหม่
+AB wait "document.querySelector('#ready')!==null" 15 0.05
 ```
 
-Runner/protocol v2 ใช้ `AB nav "<url>" --until=load --timeout=30` เพื่อรอ main-frame commit/load
-จริง. **ห้าม optimize ด้วย `nav <url> 0` แล้ว wait `readyState` อย่างเดียว**: document เก่าอาจเป็น
-`complete` อยู่แล้ว ทำให้ wait ผ่านก่อน navigation commit และ assertion อ่านหน้าเก่าเป็น false PASS.
+`nav <url> <n>` ยังรองรับเพื่อ compatibility แต่ `<n>` คือจำนวนวินาที fixed drain ไม่ใช่เงื่อนไข
+JavaScript. **ห้าม optimize ด้วย `nav <url> 0` แล้ว wait `readyState` อย่างเดียว**: document เก่าอาจ
+เป็น `complete` อยู่แล้ว ทำให้ assertion อ่านหน้าเก่าเป็น false PASS.
 
 **ผลข้างเคียงที่แพงกว่าตัว error:** `nav` เป็นคำสั่งที่ติดตั้ง console collector ให้ · `nav` ล้ม =
 ไม่มี collector → `AB console` คำสั่งถัดไปตอบว่า "collector ยังไม่ถูกติดตั้ง" ซึ่ง**ถูก** แต่ถ้าอ่านผ่าน ๆ
@@ -253,7 +222,7 @@ for W in 320 390 480; do ... --window-size=$W,900 ...; done   # ทั้งส�
 | ต้องการ | ใช้ |
 |---|---|
 | ภาพที่ layout จริงของ 320/390 | `AB shot out.png --vw=390 --vh=844` (device metrics มีผลในคำสั่งนั้น ดู #4) |
-| assert ตัวเลข layout ที่ <500 | ไม่มีทางตรง — ยืนยันจากภาพ + assert ที่ 500 ซึ่งอยู่ใน media query เดียวกัน |
+| assert layout ที่ <500 | `AB lens responsive 320,390,480` ซึ่งตั้งและวัด device metrics ใน invocation เดียว |
 | ตรวจว่าล้นแนวนอนไหม | assert `document.documentElement.scrollWidth === window.innerWidth` **และ**
 ไม่มี element ที่ `getBoundingClientRect().right > innerWidth` ที่ทุกความกว้างที่วัดได้ (500–1920) |
 
@@ -275,8 +244,9 @@ return document.querySelectorAll('a[aria-current]').length;
 ```
 
 ```bash
-# ✅ แยกเป็นสอง round trip — websocket ปิด/เปิดใหม่ให้เวลาเบราว์เซอร์ flush frame
+# ✅ เปลี่ยน state แล้วรอ observable outcome แบบ bounded ก่อนอ่าน
 AB eval "document.getElementById('scale').scrollIntoView({behavior:'instant'}); 'x'"
+AB wait "document.querySelectorAll('a[aria-current]').length>0" 5 0.05
 AB eval "[...document.querySelectorAll('a[aria-current]')].map(a=>a.getAttribute('href')).join('|')||'NONE'"
 ```
 
@@ -316,9 +286,9 @@ AB evalf contrast.js
 **แก้เพิ่ม 2026-08-15: แยก round trip อย่างเดียว "ไม่พอ" เสมอไป** เจอเคสที่สลับธีมด้วย
 `setAttribute` ใน eval หนึ่ง แล้ว sleep 0.5 วินาที แล้ววัดใน eval ถัดไป **ยังได้สีของธีมเก่า**
 (ปุ่มอ่านได้ `#f2f2f0` ทั้งที่ `--ink` ของ `:root` อ่านได้ `#15171d` ถูกต้องแล้ว)
-สิ่งที่ได้ผลคือ **กดปุ่มสลับธีมของหน้าเองด้วย `.click()`** แล้วค่อยวัด เพราะ handler ของหน้า
-ทำงานในจังหวะที่เบราว์เซอร์ recalc ให้ครบ · กฎที่ปลอดภัยที่สุดคือ **เปลี่ยน state ผ่านทางที่ผู้ใช้
-ใช้จริง อย่าตั้ง attribute เองแล้ววัด** และยืนยันด้วย screenshot อย่างน้อยหนึ่งครั้งก่อนเชื่อว่าหน้าพัง
+สิ่งที่ได้ผลคือ **กดปุ่มสลับธีมด้วย `AB click`** แล้วรอ state ของหน้า ก่อนค่อยวัด เพราะ handler ของ
+แอปทำงานผ่านทางเดียวกับผู้ใช้ · กฎที่ปลอดภัยที่สุดคือ **เปลี่ยน state ผ่าน trusted action อย่าตั้ง
+attribute เองแล้ววัด** และยืนยันด้วย screenshot อย่างน้อยหนึ่งครั้งก่อนเชื่อว่าหน้าพัง
 
 ---
 

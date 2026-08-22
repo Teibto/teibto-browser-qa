@@ -1,145 +1,94 @@
-# Test Design — จะทดสอบอะไร (adversarial coverage)
+# Test Design — จะทดสอบอะไร
 
-`gotchas.md` + `commands.md` บอก **วิธีขับ browser**. ไฟล์นี้บอก **จะทดสอบอะไร** — วิธีคิด
-test case เชิงระบบเพื่อ "แตกระบบให้พังก่อน user เจอ" ไม่ใช่แค่ยืนยันว่า happy path เดินจบ.
+`commands.md` และ `gotchas.md` บอกวิธีขับ browser; ไฟล์นี้ใช้เปลี่ยน Acceptance Criteria กับ code
+ที่เกี่ยวข้องให้เป็น case ที่พิสูจน์ได้ เป้าหมายคือหา defect ไม่ใช่ทำให้รายงานเป็นสีเขียว.
 
-**Mindset:** adversarial — เป้าหมายคือหา bug ไม่ใช่ mark Pass. ห้าม mark Pass ถ้าไม่ได้ run จริง;
-ถ้าไม่ได้ทดสอบให้เขียน "ไม่ได้ทดสอบ".
+## แยก design ออกจาก execution
 
----
+- **Design:** อ่าน requirement/code, หา branch, invariant, side effect และ failure mode โดยยังไม่เปิด
+  browser.
+- **Happy path:** เดินหนึ่งรอบเพื่อได้ smoke verdict และหลักฐานสำหรับเอกสาร.
+- **Adversarial case:** รันแยกทีละ case, คืนเฉพาะ finding และถ่ายภาพเมื่อ fail หรือเมื่อหลักฐานจำเป็น.
 
-## กฎข้อเดียวที่ทำให้ merge นี้ไม่ขัดกันเอง
+ทุกผลต้องเป็น `PASS`, `FAIL` หรือ `UNVERIFIED`. ถ้าไม่ได้รันหรือ browser พิสูจน์ไม่ได้ ห้ามใช้
+`PASS`.
 
-skill นี้มีหลัก **"one pass, token น้อย"**. adversarial coverage ดูเหมือนขัด (หลายรอบ + output เยอะ)
-แต่ไม่ขัดถ้าแยกให้ชัด:
+## สิ่งที่ browser พิสูจน์ได้
 
-| ชั้น | เป็นอะไร | ต้นทุน |
-|---|---|---|
-| **Test design** (Phase 0–2 ล่าง) | **สมองคิดจาก code** — ตัดสินว่าจะยิง case ไหน | ถูก ไม่แตะ browser เลย |
-| **Test execution** | ขับ browser ยิง case ที่ design ไว้ | **ยัง token discipline เดิม** — คำสั่งสั้น, screenshot=ไฟล์, ห้าม dump snapshot |
+รันและ assert ผ่าน browser ได้เมื่อผลปรากฏใน UI, URL, DOM, console หรือ network observation เช่น:
 
-**"one pass, two outputs" นิยามใหม่:**
-- **Happy-path pass** = เดินรอบเดียว → ได้ guide material + smoke verdict (หลักเดิม ยังอยู่).
-- **Adversarial passes** = pass **แยก** ยิงทีละ case → คืน **เฉพาะ bug finding** (ไม่ผลิต guide,
-  ไม่ screenshot ทุก step — ถ่ายเฉพาะตอนเจอ bug เป็นหลักฐาน).
+- valid/invalid/boundary input, ช่องว่าง, format, Unicode/ไทย/emoji;
+- validation, navigation, role/permission state ที่ account ทดสอบเข้าถึงได้;
+- double-submit และลำดับ action ที่ผู้ใช้ทำได้จริง;
+- error/empty/loading states ที่บังคับได้อย่างปลอดภัย;
+- visual, keyboard, accessibility และ observable performance behavior.
 
-design matrix แค่บอกว่า *จะรัน short-assertion check ตัวไหน* — มันไม่เคยอนุญาตให้ feed snapshot กลับ context.
+สิ่งต่อไปนี้ต้องใช้ code review, API/backend test หรือหลาย session เพิ่มเติม เว้นแต่มี harness เฉพาะที่
+พิสูจน์ได้จริง:
 
----
+- concurrency/locking ข้ามผู้ใช้;
+- transaction rollback, orphan state และ database integrity;
+- platform governance/usage limits และ backend timeout;
+- query semantics, cross-tenant authorization และ server-side logging.
 
-## สิ่งที่รันผ่าน browser ได้จริง vs ไม่ได้ (สำคัญ — กัน false confidence)
+บันทึกสิ่งเหล่านี้ว่า `derived from code, unverified in browser` พร้อมชื่อหลักฐานที่ยังขาด.
 
-prompt ทั่วไปครอบคลุมทุก edge case แต่ **CDP-driven browser เดียวทำได้ไม่หมด**. แยกให้ชัดในรายงาน
-ไม่งั้นจะให้ความมั่นใจหลอกๆ (ตรงข้ามกับที่ gotchas สู้มาทั้งไฟล์):
+## Phase 0 — ทำ system map
 
-**✅ ยิงผ่าน browser ได้ (execute + assert):**
-- Boundary / Empty-Null / Type-Format ที่เป็น **input ในฟอร์ม** (0/-1/max, empty, ผิด type, วันที่ format ผิด)
-- **Unicode / ภาษาไทย / emoji** ใน field, injection payload (SQL/`<script>`) ที่ยิงเป็น input
-- Double-submit, กด action ผิดลำดับ, ทำซ้ำ (idempotency ที่เห็นผลบน UI)
-- Auth / session (logout กลางคัน, session หมด, url ข้าม scope)
-- **Error surfacing** — หลังทุก step: `errors --json` + `console --json` ต้องโผล่ ไม่เงียบ
+1. อ่าน entry point, data flow, dependency และ side effect ที่อยู่ใน scope.
+2. แตก Acceptance Criteria เป็น observable outcomes.
+3. ระบุ business invariant เช่น uniqueness, total, permission และ state transition.
+4. จด assumption ที่ยังยืนยันไม่ได้; ถ้าคำตอบเปลี่ยน expected result ให้ถามก่อนรัน.
 
-**⚠️ derive จาก code ได้ แต่ browser พิสูจน์ไม่ได้ → mark เป็น "risk / needs code review หรือ backend test":**
-- True cross-user concurrency / race / lock (ต้องหลาย session พร้อมกัน + timing จริง)
-- Governance / usage-unit limit, script yield, timeout ระดับ platform
-- SuiteQL internals (null ใน join, cursor boundary, Oracle syntax edge)
-- Transaction rollback / partial save / orphan record (ดูจาก DB ไม่ใช่ UI)
-- Cross-subsidiary scope, elimination, running-number sequence gap ระดับ backend
+## Phase 1 — ครอบ supported paths
 
-กฎ: อะไรที่ browser พิสูจน์ไม่ได้ → เขียนว่า "derived from code, unverified in browser" อย่า mark Pass.
+ทำ coverage matrix จาก behavior จริง:
 
----
+- ทุก entry point และ mode ที่ผู้ใช้เข้าถึง;
+- ทุก branch/guard ที่ส่งผลต่อ UI;
+- role/permission และ state ที่ต่างกัน;
+- valid input combinations ที่เปลี่ยนผลธุรกิจ.
 
-## Phase 0 — เข้าใจระบบก่อน (สมองล้วน ไม่แตะ browser)
+แต่ละแถวต้องมี scenario, expected observable result และ assertion ที่สั้นพอจะ review ได้.
 
-ก่อนเขียน test แม้แต่ case เดียว:
-1. อ่าน code ที่เกี่ยวข้อง — entry points, modules, data model, dependencies.
-2. สร้าง **System Map**: feature/function ทั้งหมด + inputs, outputs, side effects, external calls.
-3. ระบุ **business rules & invariants** ที่ต้องรักษาเสมอ (เช่น "ยอดต้องไม่ติดลบ", "running number unique").
-4. behavior ไหนไม่ชัด → **ถามก่อน ห้ามเดา**.
+## Phase 2 — ยิง adversarial cases
 
-**Output:** ตาราง feature/function + สมมติฐานที่ตั้งไว้. (ยังไม่เปิด browser — นี่คือ token ถูกที่สุด)
+เลือกเฉพาะหมวดที่เกี่ยวข้องกับ feature:
 
----
+- **Boundary:** 0, 1, -1, min/max, precision, overflow.
+- **Empty/type/format:** null-equivalent, empty, whitespace, wrong type, timezone, special characters.
+- **Uniqueness/state:** duplicate, repeat, interrupt, invalid sequence, session expiry.
+- **Auth:** missing permission, expired session, URL/object outside the allowed scope.
+- **Error handling:** error must surface; no silent fallback or swallowed rejection.
+- **Volume/performance:** realistic large data and a stated, measured budget.
 
-## Phase 1 — Supported cases (ทุก branch ต้องโดน)
+Security payloads must use disposable test data and an authorized environment. Assert that input is
+escaped/rejected rather than executed and that secrets/PII do not appear in `console`, visible errors,
+reports, or screenshots. Server-side behavior remains a code/backend check.
 
-**Coverage Matrix** จาก code จริง (ไม่ใช่จาก comment/ชื่อ function):
-- ทุก entry point / function / endpoint
-- ทุก branch — `if/else`, `switch`, guard clause ครบ
-- ทุก mode / state (CREATE / EDIT / VIEW · draft / approved / cancelled)
-- ทุก role / permission level
-- ทุก combination ของ input ที่ valid
+## Stateful test isolation
 
-แต่ละแถวของ matrix = 1 flow ที่ต้องขับ + short-assertion ที่พิสูจน์ผล.
+Setup and teardown are external orchestration, not executable `flow.yaml` fields. For a run that
+creates or changes data:
 
----
+1. use a unique, narrow marker for this run;
+2. record the original state before mutation;
+3. identify and log exact cleanup targets before deleting or reverting;
+4. stop when the target count or environment differs from expectation;
+5. mutate only the confirmed IDs/objects, never a broad criterion;
+6. surface teardown failure and mark the environment dirty; do not call the next run clean.
 
-## Phase 2 — Edge cases & bug hunting
+Prefer API/database fixtures when available and authorized. Browser setup is appropriate only when
+the UI behavior itself is under test. Production mutation always requires its own explicit approval.
 
-ต่อแต่ละ input/field/operation ยิงทุกหมวด (ทำเครื่องหมาย ✅/⚠️ ตามตารางด้านบน):
-- **Boundary** — 0, 1, -1, max, min, overflow, ทศนิยม precision/rounding
-- **Empty / Null** — null, undefined, empty string, whitespace-only, empty array/object, field หาย
-- **Type & Format** — ผิด type, string ที่ควรเป็น number, วันที่ format ผิด, timezone, special char,
-  **Unicode/ไทย**, emoji, injection (SQL/script)
-- **Uniqueness / Duplicate** — ค่าซ้ำ, running number ชน, concurrent create ค่าเดียวกัน ⚠️
-- **Concurrency / Race** ⚠️ — หลาย user แก้ record เดียวกัน, lock, double-submit (✅ เฉพาะ double-submit)
-  - **เทคนิคอัปเกรด mid-flight race เป็น ✅ (deterministic, ไม่ต้องจับจังหวะมือ):** ใช้ `eval`
-    monkey-patch ฟังก์ชัน fetch-wrapper ของแอป (เช่น `postToSuitelet`) ในหน้าเว็บ — await ตัวจริงเสร็จ
-    แล้ว **inject mutation ตรงรอยต่อระหว่าง backend call** (เช่น แก้ cell ระหว่าง create 2 step)
-    ก่อน return; เก็บ log ใน `window.__raceLog` แล้ว assert ผลที่ record ฝั่ง server.
-    พิสูจน์จริง: PWOC stale-qty race (#39) — repro + verify fix ได้ 100% ใน browser
-- **Volume / Performance** — dataset ใหญ่, pagination boundary, timeout, governance ⚠️
-- **State & Sequence** — operation ผิดลำดับ, ทำซ้ำ (idempotency), interrupt กลางคัน, partial failure+rollback ⚠️
-- **Auth / Permission** — ไม่มีสิทธิ์, session หมด, ข้าม scope
-- **Error handling** — error ต้อง surface ชัด ห้าม silent fallback/swallow; ตรวจว่า log + propagate จริง
+## Phase 3 — รายงาน
 
-### Security checklist (รวมจุดเดียว)
+| # | Case | Input/state | Expected | Actual | Verdict | Severity | Evidence/repro |
+|---|---|---|---|---|---|---|---|
 
-ยิงทุกครั้งที่แตะ input, auth, หรือ logging — 3 หมวดนี้เป็น security ที่ browser ยิงได้บางส่วน (✅) และ
-บางส่วน ⚠️ ต้อง code review:
-
-- **Injection (✅ input)** — ยิง SQL / `<script>` / template / command payload เป็นค่าใน field แล้ว
-  assert ว่า **ถูก escape/reject** ไม่ execute และไม่สะท้อนกลับดิบ (stored + reflected XSS). ไทย/Unicode
-  ใน 4 payload ด้วย.
-- **Auth / authz cross-scope (✅ ผ่าน URL/session)** — เข้าถึงโดยไม่มีสิทธิ์, session หมดกลางคัน,
-  **แก้ URL ข้าม scope** (record/subsidiary/tenant ของคนอื่น) → ต้องถูกปฏิเสธ ไม่ใช่หลุด. true
-  concurrency/lock ยังเป็น ⚠️ (code/backend).
-- **Sensitive data in logs (⚠️ code + ✅ console)** — password / token / PII **ต้องไม่โผล่** ใน
-  `console --json`, network response ที่เห็นได้, หรือ error message. ตรวจ `console`/`errors` ว่าไม่มี
-  ความลับรั่ว; log ฝั่ง server = code review.
-
-กติกาเดิมยังใช้: อะไรที่ browser พิสูจน์ไม่ได้ → "derived from code, unverified in browser" อย่า mark Pass.
-
----
-
-## Phase 3 — รายงานผล
-
-ทุก case ลงตาราง:
-
-| # | Case | Input | Expected | Actual | Pass/Fail | Severity | Repro |
-|---|------|-------|----------|--------|-----------|----------|-------|
-
-จากนั้น:
-- แยก **bug จริง** เป็น list เรียงตาม severity (Critical / High / Medium / Low).
-- ระบุ **root cause** ถ้าวิเคราะห์ได้ + แนวทางแก้ → ป้อนเข้า `assets/bug-report-template.html`.
-- **1 bug = 1 repro ที่ทำซ้ำได้เสมอ.** ห้าม Pass ถ้าไม่ได้ trace/run จริง.
-
----
-
-## Add-on: NetSuite-specific edge cases
-
-(ผนวกท้าย Phase 2 เมื่อทดสอบ NetSuite — ส่วนใหญ่ ⚠️ derive จาก code, browser พิสูจน์บางส่วน)
-- **Governance** ⚠️ — usage units เกิน limit, yield boundary, unmetered vs metered
-- **Realtime path** — Ship/Outbound critical path ต้อง realtime: ตรวจ (จาก code) ว่าไม่มี async /
-  Map-Reduce / Scheduled Script แทรก
-- **Cross-subsidiary** ⚠️ — item/entity ข้าม subsidiary scope, elimination
-- **Lot / Serial** — uniqueness, FEFO/FIFO allocation, negative inventory, over-allocation (✅ ถ้าเห็นบน UI)
-- **Running number** ⚠️ — concurrent generation ชน, sequence gap, prefix collision
-- **Date** — internal `YYYY-MM-DD` vs display, user timezone, cross-midnight (✅ ยิง input ได้)
-- **Sublist** — commit/insert/remove order, dynamic vs standard mode, line index shift (✅ ผ่าน UI)
-- **SuiteQL** ⚠️ — null ใน join, cursor boundary, Oracle syntax edge, large result set
-- **Transaction rollback** ⚠️ — fail กลางคัน state ค้าง, partial save, orphan record
-
-APEX: IG cell/button dynamic → semantic locator (`find label ... fill` / `find role button click --name`);
-ทดสอบ Thai input ทุกครั้ง; boundary/format ยิงผ่าน form ได้.
+- One bug gets one deterministic repro.
+- Cite the requirement and the observable assertion that failed.
+- Separate browser evidence from code/backend evidence.
+- Record untested or blocked cases explicitly; absence of a finding is not proof of coverage.
+- Feed confirmed findings into `assets/bug-report-template.html`; use happy-path evidence for the
+  user guide.

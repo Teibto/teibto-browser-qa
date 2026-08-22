@@ -6,7 +6,7 @@
 #
 # ต้องมี: Chrome + `py -m pip install websocket-client` (pillow/numpy ถ้าจะเทส diff)
 # ไม่มี Chrome = SKIP (exit 0) ไม่ใช่ FAIL
-# transport: cdp.py (CDP ตรง) — ทีมเลิกใช้ agent-browser daemon แล้ว (teibto-dev-standards#111)
+# transport: canonical cdp.py protocol v2+ (direct CDP)
 set -u
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -54,6 +54,7 @@ curl -sf "http://127.0.0.1:${CDP_PORT}/json/version" >/dev/null 2>&1 \
   || { echo "FAIL: Chrome ไม่ตอบที่ port ${CDP_PORT}"; exit 1; }
 
 AB(){ "$PY" "$CDP" "$@" 2>&1; }
+NAV(){ AB nav "$1" --until=load --timeout=15; }
 png_size(){ "$PY" -c "import struct,sys;b=open(sys.argv[1],'rb').read();print('%dx%d'%(struct.unpack('>I',b[16:20])[0],struct.unpack('>I',b[20:24])[0]))" "$1"; }
 
 pass=0; fail=0
@@ -62,7 +63,7 @@ chk(){ # chk "name" "expected-substr" "actual"
   else echo "  FAIL  $1 | want '$2' | got: ${3//$'\n'/ }" | head -c 240; echo; fail=$((fail+1)); fi; }
 
 echo "=== setup ==="
-AB nav "$PAGE" 2 >/dev/null; echo "url: $(AB url)"
+NAV "$PAGE" >/dev/null; echo "url: $(AB url)"
 
 echo "=== get: selector ก่อน name · แยก 'ไม่มี element' ออกจาก 'ค่าว่าง' ==="
 chk "get attr <sel> <name> (ลำดับถูก)"      "example.org/target" "$(AB get attr '#lnk' href)"
@@ -76,8 +77,8 @@ chk "is visible ของที่ display:none"          "false" "$(AB is visib
 chk "is visible ไม่พลาด position:fixed"       "true"  "$(AB is visible '#fixedbar')"
 chk "is enabled รู้ว่าปุ่ม disabled"           "false" "$(AB is enabled '#off')"
 
-echo "=== a11y: คืน ref แล้วใช้ ref คลิกได้จริง (แทน find role/label) ==="
-AB nav "$PAGE" 2 >/dev/null
+echo "=== a11y: คืน semantic ref แล้วใช้ ref คลิกได้จริง ==="
+NAV "$PAGE" >/dev/null
 REF="$(AB a11y "Act" | "$PY" -c "import json,sys;d=json.load(sys.stdin);print(d[0]['ref'] if d else '')")"
 chk "a11y หา button ตามชื่อเจอ"               "@"           "$REF"
 AB click "$REF" >/dev/null
@@ -89,18 +90,18 @@ chk "let smk ซ้ำรอบสอง -> SyntaxError"       "already been dec
 chk "ห่อ IIFE แล้วไม่ชน"                      "ok3"                   "$(AB eval "(function(){var smk=3; return 'ok'+smk;})()")"
 
 echo "=== click ใต้ fold: scrollIntoView อยู่ในตัว ==="
-AB nav "$PAGE" 2 >/dev/null
+NAV "$PAGE" >/dev/null
 AB click '#btm' >/dev/null
 chk "click ใต้ fold เลื่อนให้เอง + ยิง handler" "btm-clicked" "$(AB get text '#bout')"
 
 echo "=== console collector: ผูกกับหน้า ไม่ใช่ buffer สะสม ==="
-AB nav "$PAGE" 2 >/dev/null
+NAV "$PAGE" >/dev/null
 chk "หน้าใหม่เริ่มด้วย log ว่าง"               "[]"           "$(AB console)"
 AB eval "window.boom()" >/dev/null; sleep 0.6
 CON="$(AB console)"
 chk "จับ console.error ได้"                   "smoke-error"  "$CON"
 chk "จับ uncaught error ได้ด้วย"              "error"        "$CON"
-AB nav "$PAGE" 2 >/dev/null
+NAV "$PAGE" >/dev/null
 chk "navigate แล้วล้างเอง ไม่ยกของหน้าก่อนมา"  "[]"           "$(AB console)"
 
 echo "=== wait: exit 1 เมื่อหมดเวลา (ให้ flow หยุดตรงจุดที่พังจริง) ==="
@@ -113,7 +114,7 @@ chk "ไม่ตั้ง IFRAME มองไม่เห็นของข้�
 chk "ตั้ง IFRAME แล้วเห็น"                "inside iframe"  "$(IFRAME='#fr' AB get text '#inner')"
 
 echo "=== shot: element-scoped + --dsf ต้องอยู่ในคำสั่งเดียวกัน ==="
-AB nav "$PAGE" 2 >/dev/null
+NAV "$PAGE" >/dev/null
 AB shot "$WORK/card.png" '#card' --dsf=2 >/dev/null
 chk "shot <sel> --dsf=2 ได้ขนาด element x2" "300x120" "$(png_size "$WORK/card.png")"
 # ★ พิสูจน์ gotcha #4: viewport ที่สั่งแยก invocation ไม่มีผล
@@ -157,9 +158,9 @@ cat > "$WORK/good.html" <<'HTML'
 <p>fine</p><a href="#">link</a>
 HTML
 to_file(){ printf 'file:///%s' "$(cygpath -m "$1" 2>/dev/null || echo "$1")"; }
-AB nav "$(to_file "$WORK/bad.html")" 2 >/dev/null
+NAV "$(to_file "$WORK/bad.html")" >/dev/null
 chk "lens layout จับหน้าล้นแนวนอน"       '"kind": "overflow-x"'       "$(AB lens layout)"
-AB nav "$(to_file "$WORK/good.html")" 2 >/dev/null
+NAV "$(to_file "$WORK/good.html")" >/dev/null
 chk "lens layout บนหน้าที่ถูกต้อง = PASS" '"verdict": "PASS"'         "$(AB lens layout)"
 
 echo "=== UNVERIFIED ไม่ใช่ PASS (golden rule #6) ==="
@@ -182,22 +183,26 @@ new = '  evidence:"assert failed: expected count < 5 but got <script>window.__pw
 io.open(sys.argv[2], "w", encoding="utf-8", newline="").write(src.replace(old, new, 1))
 PY
 "$PY" "$WORK/inject.py" "$(dirname "$HERE")/assets/bug-report-template.html" "$WORK/bugesc.html"
-AB nav "$(to_file "$WORK/bugesc.html")" 2 >/dev/null
+NAV "$(to_file "$WORK/bugesc.html")" >/dev/null
 chk "เอกสาร render จริง (กันเช็คข้างล่างผ่านฟรีตอนหน้าว่าง)" "1" "$(AB get count 'svg.logo')"
 chk "payload ใน evidence ไม่ถูก execute"      "undefined"           "$(AB eval 'String(window.__pwned)')"
 chk "payload แสดงเป็นข้อความตามที่พิมพ์"        "<script>window.__pwned=1</script>" "$(AB get text 'pre.code')"
 chk "ข้อความที่มี '<' ไม่ถูกกลืนหาย"            "count < 5"           "$(AB get text 'pre.code')"
 # ★ document.title เป็นบริบท "ข้อความ" ไม่ใช่ HTML — ถ้า escape ก่อนตั้งชื่อ ผู้ใช้จะเห็น &lt;ระบบ&gt;
-AB nav "$(to_file "$(dirname "$HERE")/assets/guide-template.html")" 2 >/dev/null
+NAV "$(to_file "$(dirname "$HERE")/assets/guide-template.html")" >/dev/null
 chk "ชื่อเอกสาร (text context) ไม่ถูก escape ทับ" "<ระบบ>" "$(AB eval 'document.title')"
 
 echo "=== about:blank เป็นเรื่องปกติ ไม่ใช่ paint พัง ==="
-chk "nav about:blank -> url == about:blank" "about:blank" "$(AB nav about:blank 1)"
+chk "nav about:blank -> url == about:blank" "about:blank" "$(NAV about:blank)"
 
 echo "=== EFFICIENCY: หลายคำสั่ง vs รวมเป็น evalf ก้อนเดียว ==="
-AB nav "$PAGE" 2 >/dev/null
+NAV "$PAGE" >/dev/null
 t0=$(date +%s.%N)
-for c in "url" "get text title" "get count body" "is visible #act" "console"; do AB "$c" >/dev/null 2>&1; done
+AB url >/dev/null 2>&1
+AB get text title >/dev/null 2>&1
+AB get count body >/dev/null 2>&1
+AB is visible '#act' >/dev/null 2>&1
+AB console >/dev/null 2>&1
 t1=$(date +%s.%N)
 cat > "$WORK/all.js" <<'JS'
 (function(){return JSON.stringify({url:location.href,title:document.title,

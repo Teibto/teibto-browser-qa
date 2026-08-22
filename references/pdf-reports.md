@@ -20,8 +20,9 @@
    = ประหยัด ~2,000 tok/เอกสาร (53%).
 3. วาง screenshot ไว้ใน guide/shots/ (ถ่ายจาก run จริง — ดูหัวข้อ "ถ่ายภาพไฮไลต์")
 4. สร้าง PDF:
-     AB nav "file:///ABS/PATH/guide.html"
-     AB wait 6000          # รอ paged.js จัดหน้า (เช็ค .pagedjs_page count)
+     AB nav "file:///ABS/PATH/guide.html" --until=load --timeout=30
+     AB wait "document.querySelectorAll('.pagedjs_page').length>0 && document.fonts.status==='loaded'" 20 0.1
+     AB get count ".pagedjs_page"      # บันทึกจำนวนหน้าก่อนพิมพ์
      AB pdf "ชื่อเอกสาร.pdf"
 5. verify: เปิด PDF กลับมา screenshot ดูจำนวนหน้า (ต้องไม่มีหน้าว่างสลับ) + สารบัญมีเลขหน้า
 ```

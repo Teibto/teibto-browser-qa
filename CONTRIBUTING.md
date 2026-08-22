@@ -6,7 +6,8 @@ How to change this skill without breaking the discipline it is built on. New her
 ## Prerequisites
 
 - Chrome + `py -m pip install websocket-client pillow numpy` — needed to run `self-test/smoke-test.sh`.
-  driver อยู่ที่ `~/.claude/skills/netsuite-qa-browser/references/cdp.py` (override ด้วย `NS_CDP`).
+  Use canonical `cdp.py` protocol v2+ (v0.82.0 or newer); override the standard team path with
+  `NS_CDP` for smoke tests or `TEIBTO_CDP_SCRIPT` for the flow runner.
 - Python 3.10+ with PyYAML/jsonschema: `pip install -r requirements.txt` — for the `scripts/`.
 - Node.js 20+ only when changing the optional local UI.
 - Optional: `pymupdf` (for `self-test/pdf/pdf-test.sh`).
@@ -37,8 +38,8 @@ copy a reference's content up into `SKILL.md`. When in doubt, measure — this r
 ### Adding a self-test check
 
 Two kinds live in `self-test/smoke-test.sh`:
-- **Browser checks** drive a real Chrome (via `cdp.py`) against `self-test/smoke-page.html` (e.g. "`click`
-  does not auto-scroll"). Use `chk "name" "expected-substr" "actual"`.
+- **Browser checks** drive a real Chrome (via `cdp.py`) against `self-test/smoke-page.html` (e.g.
+  "`click` auto-scrolls and fires a trusted handler"). Use `chk "name" "expected-substr" "actual"`.
 - **Pure-file checks** need no browser (e.g. the PDF-template scoped-read gate). Prefer these for
   anything measurable from files — they stay green even where the browser harness can't run.
 
@@ -58,6 +59,7 @@ add or update its row with honest provenance:
 
 ```bash
 python -m unittest discover -s tests -v
+python scripts/validate-skill.py
 node --check app/server.js
 bash tests/test-flow-runner-live.sh  # real Chrome + shared cdp.py; skips if either is unavailable
 bash self-test/smoke-test.sh      # syntax/recipe/reproducible claims + efficiency gates
