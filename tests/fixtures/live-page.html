@@ -6,7 +6,15 @@
 <p id="status">not saved</p>
 <script>
 document.getElementById('save').addEventListener('click', function (event) {
-  document.getElementById('status').textContent =
-    (event.isTrusted ? 'saved ' : 'untrusted ') + document.getElementById('name').value;
+  var trusted = event.isTrusted;
+  setTimeout(function () {
+    document.getElementById('status').textContent =
+      (trusted ? 'saved ' : 'untrusted ') + document.getElementById('name').value;
+  }, 300);
+});
+document.getElementById('name').addEventListener('input', function (event) {
+  var value = event.target.value;
+  event.target.value = 'normalizing';
+  setTimeout(function () { event.target.value = value; }, 150);
 });
 </script>

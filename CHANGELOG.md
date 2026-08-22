@@ -10,6 +10,28 @@
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-08-22
+
+### Added
+
+- **Per-phase runner telemetry** — JSONL แยก startup/action/wait/assert/capture/console/total พร้อม
+  authoritative driver duration/attempts และ partial phases เมื่อ fail (#52)
+- **Async/live performance coverage** — fixture normalize input 150 ms และ defer trusted click
+  300 ms เพื่อพิสูจน์ว่า fast input ยังรอ observable outcome; protocol compatibility และ failure
+  evidence มี unit gates (#52)
+
+### Changed
+
+- Runner ต้องใช้ canonical CDP JSONL protocol v2+, ขอ `--input-settle=none`, verify ready policy และ
+  ใช้ event-bound navigation; standalone/ad-hoc driver behavior ไม่เปลี่ยน (#52)
+
+### Fixed
+
+- `networkidle` หลัง action ไม่ผ่านจาก `readyState` ของ document เก่า; runner ผูก document identity
+  ก่อน action และงาน AJAX ใช้ explicit selector/function outcome wait (#52)
+- Capture default ตรงกับ spec: `doc:true` ถ่าย step ที่ผ่าน, `doc:false` ถ่ายเฉพาะ failure และ
+  `capture` ระดับ step override ได้ (#52)
+
 ## [2.0.0] - 2026-08-21
 
 **Canonical team-owned Browser QA with a direct, bounded CDP runner and one local UI.**

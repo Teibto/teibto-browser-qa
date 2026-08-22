@@ -16,4 +16,6 @@ scenarios:
         capture: false
       - action: click
         target: "#save"
+        wait: "fn:document.querySelector('#status').textContent.startsWith('saved')"
         assert: {target: "#status", contains: "saved"}
+        capture: true

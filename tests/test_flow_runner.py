@@ -35,7 +35,8 @@ class FlowRunnerTests(unittest.TestCase):
         self.addCleanup(shutil.rmtree, root, True)
         return root
 
-    def run_flow(self, yaml_text: str, variables: dict | None = None):
+    def run_flow(self, yaml_text: str, variables: dict | None = None,
+                 env_overrides: dict[str, str] | None = None):
         root = self.workspace()
         flow = root / "flow.yaml"
         flow.write_text(textwrap.dedent(yaml_text), encoding="utf-8")
@@ -43,6 +44,7 @@ class FlowRunnerTests(unittest.TestCase):
         counter = root / "starts.txt"
         env = os.environ.copy()
         env["FAKE_CDP_COUNTER"] = str(counter)
+        env.update(env_overrides or {})
         process = subprocess.run(
             [sys.executable, str(RUNNER), "--flow", str(flow), "--out", str(out),
              "--vars-json", "-", "--target-id", "target-123", "--cdp-script", str(FAKE_CDP)],
@@ -72,6 +74,17 @@ class FlowRunnerTests(unittest.TestCase):
         report = (out / "qa-report.md").read_text(encoding="utf-8")
         self.assertNotIn("do-not-leak", process.stdout + events + report)
         self.assertIn('"verdict":"PASS"', events)
+        payloads = [json.loads(line) for line in events.splitlines()]
+        ready = next(item for item in payloads if item["type"] == "session_ready")
+        self.assertEqual(2, ready["version"])
+        self.assertEqual("none", ready["input_settle"])
+        self.assertGreaterEqual(ready["duration_ms"], 0)
+        steps = [item for item in payloads if item["type"] == "step_done"]
+        self.assertTrue(all("timings" in item for item in steps))
+        self.assertIn("action", steps[1]["timings"]["phases"])
+        self.assertIn("wait", steps[1]["timings"]["phases"])
+        self.assertIn("assert", steps[2]["timings"]["phases"])
+        self.assertIn("timing", next(item for item in payloads if item["type"] == "errors"))
 
     def test_unasserted_click_is_unverified(self):
         process, out, _ = self.run_flow("""
@@ -138,6 +151,72 @@ class FlowRunnerTests(unittest.TestCase):
         )
         self.assertEqual(2, process.returncode)
         self.assertIn("SECRET_IN_ARGV", process.stdout)
+
+    def test_old_driver_is_rejected_with_actionable_error(self):
+        process, out, _ = self.run_flow("""
+            story: old-driver
+            title: Old driver
+            scenarios:
+              - id: smoke
+                steps:
+                  - {action: open, target: "https://example.test", capture: false}
+        """, env_overrides={"FAKE_CDP_VERSION": "1"})
+        self.assertEqual(1, process.returncode)
+        events = (out / "run-log.jsonl").read_text(encoding="utf-8")
+        self.assertIn("DRIVER_INCOMPATIBLE", events)
+        self.assertIn("v2+", events)
+
+    def test_driver_rejecting_fast_policy_is_mapped_to_incompatible(self):
+        process, out, _ = self.run_flow("""
+            story: rejected-policy
+            title: Rejected policy
+            scenarios:
+              - id: smoke
+                steps:
+                  - {action: open, target: "https://example.test", capture: false}
+        """, env_overrides={"FAKE_CDP_REJECT_INPUT_SETTLE": "1"})
+        self.assertEqual(1, process.returncode)
+        self.assertIn("DRIVER_INCOMPATIBLE",
+                      (out / "run-log.jsonl").read_text(encoding="utf-8"))
+
+    def test_capture_defaults_follow_doc_mode_and_failure_evidence(self):
+        passed, passed_out, _ = self.run_flow("""
+            story: capture-policy
+            title: Capture policy
+            scenarios:
+              - id: adversarial-pass
+                doc: false
+                steps:
+                  - action: click
+                    target: "#save"
+                    assert: {target: "#notice", contains: "saved"}
+              - id: guide-pass
+                doc: true
+                steps:
+                  - {action: open, target: "https://example.test"}
+        """)
+        self.assertEqual(0, passed.returncode, passed.stdout + passed.stderr)
+        shots = sorted(path.name for path in (passed_out / "shots").glob("*.png"))
+        self.assertEqual(["guide-pass-01.png"], shots)
+
+        failed, failed_out, _ = self.run_flow("""
+            story: failure-evidence
+            title: Failure evidence
+            scenarios:
+              - id: adversarial-fail
+                doc: false
+                steps:
+                  - action: click
+                    target: "#save"
+                    assert: {target: "#notice", contains: "missing"}
+        """)
+        self.assertEqual(1, failed.returncode)
+        self.assertTrue((failed_out / "shots" / "adversarial-fail-01-failure.png").is_file())
+        payloads = [json.loads(line) for line in
+                    (failed_out / "run-log.jsonl").read_text(encoding="utf-8").splitlines()]
+        step = next(item for item in payloads if item["type"] == "step_done")
+        self.assertEqual("assert", step["timings"]["failing_phase"])
+        self.assertIn("capture", step["timings"]["phases"])
 
 
 if __name__ == "__main__":

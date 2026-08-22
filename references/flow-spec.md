@@ -15,7 +15,9 @@ $env:TEIBTO_CDP_SCRIPT = 'D:\path\to\teibto-dev-standards\scripts\cdp.py'
 
 - flow ทุกไฟล์ผ่าน `schemas/flow.schema.json` และ field ที่ไม่รู้จักทำให้หยุดทันที
 - secret ส่งผ่าน stdin (`--vars-json -`), ไม่อยู่ใน process argv/log/report
-- หนึ่ง run ใช้ target ที่ pin และ `cdp.py session --jsonl` เพียง process/WebSocket เดียว
+- หนึ่ง run ใช้ target ที่ pin และ `cdp.py` JSONL protocol v2+ เพียง process/WebSocket เดียว;
+  runner ขอ `--input-settle=none` และ verify policy จาก ready handshake แบบ fail closed
+- `open` รอ main-frame commit/load event จริง; ไม่ใช้ zero-drain + `readyState` ที่อาจอ่านหน้าเก่า
 - `click` ใช้ native input เท่านั้น; ไม่มี JS fallback เงียบ
 - action/wait/assert/screenshot/console ล้ม = หยุด scenario และ verdict `FAIL`
 - action ที่เปลี่ยน state แต่ไม่มี explicit assertion = verdict `UNVERIFIED`, ไม่ใช่ `PASS`
@@ -59,7 +61,8 @@ scenarios:
         action: open|fill|click|select|press|scrollintoview|eval|wait
         target: "<selector | @eN | {{var}} | url>"
         value: "<ค่า/ข้อความ (สำหรับ fill/select) — รองรับ {{var}}>"
-        wait: networkidle | <ms> | "<selector>"    # รอหลัง action
+        wait: networkidle | <ms> | "<selector>" | "fn:<js>"  # รอหลัง action
+        capture: true|false        # override screenshot policy ของ scenario นี้
         assert:                  # พิสูจน์ผล (ตาม gotchas: อย่าเชื่อ ✓Done)
           url_contains: "/inventory.html"
           # หรือ: { target: ".shopping_cart_badge", contains: "1" }
@@ -68,6 +71,16 @@ scenarios:
 **assert forms ที่ใช้บ่อย:** `url_contains: "..."` · `{ target: "<sel>", contains: "<text>" }`.
 ทุก step ที่เปลี่ยน application state **ต้องมี assert** — runner คืน `UNVERIFIED` ถ้าไม่มี
 (การ `fill` ตรวจ value หลังกรอกให้อัตโนมัติ แต่ action ที่ submit/เปลี่ยนข้อมูลยังต้อง assert ผลธุรกิจ).
+
+`networkidle` เป็นชื่อเดิมเพื่อ compatibility แต่ contract จริงคือ **navigation-ready** ไม่ใช่
+เครือข่ายนิ่ง: `open` ใช้ event ของ main frame; หลัง action อื่น runner ปัก document identity ก่อนทำ
+action แล้วรอ URL/time origin เปลี่ยนพร้อม `readyState=complete`, จึงไม่ผ่านจากหน้าเก่า. งาน AJAX/
+Oracle JET ให้ใช้ selector หรือ `fn:<observable outcome>` เช่น
+`fn:document.querySelector('#status').textContent==='saved'` แล้ว assert ครั้งเดียว.
+
+`run-log.jsonl` เก็บ runner wall-clock และ authoritative driver `duration_ms`/`attempts` แยก
+`action`, `wait`, `assert`, `capture`; failure มี partial phases + `failing_phase`, console check มี
+timing ของตัวเอง และ `run_done` แยก startup/total.
 
 **Traceability (สำหรับทีม):** `ticket`/`requirement` + `acceptance` ทำให้ตอบได้ว่า *test นี้ยืนยัน
 req ไหน* และ *req นี้ครอบด้วย scenario ไหน*. 1 acceptance criterion → 1 scenario (map 1:1) →
@@ -96,7 +109,8 @@ Schema จึงปฏิเสธ field เหล่านี้แทนกา
    - adversarial: scenario แยก `doc: false` — ยิง edge value ผ่าน `vars` (ไทย/emoji/boundary/
      injection payload) แล้ว assert ว่า error **surface** (ไม่ใช่ Pass เงียบ).
 3. **Run** — ขับด้วย `scripts/flow-runner.py` ผ่าน JSONL session เดียว คืน `run-log.jsonl`.
-   screenshot ทุก step เฉพาะ scenario `doc:true`; adversarial ถ่ายเฉพาะตอนเจอ bug.
+   screenshot ทุก step เฉพาะ scenario `doc:true`; adversarial `doc:false` ไม่ถ่ายตอนผ่านแต่ถ่าย
+   failure เป็นหลักฐาน. `capture:true|false` ที่ step override ทั้งสองกรณีได้.
 4. **Report** — `qa-report.md` (ตาราง Phase 3) + ป้อน bug เข้า `assets/bug-report-template.html`,
    guide จาก scenario `doc:true` เข้า `assets/guide-template.html`.
 

@@ -33,7 +33,8 @@ export TGT_ID=$(AB newtab "<url>?job=<ชื่องาน>")
 
 | คำสั่ง | ใช้ทำ |
 |---|---|
-| `nav <url> [wait]` | เปิดหน้า แล้วรอ (ยังตอบ JS dialog ระหว่างรอ) · ติดตั้ง console collector ให้อัตโนมัติ |
+| `nav <url> [wait]` | เปิดหน้า แล้ว drain event ตามวินาที (default 3; ยังตอบ JS dialog) · ติดตั้ง console collector |
+| `nav <url> --until=load [--timeout=N]` | protocol v2: รอ main-frame commit/load จริงสำหรับ runner; cancel/timeout = fail loud |
 | `click <sel\|@ref>` | คลิก **จริง** ด้วย Input event · `scrollIntoView` ให้ในตัว |
 | `fill <sel\|@ref> <text>` | โฟกัสจริง → ล้าง → พิมพ์จริง → Tab |
 | `type <text>` | พิมพ์ลง element ที่โฟกัสอยู่ |
@@ -75,12 +76,15 @@ ref เป็น `backendNodeId` ซึ่ง **คงที่ตลอดอ�
 ## รอแบบฉลาด (อย่ารอ fixed ms กับหน้า async)
 
 ```bash
-AB wait "document.readyState==='complete'" 20
+AB wait "document.readyState==='complete'" 20 0.05   # arg 3 = poll interval (วินาที)
 AB wait "!!document.querySelector('#done')" 15
 AB wait "window.jQuery ? jQuery.active===0 : true" 20     # หน้า async ที่ใช้ jQuery (NetSuite)
 ```
 
 `wait` **exit 1 เมื่อหมดเวลา** → ใช้กับ `&&` / `set -e` ได้ตรง ๆ ให้ flow หยุดตรงจุดที่พังจริง
+
+หลังสั่ง navigation ห้ามใช้ `nav <url> 0` + `readyState` อย่างเดียว เพราะหน้าเก่าอาจ complete
+อยู่แล้ว; runner ใช้ `nav --until=load` ก่อน outcome wait.
 
 > ไม่มี `--load networkidle` ให้ใช้ · เขียนเงื่อนไขที่**เจาะจงกับหน้าที่กำลังทดสอบ** แทน
 > ซึ่งดีกว่าอยู่แล้ว — networkidle เดาไม่ถูกว่า "นิ่ง" ของแอปนี้แปลว่าอะไร และบนบางหน้า
@@ -239,7 +243,7 @@ AB evalf /tmp/step.js
 | `snapshot -i` + ref `@eN` | `a11y [คำค้น]` + ref `@<backendNodeId>` |
 | `find role button click --name "X"` | `a11y "X"` แล้ว `click "@<ref>"` |
 | `errors --json` / `console --json` | `console` — **collector ผูกกับหน้า ไม่ใช่ buffer สะสม** |
-| `wait --fn "<js>"` · `wait <sel>` · `wait --load networkidle` | `wait "<js>" [timeout]` |
+| `wait --fn "<js>"` · `wait <sel>` · `wait --load networkidle` | `wait "<js>" [timeout] [poll]` |
 | `screenshot <path>` · `screenshot <sel> <path>` | `shot <path>` · `shot <path> <sel>` |
 | `diff screenshot --baseline <a> -o <b>` | `diff <a> <b> [out]` |
 | `pdf <path>` | `pdf <path>` |

@@ -41,6 +41,9 @@ PLACEHOLDER = re.compile(r"\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}")
 # change application state but have no trustworthy implicit success signal.
 MUTATING_ACTIONS = {"click", "select", "press", "eval"}
 MAX_EVENT_TEXT = 2_000
+SESSION_PROTOCOL = "teibto-cdp-jsonl"
+MIN_SESSION_VERSION = 2
+INPUT_SETTLE_POLICY = "none"
 
 
 class RunnerError(RuntimeError):
@@ -173,6 +176,7 @@ class CDPSession:
             f"--target-id={target_id}",
             "--idle-timeout=120",
             "--max-lifetime=1800",
+            f"--input-settle={INPUT_SETTLE_POLICY}",
         ]
         env = os.environ.copy()
         if port:
@@ -198,8 +202,26 @@ class CDPSession:
         if ready.get("type") != "ready" or not ready.get("ok"):
             error = ready.get("error") or {}
             self.close(force=True)
-            raise RunnerError(error.get("code", "CDP_NOT_READY"),
-                              error.get("message", "CDP session ไม่พร้อม"), detail=ready)
+            message = error.get("message", "CDP session ไม่พร้อม")
+            if error.get("code") == "INVALID_ARGS" and "input-settle" in message:
+                raise RunnerError(
+                    "DRIVER_INCOMPATIBLE",
+                    f"cdp.py เก่าเกินไป: runner ต้องใช้ {SESSION_PROTOCOL} v{MIN_SESSION_VERSION}+ "
+                    f"ที่รองรับ --input-settle={INPUT_SETTLE_POLICY}",
+                    detail=ready,
+                )
+            raise RunnerError(error.get("code", "CDP_NOT_READY"), message, detail=ready)
+        version = ready.get("version")
+        if (ready.get("protocol") != SESSION_PROTOCOL or not isinstance(version, int)
+                or version < MIN_SESSION_VERSION
+                or ready.get("input_settle") != INPUT_SETTLE_POLICY):
+            self.close(force=True)
+            raise RunnerError(
+                "DRIVER_INCOMPATIBLE",
+                f"runner ต้องใช้ {SESSION_PROTOCOL} v{MIN_SESSION_VERSION}+ "
+                f"และ input_settle={INPUT_SETTLE_POLICY}",
+                detail=ready,
+            )
         if ready.get("target_id") != target_id:
             self.close(force=True)
             raise RunnerError("TARGET_MISMATCH", "CDP ต่อผิด target", detail=ready)
@@ -279,6 +301,81 @@ class CDPSession:
             self.process.wait(timeout=3)
 
 
+class StepTimings:
+    """Runner wall time + authoritative driver timings, split by observable phase."""
+
+    def __init__(self) -> None:
+        self.started = time.perf_counter()
+        self.phases: dict[str, dict[str, float | int]] = {}
+        self.failing_phase: str | None = None
+
+    def _phase(self, name: str) -> dict[str, float | int]:
+        return self.phases.setdefault(name, {
+            "wall_ms": 0.0, "driver_ms": 0.0, "commands": 0, "attempts": 0,
+        })
+
+    def command(self, session: CDPSession, phase: str, command: str,
+                args: list[Any] | None = None) -> dict[str, Any]:
+        bucket = self._phase(phase)
+        started = time.perf_counter()
+        try:
+            result = session.command(command, args)
+            self._record_driver(bucket, result)
+            return result
+        except RunnerError as exc:
+            if isinstance(exc.detail, dict):
+                self._record_driver(bucket, exc.detail)
+            if self.failing_phase is None:
+                self.failing_phase = phase
+            raise
+        finally:
+            bucket["wall_ms"] = float(bucket["wall_ms"]) + (
+                time.perf_counter() - started
+            ) * 1000
+
+    def sleep(self, phase: str, seconds: float) -> None:
+        bucket = self._phase(phase)
+        started = time.perf_counter()
+        try:
+            time.sleep(seconds)
+        except BaseException:
+            if self.failing_phase is None:
+                self.failing_phase = phase
+            raise
+        finally:
+            bucket["wall_ms"] = float(bucket["wall_ms"]) + (
+                time.perf_counter() - started
+            ) * 1000
+
+    def fail(self, phase: str) -> None:
+        if self.failing_phase is None:
+            self.failing_phase = phase
+
+    @staticmethod
+    def _record_driver(bucket: dict[str, float | int], result: dict[str, Any]) -> None:
+        if isinstance(result.get("duration_ms"), (int, float)):
+            bucket["driver_ms"] = float(bucket["driver_ms"]) + float(result["duration_ms"])
+            bucket["commands"] = int(bucket["commands"]) + 1
+            bucket["attempts"] = int(bucket["attempts"]) + int(result.get("attempts") or 0)
+
+    def payload(self) -> dict[str, Any]:
+        phases = {
+            name: {
+                "wall_ms": round(float(values["wall_ms"]), 3),
+                "driver_ms": round(float(values["driver_ms"]), 3),
+                "commands": int(values["commands"]),
+                "attempts": int(values["attempts"]),
+            }
+            for name, values in self.phases.items()
+        }
+        payload: dict[str, Any] = {
+            "total_ms": round((time.perf_counter() - self.started) * 1000, 3),
+            "phases": phases,
+        }
+        if self.failing_phase:
+            payload["failing_phase"] = self.failing_phase
+        return payload
+
 def js_selector(selector: str) -> str:
     return json.dumps(selector, ensure_ascii=False)
 
@@ -289,61 +386,89 @@ def selector_wait(selector: str) -> str:
             "return r.width>0&&r.height>0&&s.visibility!=='hidden';})()") % js_selector(selector)
 
 
-def perform_action(session: CDPSession, step: dict[str, Any], variables: dict[str, Any]) -> None:
+def perform_action(session: CDPSession, step: dict[str, Any], variables: dict[str, Any],
+                   timings: StepTimings) -> dict[str, Any]:
     action = step["action"]
     target = substitute(step.get("target", ""), variables)
     value = substitute(step.get("value", ""), variables)
+    context: dict[str, Any] = {}
+    if step.get("wait") == "networkidle" and action != "open":
+        context["document_before"] = timings.command(
+            session,
+            "action",
+            "eval",
+            ["JSON.stringify({href:location.href,timeOrigin:performance.timeOrigin})"],
+        ).get("data")
     if action == "open":
-        session.command("nav", [target])
+        timings.command(session, "action", "nav", [target, "--until=load", "--timeout=30"])
     elif action == "fill":
-        session.command("fill", [target, value])
-        result = session.command("get", ["value", target]).get("data")
-        if str(result) != str(value):
-            raise RunnerError("FILL_NOT_APPLIED", f"ค่าใน {target} ไม่ตรงหลัง fill")
+        timings.command(session, "action", "fill", [target, value])
+        deadline = time.monotonic() + 5
+        while True:
+            actual = timings.command(session, "wait", "get", ["value", target]).get("data")
+            if str(actual) == str(value):
+                break
+            if time.monotonic() >= deadline:
+                timings.fail("wait")
+                raise RunnerError("FILL_NOT_APPLIED", f"ค่าใน {target} ไม่ตรงหลัง fill")
+            timings.sleep("wait", min(0.05, max(0, deadline - time.monotonic())))
     elif action == "click":
-        session.command("click", [target])
+        timings.command(session, "action", "click", [target])
     elif action == "select":
-        session.command("pick", [target, value])
+        timings.command(session, "action", "pick", [target, value])
     elif action == "press":
-        session.command("key", [target])
+        timings.command(session, "action", "key", [target])
     elif action == "scrollintoview":
         expression = ("(function(){var e=document.querySelector(%s);if(!e)return false;"
                       "e.scrollIntoView({block:'center'});return true;})()") % js_selector(target)
-        if session.command("eval", [expression]).get("data") is not True:
+        if timings.command(session, "action", "eval", [expression]).get("data") is not True:
+            timings.fail("action")
             raise RunnerError("ELEMENT_MISSING", f"ไม่พบ element: {target}")
     elif action == "eval":
-        session.command("eval", [target])
+        timings.command(session, "action", "eval", [target])
     elif action == "wait":
         if target:
             expression = target[3:] if target.startswith("fn:") else selector_wait(target)
-            session.command("wait", [expression, "20"])
+            timings.command(session, "wait", "wait", [expression, "20", "0.05"])
     else:  # schema should make this unreachable
+        timings.fail("action")
         raise RunnerError("INVALID_ACTION", f"action ไม่รองรับ: {action}")
+    return context
 
 
-def perform_wait(session: CDPSession, wait: Any, variables: dict[str, Any]) -> None:
+def perform_wait(session: CDPSession, wait: Any, variables: dict[str, Any],
+                 context: dict[str, Any], timings: StepTimings) -> None:
     if wait is None:
         return
     if wait == "networkidle":
-        # CDP transport does not claim true network-idle; this is an explicit document-ready wait.
-        session.command("wait", ["document.readyState === 'complete'", "30"])
+        # ชื่อนี้คงไว้เพื่อ compatibility แต่ contract คือ document navigation-ready ไม่ใช่ network idle.
+        before = context.get("document_before")
+        if isinstance(before, dict):
+            expression = (
+                "document.readyState==='complete'&&"
+                "(location.href!==%s||performance.timeOrigin!==%s)"
+            ) % (json.dumps(str(before.get("href", "")), ensure_ascii=False),
+                 json.dumps(before.get("timeOrigin")))
+        else:
+            expression = "document.readyState === 'complete'"
+        timings.command(session, "wait", "wait", [expression, "30", "0.05"])
     elif isinstance(wait, int):
-        time.sleep(wait / 1000)
+        timings.sleep("wait", wait / 1000)
     elif isinstance(wait, str):
         rendered = substitute(wait, variables)
         expression = rendered[3:] if rendered.startswith("fn:") else selector_wait(rendered)
-        session.command("wait", [expression, "20"])
+        timings.command(session, "wait", "wait", [expression, "20", "0.05"])
 
 
 def perform_assert(session: CDPSession, assertion: dict[str, Any],
-                   variables: dict[str, Any]) -> tuple[bool, str]:
+                   variables: dict[str, Any], timings: StepTimings) -> tuple[bool, str]:
     if "url_contains" in assertion:
         wanted = substitute(assertion["url_contains"], variables)
-        actual = str(session.command("url").get("data") or "")
+        actual = str(timings.command(session, "assert", "url").get("data") or "")
         return wanted in actual, f'URL contains "{wanted}" (actual: {actual[:300]})'
     target = substitute(assertion["target"], variables)
     wanted = substitute(assertion["contains"], variables)
-    actual = str(session.command("get", ["text", target]).get("data") or "")
+    actual = str(timings.command(session, "assert", "get", ["text", target]).get("data") or "")
     return wanted in actual, f'{target} contains "{wanted}" (actual: {actual[:300]})'
 
 
@@ -374,6 +499,7 @@ def flow_meta(flow: dict[str, Any], path: Path, *, full: bool = False) -> dict[s
 
 def run_flow(flow: dict[str, Any], path: Path, output_dir: Path, variables: dict[str, Any],
              cdp_script: Path, target_id: str, port: str | None, sink: EventSink) -> int:
+    run_started = time.perf_counter()
     output_dir.mkdir(parents=True, exist_ok=True)
     shots = output_dir / "shots"
     shots.mkdir()
@@ -385,12 +511,22 @@ def run_flow(flow: dict[str, Any], path: Path, output_dir: Path, variables: dict
     passed = failures = unverified = 0
     session: CDPSession | None = None
     sink.emit({"type": "run_start", "story": flow["story"], "title": flow["title"],
+               "driver_policy": {"protocol": SESSION_PROTOCOL,
+                                 "min_version": MIN_SESSION_VERSION,
+                                 "input_settle": INPUT_SETTLE_POLICY,
+                                 "navigation": "event-bound-load"},
                "scenarios": [{"id": item["id"], "steps": len(item["steps"])}
                              for item in flow["scenarios"]]})
+    startup_started = time.perf_counter()
+    startup_ms: float | None = None
     try:
         session = CDPSession(cdp_script, target_id, port=port)
+        startup_ms = round((time.perf_counter() - startup_started) * 1000, 3)
         sink.emit({"type": "session_ready", "target_id": target_id,
-                   "protocol": session.ready.get("protocol"), "port": session.ready.get("port")})
+                   "protocol": session.ready.get("protocol"),
+                   "version": session.ready.get("version"),
+                   "input_settle": session.ready.get("input_settle"),
+                   "port": session.ready.get("port"), "duration_ms": startup_ms})
         global_index = 0
         for scenario in flow["scenarios"]:
             scenario_failed = False
@@ -401,15 +537,16 @@ def run_flow(flow: dict[str, Any], path: Path, output_dir: Path, variables: dict
                 intent = raw_step.get("intent", raw_step["action"])
                 sink.emit({"type": "step", "scenario": scenario["id"], "index": index,
                            "global_index": global_index, "intent": intent, "status": "running"})
-                started = time.perf_counter()
+                timings = StepTimings()
                 try:
-                    perform_action(session, raw_step, variables)
-                    perform_wait(session, raw_step.get("wait"), variables)
+                    context = perform_action(session, raw_step, variables, timings)
+                    perform_wait(session, raw_step.get("wait"), variables, context, timings)
                     assertion = raw_step.get("assert")
                     status, detail = "done", ""
                     if assertion:
-                        ok, detail = perform_assert(session, assertion, variables)
+                        ok, detail = perform_assert(session, assertion, variables, timings)
                         if not ok:
+                            timings.fail("assert")
                             raise RunnerError("ASSERTION_FAILED", detail)
                         passed += 1
                         status = "pass"
@@ -417,31 +554,57 @@ def run_flow(flow: dict[str, Any], path: Path, output_dir: Path, variables: dict
                         unverified += 1
                         status, detail = "unverified", "state-changing step has no explicit assertion"
                     shot = None
-                    if raw_step.get("capture", True):
+                    capture_success = (raw_step["capture"] if "capture" in raw_step
+                                       else bool(scenario.get("doc", False)))
+                    if capture_success:
                         shot_path = (shots / f"{scenario['id']}-{index:02d}.png").resolve()
-                        session.command("shot", [str(shot_path)])
+                        timings.command(session, "capture", "shot", [str(shot_path)])
                         shot = str(shot_path)
                     marker = "✅" if status == "pass" else ("⚠️" if status == "unverified" else "▸")
                     report.append(f"- {marker} {intent}" + (f" — {detail}" if detail else ""))
+                    timing_payload = timings.payload()
                     sink.emit({"type": "step_done", "scenario": scenario["id"], "index": index,
                                "global_index": global_index, "intent": intent, "status": status,
                                "detail": detail, "shot": shot,
-                               "duration_ms": round((time.perf_counter() - started) * 1000, 3)})
+                               "duration_ms": timing_payload["total_ms"],
+                               "timings": timing_payload})
                 except RunnerError as exc:
                     failures += 1
                     scenario_failed = True
+                    shot = None
+                    evidence_error = None
+                    if raw_step.get("capture", True):
+                        try:
+                            shot_path = (shots / f"{scenario['id']}-{index:02d}-failure.png").resolve()
+                            timings.command(session, "capture", "shot", [str(shot_path)])
+                            shot = str(shot_path)
+                        except RunnerError as capture_exc:
+                            evidence_error = {"code": capture_exc.code, "message": str(capture_exc)}
                     report.append(f"- ❌ {intent} — {exc.code}: {exc}")
+                    timing_payload = timings.payload()
                     sink.emit({"type": "step_done", "scenario": scenario["id"], "index": index,
                                "global_index": global_index, "intent": intent, "status": "fail",
                                "error": {"code": exc.code, "message": str(exc)},
-                               "duration_ms": round((time.perf_counter() - started) * 1000, 3)})
+                               "shot": shot,
+                               **({"evidence_error": evidence_error} if evidence_error else {}),
+                               "duration_ms": timing_payload["total_ms"],
+                               "timings": timing_payload})
                     break
             if not scenario_failed:
+                console_started = time.perf_counter()
+                console_result: dict[str, Any] | None = None
                 try:
-                    console = session.command("console").get("data")
+                    console_result = session.command("console")
+                    console = console_result.get("data")
                     messages = console if isinstance(console, list) else ([] if console in (None, [], "[]") else console)
                     empty = not messages
+                    console_timing = {
+                        "wall_ms": round((time.perf_counter() - console_started) * 1000, 3),
+                        "driver_ms": console_result.get("duration_ms"),
+                        "attempts": console_result.get("attempts"),
+                    }
                     sink.emit({"type": "errors", "scenario": scenario["id"], "empty": empty,
+                               "timing": console_timing,
                                **({"msgs": messages} if not empty else {})})
                     if not empty:
                         failures += 1
@@ -453,7 +616,13 @@ def run_flow(flow: dict[str, Any], path: Path, output_dir: Path, variables: dict
                     failures += 1
                     scenario_failed = True
                     report.append(f"- ❌ Console verification unavailable — {exc.code}: {exc}")
+                    detail = exc.detail if isinstance(exc.detail, dict) else {}
                     sink.emit({"type": "errors", "scenario": scenario["id"], "empty": False,
+                               "timing": {
+                                   "wall_ms": round((time.perf_counter() - console_started) * 1000, 3),
+                                   "driver_ms": detail.get("duration_ms"),
+                                   "attempts": detail.get("attempts"),
+                               },
                                "error": {"code": exc.code, "message": str(exc)}})
             sink.emit({"type": "scenario_done", "id": scenario["id"],
                        "status": "fail" if scenario_failed else "done"})
@@ -476,6 +645,8 @@ def run_flow(flow: dict[str, Any], path: Path, output_dir: Path, variables: dict
     report_path.write_text(str(safe_report), encoding="utf-8")
     sink.emit({"type": "run_done", "passed": passed, "total": assertions,
                "failures": failures, "unverified": unverified, "verdict": verdict,
+               "duration_ms": round((time.perf_counter() - run_started) * 1000, 3),
+               "startup_ms": startup_ms,
                "report": str(report_path.resolve())})
     return 0 if verdict == "PASS" else 1
 
