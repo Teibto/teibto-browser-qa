@@ -53,12 +53,14 @@ flowchart LR
     yaml["flow YAML"] --> schema["flow.schema.json<br/>fail closed"]
     ui["local UI<br/>127.0.0.1"] --> runner
     schema --> runner["flow-runner.py<br/>events + report + shots"]
-    runner -->|"stdin/stdout JSONL<br/>one child per run"| session["cdp.py session<br/>bounded + pinned target"]
+    runner -->|"JSONL v2 · one child per run<br/>event nav + phase timing"| session["cdp.py session<br/>bounded + pinned target<br/>input-settle=none"]
     session -->|"one WebSocket"| chrome["Chrome target"]
     runner --> artifacts["run-log.jsonl<br/>qa-report.md<br/>shots/"]
 ```
 
-Secrets enter the runner through stdin, not argv. An action, wait, screenshot, console check, or
+Secrets enter the runner through stdin, not argv. Fixed input sleeps are removed only in this
+bounded runner contract; observable application latency is paid in explicit waits and reported
+separately from action/assert/capture driver time. An action, wait, screenshot, console check, or
 transport failure stops the scenario. Unasserted state-changing actions produce `UNVERIFIED`.
 
 ---

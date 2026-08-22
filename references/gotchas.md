@@ -63,9 +63,10 @@
 - **collector ตายพร้อมหน้า** — navigate แล้ว log เริ่มใหม่ · **นี่คือพฤติกรรมที่ต้องการ**:
   buffer สะสมข้ามหน้า (แบบที่ `agent-browser errors` ทำ) ทำให้ error ของหน้าก่อนถูกนับเป็นของ
   หน้านี้ ซึ่งเป็น false PASS ที่จับยากมาก
-- **error ที่เกิด "ก่อน" collector ถูกติดตั้ง จับไม่ได้** — script ที่ throw ตอน parse ของหน้า
-  อยู่ก่อนเราเสมอ · ต้องจับ error ตอน load จริง ๆ ให้เปิดหน้าเปล่าก่อน inject แล้วค่อย
-  `location.href = <target>`
+- `cdp.py` protocol v2 register collector ด้วย `Page.addScriptToEvaluateOnNewDocument` ก่อน `nav`
+  ใน connection เดียวกัน จึงจับ load-time error ได้; post-nav eval ใช้ verify/fallback
+- **หน้าที่เปิด/เปลี่ยนไปก่อน connection ปัจจุบัน register collector ยังจับย้อนหลังไม่ได้** — เช่น
+  คนเปิดแท็บไว้ก่อน หรือ one-shot `nav` จบแล้วแอป navigate เองภายหลัง · `console` จะ error ไม่ใช่ `[]`
 - เก็บสูงสุด **200 รายการต่อหน้า** — หน้าที่ spam error จะถูกตัดท้าย
 
 ---
@@ -225,6 +226,10 @@ Get-CimInstance Win32_Process -Filter "Name='chrome.exe'" |
 AB nav "<url>" 3                                    # drain 3 วิ
 AB wait "document.readyState==='complete'" 15       # เงื่อนไขอยู่ที่ wait เท่านั้น
 ```
+
+Runner/protocol v2 ใช้ `AB nav "<url>" --until=load --timeout=30` เพื่อรอ main-frame commit/load
+จริง. **ห้าม optimize ด้วย `nav <url> 0` แล้ว wait `readyState` อย่างเดียว**: document เก่าอาจเป็น
+`complete` อยู่แล้ว ทำให้ wait ผ่านก่อน navigation commit และ assertion อ่านหน้าเก่าเป็น false PASS.
 
 **ผลข้างเคียงที่แพงกว่าตัว error:** `nav` เป็นคำสั่งที่ติดตั้ง console collector ให้ · `nav` ล้ม =
 ไม่มี collector → `AB console` คำสั่งถัดไปตอบว่า "collector ยังไม่ถูกติดตั้ง" ซึ่ง**ถูก** แต่ถ้าอ่านผ่าน ๆ

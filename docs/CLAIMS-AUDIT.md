@@ -10,6 +10,9 @@ claim ที่ผูกกับ **Chrome/หน้าเว็บ** ยัง�
 **Round 6 (2026-08-16):** วัดใหม่บน **Chrome 151** พร้อมคำสั่งชุด `run`/`lens`/`steady`/`netlog`/`stub`
 (`Teibto/teibto-dev-standards` #188/#190/#192 · `tests/test-cdp.sh` 88 เคสกับ Chrome จริง)
 
+**Round 7 (2026-08-22):** canonical CDP protocol v2 + runner latency/async-wait evidence อยู่ท้ายไฟล์;
+driver real-Chrome suite 123 เคส และ Browser QA live flow วัด phase ก่อน–หลังแบบ isolated (#259/#52).
+
 | claim | สถานะ | Risk | Smoke |
 |---|---|---|---|
 | **"`viewport` ข้าม invocation ไม่มีผล" (Round 5) — หยาบเกินไป** | **แก้แล้ว** วัดจริงพบว่ามันแยกร่าง: **ขนาดหน้าต่างค้าง** ข้าม invocation (Chrome resize หน้าต่างจริง) ส่วน **dsf/mobile ไม่ค้าง** · เป็นเหตุผลที่เทส T11e กับ T18e ในชุดเดียวกันดูขัดกันเองแต่ผ่านทั้งคู่มาตลอด | MED (version-pinned: Chrome 151) | T19a/T19b |
@@ -205,3 +208,40 @@ while keeping its keys.
 hardening that "rejects unsafe startup arguments" — the latter is **not** re-verified here against the
 black-window launch flags (`--disable-gpu`, `--disable-features=CalculateNativeWinOcclusion`) because
 that launcher lives in another repo. Flag for manual check before relying on those flags on 0.3x.
+
+---
+
+## Round 7 — bounded CDP protocol v2 latency (2026-08-22)
+
+Claims below are version-pinned to the real Chrome installed on the Windows test host and the
+canonical `cdp.py` branch for teibto-dev-standards#259. They are measurements, not universal
+machine-specific budgets.
+
+| Claim | Evidence | Adjudication |
+|---|---|---|
+| Event-bound `nav` prevents old-document readiness and keeps dialog/redirect behavior bounded | canonical real-Chrome `tests/test-cdp.sh` T16c–T16j | **verified**: server redirect, delayed 300 ms response, beforeunload dismiss/accept and final-page DOM all covered |
+| Collector captures load-time console errors without accumulating across pages | canonical T15 + T16d | **verified**: preload catches a script error on the redirect final document; per-page reset tests remain green |
+| `--input-settle=none` is scoped and explicit waits retain async correctness | canonical T19u/v + this repo `tests/test-flow-runner-live.sh` | **verified**: direct input ≥4× faster than fixed by relative gate; `pick`/`lens` retain settle; live fixture normalizes input after 150 ms and updates trusted click outcome after 300 ms |
+| Runner step-flow median is materially faster and stable under async delay | five isolated baseline runs + 20 final fast-policy runs | **measured**: 4,373.865 → 622.523 ms median summed step time (**85.8% faster**); 20/20 PASS, zero false FAIL; median `run_done` including 181.014 ms startup = 823.390 ms |
+
+Final 20-run result (one temporary Chrome/target, a fresh bounded child session each run):
+
+```text
+{"runs":20,"failures":0,"median_ms":{"startup_ms":181.014,"open_ms":30.552,
+"fill_ms":171.488,"click_ms":396.767,"step_total_ms":622.523,"run_total_ms":823.39}}
+```
+
+Baseline came from main commits `teibto-browser-qa@3ecafee` +
+`teibto-dev-standards@6656b9c`, five isolated runs of the same three-step live runner shape. The new
+fixture deliberately adds 150/300 ms application delays, so the improvement is conservative: those
+delays now appear in the wait phase instead of being hidden by fixed driver sleeps. Reproduce the
+post-change integration run with:
+
+```powershell
+$env:TEIBTO_CDP_SCRIPT = '<teibto-dev-standards>/scripts/cdp.py'
+$env:LIVE_RUNS = '20'
+& 'C:\Program Files\Git\bin\bash.exe' tests/test-flow-runner-live.sh
+```
+
+The portable performance gate is ratio-based in canonical `tests/cdp-session-probe.py`; the absolute
+milliseconds above remain evidence only and are not used as a cross-machine CI threshold.

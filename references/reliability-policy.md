@@ -33,6 +33,11 @@ process. การ retry ทั้ง scenario ต้องเป็นการ
   retry: แก้ด้วย `wait "<เงื่อนไขผลลัพธ์>"` ก่อน assert (gotchas.md §2)
   แล้ว assert **ครั้งเดียว**. อย่าเปลี่ยน "รอให้ถูก" เป็น "ยิงซ้ำจนบังเอิญผ่าน".
 
+Runner protocol v2 ตัด fixed input settle เฉพาะ `click`/`fill`/`press` ที่ runner ส่งตรง. `fill`
+จึง poll ค่า exact แบบ bounded หลัง action; click/press ต้องมี `wait` ของ observable outcome ก่อน
+assert. เวลาของแอปอยู่ใน wait phase ไม่ใช่ถูกลบออก. `networkidle` ใช้เฉพาะ navigation-ready;
+AJAX/component state ใช้ selector หรือ `fn:<js>` ที่เจาะจง.
+
 เส้นแบ่ง: **ต่อ browser ไม่ติด = retry ได้. แอปให้ผลผิด = FAIL.** ถ้าแยกไม่ออก ให้ถือเป็น FAIL.
 
 ---

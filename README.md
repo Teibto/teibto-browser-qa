@@ -64,7 +64,8 @@ Golden rule: a command that exits 0 only means it was *sent* — always assert t
 - **Documents that ship.** User guides and bug reports export to PDF with a cover, table of contents, page numbers, and highlighted screenshots.
 - **Evidence per step.** Capture screenshots and structured results that can be reviewed without a daemon, dashboard, or video dependency.
 - **One process per batch run.** `flow-runner.py` validates the flow, pins one target, and keeps one
-  bounded `cdp.py session --jsonl` process/WebSocket for every step.
+  bounded CDP JSONL v2 process/WebSocket for every step; event-bound navigation prevents old-page
+  readiness races and phase timings show driver cost separately from application waits.
 - **Fits a team.** A lifecycle playbook, a release gate, and a RACI table live in [`docs/TEAM-PROCESS.md`](docs/TEAM-PROCESS.md).
 
 ## Gotchas it protects against
@@ -138,7 +139,9 @@ $env:TEIBTO_CDP_SCRIPT = 'D:\path\to\teibto-dev-standards\scripts\cdp.py'
 
 The runner writes `run-log.jsonl`, `qa-report.md`, and `shots/`. Secrets travel over stdin and are
 redacted from events/reports. It stops on command, wait, assertion, screenshot, console, or transport
-failure; an unasserted state-changing action is `UNVERIFIED`, never `PASS`.
+failure; an unasserted state-changing action is `UNVERIFIED`, never `PASS`. It requires canonical
+`cdp.py` JSONL protocol v2+ and fails with `DRIVER_INCOMPATIBLE` instead of silently running a slow/
+unsafe policy on an older driver.
 
 Optional local UI: set `TGT_ID` (or enter it in the page), then run `node app/server.js` and open
 `http://127.0.0.1:4173`. The server binds locally, uses the same runner, and has no browser daemon,

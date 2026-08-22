@@ -120,8 +120,10 @@ QA ผิด = รายงานผิด แต่ config ผิด = ระ�
 
 **Store test cases as repeatable files** (regression/repro) → write them as flow YAML and run them
 with `scripts/flow-runner.py`: `references/flow-spec.md`. Runner validate schema ก่อน, บังคับ
-`TGT_ID`, เปิด `cdp.py session --jsonl` เพียง process/WebSocket เดียวต่อ run และ fail-fast โดยไม่มี
-JS-click fallback. งานสำรวจแบบ ad-hoc ยังใช้คำสั่ง `AB` ตามปกติได้
+`TGT_ID`, ต้องใช้ `cdp.py` protocol v2+, เปิด bounded `session --jsonl --input-settle=none` เพียง
+process/WebSocket เดียวต่อ run, รอ navigation ด้วย main-frame event และย้ายการรอ application
+ไปไว้ที่ bounded outcome wait + assertion. ทุก step คืน phase timing แยก action/wait/assert/capture;
+fail-fast โดยไม่มี JS-click fallback. งานสำรวจแบบ ad-hoc ยังใช้คำสั่ง `AB` และ fixed settle ตามปกติได้
 
 Suggested artifact layout:
 ```

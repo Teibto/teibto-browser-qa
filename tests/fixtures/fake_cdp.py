@@ -6,12 +6,21 @@ import pathlib
 import sys
 
 target = next((arg.split("=", 1)[1] for arg in sys.argv if arg.startswith("--target-id=")), "")
+input_settle = next((arg.split("=", 1)[1] for arg in sys.argv
+                     if arg.startswith("--input-settle=")), "fixed")
 counter = os.environ.get("FAKE_CDP_COUNTER")
 if counter:
     with open(counter, "a", encoding="utf-8") as handle:
         handle.write("start\n")
+if os.environ.get("FAKE_CDP_REJECT_INPUT_SETTLE") and input_settle != "fixed":
+    print(json.dumps({"type": "error", "ok": False,
+                      "error": {"code": "INVALID_ARGS",
+                                "message": f"session: flag ไม่รู้จัก: --input-settle={input_settle}",
+                                "transient": False}}), flush=True)
+    raise SystemExit(2)
 print(json.dumps({"type": "ready", "ok": True, "protocol": "teibto-cdp-jsonl",
-                  "version": 1, "target_id": target, "port": 9222}), flush=True)
+                  "version": int(os.environ.get("FAKE_CDP_VERSION", "2")),
+                  "input_settle": input_settle, "target_id": target, "port": 9222}), flush=True)
 values = {}
 url = "about:blank"
 for line in sys.stdin:
@@ -34,6 +43,9 @@ for line in sys.stdin:
     elif command == "url":
         data = url
     elif command == "eval":
+        data = ({"href": url, "timeOrigin": 1}
+                if "performance.timeOrigin" in args[0] else True)
+    elif command == "wait":
         data = True
     elif command == "console":
         data = []
