@@ -36,7 +36,8 @@ class FlowRunnerTests(unittest.TestCase):
         return root
 
     def run_flow(self, yaml_text: str, variables: dict | None = None,
-                 env_overrides: dict[str, str] | None = None):
+                 env_overrides: dict[str, str] | None = None,
+                 extra_args: list[str] | None = None):
         root = self.workspace()
         flow = root / "flow.yaml"
         flow.write_text(textwrap.dedent(yaml_text), encoding="utf-8")
@@ -47,7 +48,8 @@ class FlowRunnerTests(unittest.TestCase):
         env.update(env_overrides or {})
         process = subprocess.run(
             [sys.executable, str(RUNNER), "--flow", str(flow), "--out", str(out),
-             "--vars-json", "-", "--target-id", "target-123", "--cdp-script", str(FAKE_CDP)],
+             "--vars-json", "-", "--target-id", "target-123", "--cdp-script", str(FAKE_CDP),
+             *(extra_args or [])],
             input=json.dumps(variables or {}), capture_output=True, text=True, encoding="utf-8", env=env,
         )
         return process, out, counter
@@ -182,6 +184,57 @@ class FlowRunnerTests(unittest.TestCase):
         self.assertEqual(1, process.returncode)
         self.assertIn("DRIVER_INCOMPATIBLE",
                       (out / "run-log.jsonl").read_text(encoding="utf-8"))
+
+    def test_auto_answered_dialogs_are_evidence_and_policy_is_pinned(self):
+        flow = """
+            story: dialogs
+            title: Dialogs
+            scenarios:
+              - id: delete
+                steps:
+                  - {action: open, target: "https://example.test", capture: false}
+                  - action: click
+                    target: "#delete"
+                    assert: {target: "#notice", contains: "saved"}
+                    capture: false
+        """
+        # A stale DIALOG=accept in the shell must not leak into the QA session. The current
+        # driver prints its dialog ledger at session close, so the evidence is run-level.
+        process, out, _ = self.run_flow(flow, env_overrides={
+            "FAKE_CDP_DIALOG": "confirm:Delete this record?", "DIALOG": "accept"})
+        self.assertEqual(0, process.returncode, process.stdout + process.stderr)
+        payloads = [json.loads(line) for line in
+                    (out / "run-log.jsonl").read_text(encoding="utf-8").splitlines()]
+        start = next(item for item in payloads if item["type"] == "run_start")
+        self.assertEqual("safe", start["driver_policy"]["dialog"])
+        dialog = next(item for item in payloads if item["type"] == "dialog")
+        self.assertEqual({"scenario": None, "index": None, "kind": "confirm",
+                          "message": "Delete this record?", "answer": "dismiss"},
+                         {key: dialog[key] for key in
+                          ("scenario", "index", "kind", "message", "answer")})
+        done = next(item for item in payloads if item["type"] == "run_done")
+        self.assertEqual(1, done["dialogs"])
+        report = (out / "qa-report.md").read_text(encoding="utf-8")
+        self.assertIn('dialog confirm: "Delete this record?" -> dismiss', report)
+        self.assertIn("**Auto-answered dialogs:** 1 (policy: safe)", report)
+
+        # A driver that reports dialogs while the step runs gets per-step attribution.
+        process, out, _ = self.run_flow(flow, env_overrides={
+            "FAKE_CDP_DIALOG": "confirm:Delete this record?", "FAKE_CDP_DIALOG_WHEN": "click"})
+        self.assertEqual(0, process.returncode, process.stdout + process.stderr)
+        payloads = [json.loads(line) for line in
+                    (out / "run-log.jsonl").read_text(encoding="utf-8").splitlines()]
+        dialog = next(item for item in payloads if item["type"] == "dialog")
+        self.assertEqual(("delete", 2, 2), (dialog["scenario"], dialog["index"], dialog["global_index"]))
+        self.assertEqual(1, next(item for item in payloads if item["type"] == "run_done")["dialogs"])
+
+        # The policy changes only through the explicit runner flag.
+        process, out, _ = self.run_flow(flow, env_overrides={
+            "FAKE_CDP_DIALOG": "confirm:Delete this record?"}, extra_args=["--dialog", "accept"])
+        self.assertEqual(0, process.returncode, process.stdout + process.stderr)
+        events = (out / "run-log.jsonl").read_text(encoding="utf-8")
+        self.assertIn('"answer":"accept"', events)
+        self.assertIn('"dialog":"accept"', events)
 
     def test_capture_defaults_follow_doc_mode_and_failure_evidence(self):
         passed, passed_out, _ = self.run_flow("""

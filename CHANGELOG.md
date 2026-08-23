@@ -17,6 +17,9 @@
 
 ### Fixed
 
+- runner บันทึก dialog ที่ cdp.py ตอบอัตโนมัติทุกรายการเป็น event `dialog` ใน run-log + บรรทัด ⚠️ และสรุป
+  `Auto-answered dialogs` ใน qa-report; session ได้ `DIALOG=safe` เสมอ (ไม่ inherit จาก shell) เปลี่ยนได้
+  เฉพาะ `--dialog accept|dismiss` และ policy ที่ใช้อยู่ใน `run_start.driver_policy.dialog` (#56)
 - local UI: `GET /api/stories` ตอบ 200 เสมอเมื่ออ่าน `examples/` ได้ — flow ที่โหลดไม่ได้คืน item พร้อม `error`
   แทนการทำทั้งรายการเป็น 500 (#60)
 - local UI: flow `.yml` ที่ `/api/stories` list ได้ สั่ง `POST /api/run` แล้วไม่ 404 อีก — `startRun` ใช้ resolver
