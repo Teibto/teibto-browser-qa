@@ -17,6 +17,8 @@
 
 ### Fixed
 
+- local UI: `GET /api/stories` ตอบ 200 เสมอเมื่ออ่าน `examples/` ได้ — flow ที่โหลดไม่ได้คืน item พร้อม `error`
+  แทนการทำทั้งรายการเป็น 500 (#60)
 - local UI: flow `.yml` ที่ `/api/stories` list ได้ สั่ง `POST /api/run` แล้วไม่ 404 อีก — `startRun` ใช้ resolver
   เดียวกับ `metadata()` (#59)
 - `tests/test-flow-runner-live.sh` พิมพ์ run-log ของ runner พร้อม path ของ driver ก่อน exit 1 เมื่อ runner

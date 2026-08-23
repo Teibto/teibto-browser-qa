@@ -88,6 +88,24 @@ class LocalServerTests(unittest.TestCase):
         body = json.loads(caught.exception.read())
         self.assertIn("target_id", body["error"])
 
+    def test_one_broken_flow_does_not_blank_the_story_list(self) -> None:
+        broken = EXAMPLES / "zz-server-test-broken.yaml"
+        broken.write_text("story: zz-server-test-broken", encoding="utf-8")
+        self.addCleanup(broken.unlink, missing_ok=True)
+        try:
+            status, body = self.get_json("/api/stories")
+        except urllib.error.HTTPError as error:
+            detail = json.loads(error.read())
+            if error.code == 500 and "spawn EPERM" in detail.get("error", ""):
+                self.skipTest("managed Windows sandbox blocks Node child_process.spawn")
+            self.fail(f"{error.code}: {detail}")
+        self.assertEqual(200, status)
+        by_id = {item["id"]: item for item in body}
+        self.assertIn("saucedemo", by_id)
+        self.assertNotIn("error", by_id["saucedemo"])
+        self.assertIn("schema", by_id["zz-server-test-broken"]["error"])
+        self.assertEqual("zz-server-test-broken.yaml", by_id["zz-server-test-broken"]["file"])
+
     def test_yml_flow_that_lists_also_runs(self) -> None:
         flow = EXAMPLES / "zz-server-test-yml.yml"
         flow.write_text(textwrap.dedent("""

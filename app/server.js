@@ -163,8 +163,13 @@ async function handler(req, res) {
     return json(res, 200, {ok: true, runner: "cdp-jsonl", target_pinned: Boolean(process.env.TGT_ID), record: false});
   }
   if (req.method === "GET" && url.pathname === "/api/stories") {
+    // One unreadable flow must not blank the whole list: report it per item (the UI renders `error`).
     const items = [];
-    for (const file of await flowFiles()) items.push(await metadata(path.parse(file).name));
+    for (const file of await flowFiles()) {
+      const id = path.parse(file).name;
+      try { items.push(await metadata(id)); }
+      catch (error) { items.push({id, file, title: id, target: "web", error: error.message}); }
+    }
     return json(res, 200, items);
   }
   let match = url.pathname.match(/^\/api\/stories\/([A-Za-z0-9_-]+)$/);
