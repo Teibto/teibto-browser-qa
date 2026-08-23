@@ -65,9 +65,16 @@ LIVE_RUNS="${LIVE_RUNS:-1}"
 [[ "${LIVE_RUNS}" =~ ^[0-9]+$ ]] && [ "${LIVE_RUNS}" -ge 1 ] && [ "${LIVE_RUNS}" -le 50 ] \
   || { echo "FAIL: LIVE_RUNS must be an integer in 1..50"; exit 2; }
 for run in $(seq 1 "${LIVE_RUNS}"); do
+  # Print the runner log on failure: cleanup removes ${WORK}, so a silent exit would hide the cause
+  # (for example DRIVER_INCOMPATIBLE from a stale cdp.py).
   printf '%s' "${VARS}" | "${PY}" "${ROOT}/scripts/flow-runner.py" \
     --flow "${ROOT}/tests/fixtures/live-flow.yaml" --out "${WORK}/out-${run}" --vars-json - \
-    --target-id "${TARGET_ID}" --cdp-script "${CDP}" >"${WORK}/runner-${run}.jsonl"
+    --target-id "${TARGET_ID}" --cdp-script "${CDP}" >"${WORK}/runner-${run}.jsonl" || {
+    code=$?
+    echo "FAIL: runner exit ${code} on run ${run} (driver: ${CDP})"
+    cat "${WORK}/runner-${run}.jsonl"
+    exit 1
+  }
 done
 
 grep -q 'event.isTrusted' "${ROOT}/tests/fixtures/live-page.html"

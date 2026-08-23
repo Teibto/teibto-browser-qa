@@ -15,6 +15,11 @@
 - `session_ready.cdp_script` และข้อความ `DRIVER_INCOMPATIBLE`/`CDP_NOT_READY`/`TARGET_MISMATCH`
   ระบุ path ของ `cdp.py` ที่ runner resolve ได้ เพื่อชี้สำเนาที่ต้องอัปเดตเมื่อเครื่องมี driver หลายชุด (#58)
 
+### Fixed
+
+- `tests/test-flow-runner-live.sh` พิมพ์ run-log ของ runner พร้อม path ของ driver ก่อน exit 1 เมื่อ runner
+  ล้ม แทนการออกเงียบ ๆ หลัง cleanup ลบ log ทิ้ง (#57)
+
 ## [2.2.0] - 2026-08-22
 
 **Current v2 browser guidance with stale transport history and unsupported flow examples removed.**
