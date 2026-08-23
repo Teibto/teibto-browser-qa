@@ -10,6 +10,11 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- `tests/test-flow-runner-live.sh` พิมพ์ run-log ของ runner พร้อม path ของ driver ก่อน exit 1 เมื่อ runner
+  ล้ม แทนการออกเงียบ ๆ หลัง cleanup ลบ log ทิ้ง (#57)
+
 ## [2.2.0] - 2026-08-22
 
 **Current v2 browser guidance with stale transport history and unsupported flow examples removed.**
