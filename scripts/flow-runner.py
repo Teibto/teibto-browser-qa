@@ -44,6 +44,9 @@ MAX_EVENT_TEXT = 2_000
 SESSION_PROTOCOL = "teibto-cdp-jsonl"
 MIN_SESSION_VERSION = 2
 INPUT_SETTLE_POLICY = "none"
+DIALOG_POLICIES = ("safe", "accept", "dismiss")
+# cdp.py prints every auto-answered dialog to stderr as "[dialog] <kind>: <message> -> <answer>".
+DIALOG_LINE = re.compile(r"^\[dialog\] (?P<kind>[^:]+): (?P<message>.*) -> (?P<answer>\S+)$")
 
 
 class RunnerError(RuntimeError):
@@ -165,7 +168,7 @@ class EventSink:
 
 class CDPSession:
     def __init__(self, script: Path, target_id: str, *, port: str | None = None,
-                 request_timeout: float = 45.0):
+                 request_timeout: float = 45.0, dialog: str = "safe"):
         if not target_id:
             raise RunnerError("UNPINNED_TARGET", "ต้องระบุ --target-id หรือ TGT_ID")
         self.script = script
@@ -182,6 +185,8 @@ class CDPSession:
         env = os.environ.copy()
         if port:
             env["CDP_PORT"] = str(port)
+        # Never inherit a shell DIALOG override silently: the runner owns the dialog policy.
+        env["DIALOG"] = dialog
         self.process = subprocess.Popen(
             command,
             stdin=subprocess.PIPE,
@@ -196,9 +201,11 @@ class CDPSession:
         self.request_timeout = request_timeout
         self.lines: queue.Queue[str | None] = queue.Queue()
         self.stderr: list[str] = []
+        self.dialogs: queue.Queue[dict[str, str]] = queue.Queue()
         self.sequence = 0
         threading.Thread(target=self._read_stdout, daemon=True).start()
-        threading.Thread(target=self._read_stderr, daemon=True).start()
+        self._stderr_thread = threading.Thread(target=self._read_stderr, daemon=True)
+        self._stderr_thread.start()
         ready = self._next(request_timeout)
         if ready.get("type") != "ready" or not ready.get("ok"):
             error = ready.get("error") or {}
@@ -238,8 +245,23 @@ class CDPSession:
     def _read_stderr(self) -> None:
         assert self.process.stderr
         for line in self.process.stderr:
+            text = line.rstrip()
             if len(self.stderr) < 200:
-                self.stderr.append(line.rstrip())
+                self.stderr.append(text)
+            match = DIALOG_LINE.match(text)
+            if match:
+                self.dialogs.put({**match.groupdict(), "line": text})
+            elif text.startswith("[dialog]"):
+                self.dialogs.put({"kind": "unknown", "message": text, "answer": "unknown", "line": text})
+
+    def drain_dialogs(self) -> list[dict[str, str]]:
+        """Dialogs the driver answered since the previous drain (stderr arrives asynchronously)."""
+        items: list[dict[str, str]] = []
+        while True:
+            try:
+                items.append(self.dialogs.get_nowait())
+            except queue.Empty:
+                return items
 
     def _next(self, timeout: float) -> dict[str, Any]:
         try:
@@ -284,23 +306,28 @@ class CDPSession:
             return payload
 
     def close(self, *, force: bool = False) -> None:
-        if self.process.poll() is not None:
-            return
-        if not force:
-            try:
-                assert self.process.stdin
-                self.process.stdin.write('{"id":"runner-close","type":"close"}\n')
-                self.process.stdin.flush()
-                self.process.wait(timeout=3)
-                return
-            except Exception:
-                pass
-        self.process.terminate()
         try:
-            self.process.wait(timeout=3)
-        except subprocess.TimeoutExpired:
-            self.process.kill()
-            self.process.wait(timeout=3)
+            if self.process.poll() is not None:
+                return
+            if not force:
+                try:
+                    assert self.process.stdin
+                    self.process.stdin.write('{"id":"runner-close","type":"close"}\n')
+                    self.process.stdin.flush()
+                    self.process.wait(timeout=3)
+                    return
+                except Exception:
+                    pass
+            self.process.terminate()
+            try:
+                self.process.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                self.process.kill()
+                self.process.wait(timeout=3)
+        finally:
+            # cdp.py reports the dialogs it answered on stderr at close; make sure the reader
+            # has consumed that tail before the caller drains dialogs for the report.
+            self._stderr_thread.join(timeout=3)
 
 
 class StepTimings:
@@ -500,7 +527,8 @@ def flow_meta(flow: dict[str, Any], path: Path, *, full: bool = False) -> dict[s
 
 
 def run_flow(flow: dict[str, Any], path: Path, output_dir: Path, variables: dict[str, Any],
-             cdp_script: Path, target_id: str, port: str | None, sink: EventSink) -> int:
+             cdp_script: Path, target_id: str, port: str | None, sink: EventSink,
+             dialog: str = "safe") -> int:
     run_started = time.perf_counter()
     output_dir.mkdir(parents=True, exist_ok=True)
     shots = output_dir / "shots"
@@ -510,19 +538,30 @@ def run_flow(flow: dict[str, Any], path: Path, output_dir: Path, variables: dict
               f"**Target ID:** `{target_id}`", ""]
     assertions = sum(1 for scenario in flow["scenarios"] for step in scenario["steps"]
                      if step.get("assert"))
-    passed = failures = unverified = 0
+    passed = failures = unverified = dialogs = 0
     session: CDPSession | None = None
+
+    def flush_dialogs(scenario_id: str, index: int | None, global_index: int | None) -> None:
+        # Every auto-answered dialog is a (possible) mutation: it goes into run-log and report,
+        # attributed to the step during which the driver reported it.
+        nonlocal dialogs
+        for item in (session.drain_dialogs() if session else []):
+            dialogs += 1
+            sink.emit({"type": "dialog", "scenario": scenario_id, "index": index,
+                       "global_index": global_index, **item})
+            report.append(f"- ⚠️ dialog {item['kind']}: \"{item['message']}\" -> {item['answer']}")
     sink.emit({"type": "run_start", "story": flow["story"], "title": flow["title"],
                "driver_policy": {"protocol": SESSION_PROTOCOL,
                                  "min_version": MIN_SESSION_VERSION,
                                  "input_settle": INPUT_SETTLE_POLICY,
+                                 "dialog": dialog,
                                  "navigation": "event-bound-load"},
                "scenarios": [{"id": item["id"], "steps": len(item["steps"])}
                              for item in flow["scenarios"]]})
     startup_started = time.perf_counter()
     startup_ms: float | None = None
     try:
-        session = CDPSession(cdp_script, target_id, port=port)
+        session = CDPSession(cdp_script, target_id, port=port, dialog=dialog)
         startup_ms = round((time.perf_counter() - startup_started) * 1000, 3)
         sink.emit({"type": "session_ready", "target_id": target_id,
                    "cdp_script": str(session.script),
@@ -565,6 +604,7 @@ def run_flow(flow: dict[str, Any], path: Path, output_dir: Path, variables: dict
                         shot = str(shot_path)
                     marker = "✅" if status == "pass" else ("⚠️" if status == "unverified" else "▸")
                     report.append(f"- {marker} {intent}" + (f" — {detail}" if detail else ""))
+                    flush_dialogs(scenario["id"], index, global_index)
                     timing_payload = timings.payload()
                     sink.emit({"type": "step_done", "scenario": scenario["id"], "index": index,
                                "global_index": global_index, "intent": intent, "status": status,
@@ -584,6 +624,7 @@ def run_flow(flow: dict[str, Any], path: Path, output_dir: Path, variables: dict
                         except RunnerError as capture_exc:
                             evidence_error = {"code": capture_exc.code, "message": str(capture_exc)}
                     report.append(f"- ❌ {intent} — {exc.code}: {exc}")
+                    flush_dialogs(scenario["id"], index, global_index)
                     timing_payload = timings.payload()
                     sink.emit({"type": "step_done", "scenario": scenario["id"], "index": index,
                                "global_index": global_index, "intent": intent, "status": "fail",
@@ -627,6 +668,7 @@ def run_flow(flow: dict[str, Any], path: Path, output_dir: Path, variables: dict
                                    "attempts": detail.get("attempts"),
                                },
                                "error": {"code": exc.code, "message": str(exc)}})
+            flush_dialogs(scenario["id"], None, None)
             sink.emit({"type": "scenario_done", "id": scenario["id"],
                        "status": "fail" if scenario_failed else "done"})
             report.append("")
@@ -639,15 +681,28 @@ def run_flow(flow: dict[str, Any], path: Path, output_dir: Path, variables: dict
     finally:
         if session:
             session.close()
+            # Current cdp.py session mode prints its dialog ledger only at close, so these
+            # cannot be attributed to a step; they are still evidence and still counted.
+            late = session.drain_dialogs()
+            if late:
+                report.extend(["## Auto-answered dialogs (reported by the driver at session close)", ""])
+                for item in late:
+                    dialogs += 1
+                    sink.emit({"type": "dialog", "scenario": None, "index": None,
+                               "global_index": None, **item})
+                    report.append(f"- ⚠️ dialog {item['kind']}: \"{item['message']}\" -> {item['answer']}")
+                report.append("")
 
     verdict = "FAIL" if failures else ("UNVERIFIED" if unverified else "PASS")
     summary = [f"**Verdict:** {verdict}", f"**Assertions:** {passed}/{assertions} passed",
-               f"**Unverified state changes:** {unverified}", ""]
+               f"**Unverified state changes:** {unverified}",
+               f"**Auto-answered dialogs:** {dialogs} (policy: {dialog})", ""]
     report[4:4] = summary
     safe_report = redact("\n".join(report), sink.secrets, variables, truncate=False)
     report_path.write_text(str(safe_report), encoding="utf-8")
     sink.emit({"type": "run_done", "passed": passed, "total": assertions,
-               "failures": failures, "unverified": unverified, "verdict": verdict,
+               "failures": failures, "unverified": unverified, "dialogs": dialogs,
+               "verdict": verdict,
                "duration_ms": round((time.perf_counter() - run_started) * 1000, 3),
                "startup_ms": startup_ms,
                "report": str(report_path.resolve())})
@@ -675,6 +730,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--target-id", default=os.environ.get("TGT_ID"))
     parser.add_argument("--cdp-port", default=os.environ.get("CDP_PORT"))
     parser.add_argument("--cdp-script")
+    parser.add_argument("--dialog", choices=DIALOG_POLICIES, default="safe",
+                        help="dialog policy handed to cdp.py (default: safe; never inherited from env)")
     parser.add_argument("--meta", action="store_true")
     parser.add_argument("--full", action="store_true")
     args = parser.parse_args(argv)
@@ -703,7 +760,7 @@ def main(argv: list[str] | None = None) -> int:
         log_path = output_dir / "run-log.jsonl"
         sink = EventSink(sys.stdout, log_path, secret_names(flow), variables)
         return run_flow(flow, path, output_dir, variables, cdp_script,
-                        args.target_id or "", args.cdp_port, sink)
+                        args.target_id or "", args.cdp_port, sink, dialog=args.dialog)
     except RunnerError as exc:
         payload = {"type": "fatal", "error": {"code": exc.code, "message": str(exc)}}
         if sink:

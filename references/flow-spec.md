@@ -20,6 +20,8 @@ $env:TEIBTO_CDP_SCRIPT = 'D:\path\to\teibto-dev-standards\scripts\cdp.py'
 - `open` รอ main-frame commit/load event จริง; ไม่ใช้ zero-drain + `readyState` ที่อาจอ่านหน้าเก่า
 - `click` ใช้ native input เท่านั้น; ไม่มี JS fallback เงียบ
 - action/wait/assert/screenshot/console ล้ม = หยุด scenario และ verdict `FAIL`
+- dialog ที่ driver ตอบอัตโนมัติทุกรายการถูกบันทึกเป็น event `dialog` ใน run-log และบรรทัด ⚠️ ใน report;
+  policy เป็น `safe` เสมอ (ไม่ inherit `DIALOG` จาก shell) เว้นแต่สั่ง `--dialog accept|dismiss`
 - action ที่เปลี่ยน state แต่ไม่มี explicit assertion = verdict `UNVERIFIED`, ไม่ใช่ `PASS`
 - artifact อยู่ที่ `<out>/run-log.jsonl`, `<out>/qa-report.md`, `<out>/shots/`
 
@@ -77,6 +79,15 @@ scenarios:
 action แล้วรอ URL/time origin เปลี่ยนพร้อม `readyState=complete`, จึงไม่ผ่านจากหน้าเก่า. งาน AJAX/
 Oracle JET ให้ใช้ selector หรือ `fn:<observable outcome>` เช่น
 `fn:document.querySelector('#status').textContent==='saved'` แล้ว assert ครั้งเดียว.
+
+Dialog: cdp.py พิมพ์ `[dialog] <kind>: <message> -> accept|dismiss` ลง stderr ทุกครั้งที่ตอบ dialog;
+runner แปลงเป็น event `{"type":"dialog","scenario","index","global_index","kind","message","answer","line"}`,
+นับรวมใน `run_done.dialogs` และสรุปใน report เป็น
+`**Auto-answered dialogs:** <n> (policy: <policy>)`. `run_start.driver_policy.dialog` บอก policy ที่ใช้จริง;
+default `safe` (alert = accept, อย่างอื่น = dismiss) และเปลี่ยนได้เฉพาะ `--dialog` ของ runner —
+QA run ไม่ inherit `DIALOG` จาก shell ตาม SKILL.md invariant 5. cdp.py v2 (v0.82) พิมพ์ ledger นี้ตอนปิด
+session จึงได้ event ที่ `scenario`/`index` เป็น `null` และหัวข้อ "Auto-answered dialogs (reported by
+the driver at session close)" ท้าย report; ถ้า driver รายงานระหว่าง step runner จะผูกกับ step นั้นให้เอง.
 
 `run-log.jsonl` เก็บ runner wall-clock และ authoritative driver `duration_ms`/`attempts` แยก
 `action`, `wait`, `assert`, `capture`; failure มี partial phases + `failing_phase`, console check มี

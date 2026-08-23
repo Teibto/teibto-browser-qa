@@ -107,8 +107,9 @@ runs/manual/
 
 It validates the schema before opening the driver, refuses to guess a shared tab, negotiates protocol
 v2+, waits for the new main-frame document on navigation, polls bounded observable outcomes after fast
-inputs, redacts secret variables, and fails closed on command, wait, assertion, capture, console, or
-transport errors. An unasserted state-changing action is `UNVERIFIED`, never `PASS`.
+inputs, redacts secret variables, records every auto-answered dialog as evidence under a pinned
+`safe` dialog policy, and fails closed on command, wait, assertion, capture, console, or transport
+errors. An unasserted state-changing action is `UNVERIFIED`, never `PASS`.
 
 For the exact YAML, wait, capture, and telemetry contracts, read
 [`references/flow-spec.md`](references/flow-spec.md).

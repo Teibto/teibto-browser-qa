@@ -23,13 +23,38 @@ print(json.dumps({"type": "ready", "ok": True, "protocol": "teibto-cdp-jsonl",
                   "input_settle": input_settle, "target_id": target, "port": 9222}), flush=True)
 values = {}
 url = "about:blank"
+# FAKE_CDP_DIALOG=<kind>:<message> makes every click raise that dialog; the answer follows the
+# DIALOG policy the way cdp.py does (safe = dismiss anything that is not an alert). Like the
+# real driver the ledger is printed to stderr at close; FAKE_CDP_DIALOG_WHEN=click prints it
+# live instead (a future driver behaviour the runner attributes per step).
+dialog_spec = os.environ.get("FAKE_CDP_DIALOG")
+dialog_policy = os.environ.get("DIALOG", "safe")
+dialog_when = os.environ.get("FAKE_CDP_DIALOG_WHEN", "close")
+dialog_ledger = []
+
+
+def report_dialogs():
+    for line in dialog_ledger:
+        sys.stderr.write(line)
+    sys.stderr.flush()
+    dialog_ledger.clear()
 for line in sys.stdin:
     request = json.loads(line)
     if request.get("type") == "close":
         print(json.dumps({"type": "closed", "id": request.get("id"), "ok": True,
                           "reason": "requested", "target_id": target}), flush=True)
+        report_dialogs()
         break
     command, args = request["command"], request.get("args", [])
+    if command == "click" and dialog_spec:
+        kind, message = dialog_spec.split(":", 1)
+        if dialog_policy == "safe":
+            answer = "accept" if kind == "alert" else "dismiss"
+        else:
+            answer = dialog_policy
+        dialog_ledger.append(f"[dialog] {kind}: {message} -> {answer}\n")
+        if dialog_when == "click":
+            report_dialogs()
     if command == "nav":
         url = args[0]
         data = url
