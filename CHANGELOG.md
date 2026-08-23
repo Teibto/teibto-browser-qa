@@ -12,6 +12,9 @@
 
 ### Added
 
+- CI job `driver-compat` รัน `tests/test-flow-runner-live.sh` กับ canonical `cdp.py` ที่ pin tag
+  `TEIBTO_DEV_STANDARDS_REF` (v0.82.0) ใน Chrome จริงทุก PR; ไม่มี secret `DEV_STANDARDS_TOKEN` = fail
+  (fork PR = skip พร้อม warning) — drift ระหว่าง runner กับ driver ถูกจับก่อน merge (#66)
 - `session_ready.cdp_script` และข้อความ `DRIVER_INCOMPATIBLE`/`CDP_NOT_READY`/`TARGET_MISMATCH`
   ระบุ path ของ `cdp.py` ที่ runner resolve ได้ เพื่อชี้สำเนาที่ต้องอัปเดตเมื่อเครื่องมี driver หลายชุด (#58)
 

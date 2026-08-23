@@ -9,6 +9,12 @@ on:
 permissions:
   contents: read
 
+env:
+  # Canonical driver generation this runner is verified against (JSONL protocol v2+).
+  # Bump deliberately together with README/CONTRIBUTING; driver-compat runs the live test
+  # against exactly this tag of Teibto/teibto-dev-standards.
+  TEIBTO_DEV_STANDARDS_REF: v0.82.0
+
 jobs:
   quality-gate:
     name: quality-gate
@@ -56,3 +62,59 @@ jobs:
 
       - name: Verify bundle checksum
         run: sha256sum teibto-browser-qa.skill
+
+  # Real-driver gate: flow-runner.py against the pinned canonical cdp.py in real Chrome.
+  # teibto-dev-standards is private, so this needs the repository secret DEV_STANDARDS_TOKEN
+  # (fine-grained PAT, Contents: read on Teibto/teibto-dev-standards only). Without it the job
+  # FAILS for this repository's own branches (a gate that cannot check must not report green)
+  # and is skipped with a visible warning only for pull requests from forks.
+  driver-compat:
+    name: driver-compat
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Resolve driver access
+        id: access
+        env:
+          DEV_STANDARDS_TOKEN: ${{ secrets.DEV_STANDARDS_TOKEN }}
+          IS_FORK_PR: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
+        run: |
+          if [ -n "${DEV_STANDARDS_TOKEN}" ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          elif [ "${IS_FORK_PR}" = "true" ]; then
+            echo "::warning title=driver-compat skipped::fork pull request has no DEV_STANDARDS_TOKEN; the live test against canonical cdp.py ${TEIBTO_DEV_STANDARDS_REF} did not run."
+            echo "available=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error title=driver-compat cannot run::repository secret DEV_STANDARDS_TOKEN is not set. Add a fine-grained PAT with Contents: read on Teibto/teibto-dev-standards so the runner is verified against cdp.py ${TEIBTO_DEV_STANDARDS_REF}."
+            exit 1
+          fi
+
+      - name: Checkout canonical driver at the pinned tag
+        if: steps.access.outputs.available == 'true'
+        uses: actions/checkout@v5
+        with:
+          repository: Teibto/teibto-dev-standards
+          ref: ${{ env.TEIBTO_DEV_STANDARDS_REF }}
+          token: ${{ secrets.DEV_STANDARDS_TOKEN }}
+          path: .dev-standards
+
+      - uses: actions/setup-python@v6
+        if: steps.access.outputs.available == 'true'
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install runner and driver dependencies
+        if: steps.access.outputs.available == 'true'
+        run: python -m pip install -r requirements.txt websocket-client pillow numpy
+
+      - name: Live test against pinned cdp.py in real Chrome
+        if: steps.access.outputs.available == 'true'
+        env:
+          TEIBTO_CDP_SCRIPT: ${{ github.workspace }}/.dev-standards/scripts/cdp.py
+          LIVE_RUNS: "3"
+        run: |
+          grep -n '^SESSION_VERSION' "${TEIBTO_CDP_SCRIPT}"
+          google-chrome --version
+          bash tests/test-flow-runner-live.sh

@@ -68,6 +68,21 @@ bash self-test/pdf/pdf-test.sh    # PDF pagination A/B (needs pymupdf + network 
 
 Re-run after any Chrome or `cdp.py` version bump — this is the drift detector.
 
+### Driver pin and the `driver-compat` CI job
+
+The runner is verified against one canonical driver generation: `TEIBTO_DEV_STANDARDS_REF` in
+`.github/workflows/ci.yml` (currently `v0.82.0`, the first `teibto-dev-standards` tag with JSONL
+protocol v2). CI job `driver-compat` clones that exact tag and runs `tests/test-flow-runner-live.sh`
+in real Chrome on every pull request, so driver drift fails before merge instead of on a developer
+machine. `teibto-dev-standards` is private: the job needs the repository secret
+`DEV_STANDARDS_TOKEN` (fine-grained PAT, Contents: read on that repository only). Without the secret
+the job fails for this repository's branches and is skipped with a warning only for fork PRs — a
+gate that cannot check must not report green.
+
+To bump the pin: change `TEIBTO_DEV_STANDARDS_REF`, update the README sentence that names the tag,
+record the change in `docs/CLAIMS-AUDIT.md` (version-pinned rows) and `CHANGELOG.md`, and let
+`driver-compat` prove the new generation in the same PR.
+
 ## Scripts
 
 | Script | What it does | Usage |

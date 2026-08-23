@@ -56,7 +56,8 @@ py -m pip install websocket-client pillow numpy
 The flow runner requires canonical `cdp.py` JSONL protocol v2 or newer, first released in
 [`teibto-dev-standards v0.82.0`](https://github.com/Teibto/teibto-dev-standards/releases/tag/v0.82.0).
 Pass its path with `--cdp-script` or `TEIBTO_CDP_SCRIPT`. The runner also checks the standard team
-installation path automatically.
+installation path automatically. CI verifies every change against that pinned tag in real Chrome
+(`driver-compat` job; see [`CONTRIBUTING.md`](CONTRIBUTING.md)).
 
 ## Quick smoke run
 
