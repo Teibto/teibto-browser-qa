@@ -5,6 +5,7 @@ import os
 import shutil
 import socket
 import subprocess
+import textwrap
 import time
 import unittest
 import urllib.error
@@ -14,6 +15,8 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parent.parent
+FAKE_CDP = ROOT / "tests" / "fixtures" / "fake_cdp.py"
+EXAMPLES = ROOT / "examples"
 
 
 @unittest.skipUnless(shutil.which("node"), "Node.js is not installed")
@@ -25,6 +28,7 @@ class LocalServerTests(unittest.TestCase):
             cls.port = sock.getsockname()[1]
         env = os.environ.copy()
         env["QA_PORT"] = str(cls.port)
+        env["TEIBTO_CDP_SCRIPT"] = str(FAKE_CDP)
         env.pop("TGT_ID", None)
         cls.process = subprocess.Popen(
             ["node", str(ROOT / "app" / "server.js")], cwd=ROOT, env=env,
@@ -83,6 +87,32 @@ class LocalServerTests(unittest.TestCase):
         self.assertEqual(400, caught.exception.code)
         body = json.loads(caught.exception.read())
         self.assertIn("target_id", body["error"])
+
+    def test_yml_flow_that_lists_also_runs(self) -> None:
+        flow = EXAMPLES / "zz-server-test-yml.yml"
+        flow.write_text(textwrap.dedent("""
+            story: zz-server-test-yml
+            title: YML flow
+            scenarios:
+              - id: smoke
+                steps:
+                  - {action: open, target: "https://example.test", capture: false}
+            """), encoding="utf-8")
+        self.addCleanup(flow.unlink, missing_ok=True)
+        request = urllib.request.Request(
+            f"http://127.0.0.1:{self.port}/api/run",
+            data=json.dumps({"flow": "zz-server-test-yml", "target_id": "target-123"}).encode(),
+            headers={"Content-Type": "application/json"}, method="POST",
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=10) as response:
+                self.assertEqual(202, response.status)
+                self.assertIn("run_id", json.load(response))
+        except urllib.error.HTTPError as error:
+            body = json.loads(error.read())
+            if error.code == 500 and "spawn EPERM" in body.get("error", ""):
+                self.skipTest("managed Windows sandbox blocks Node child_process.spawn")
+            self.fail(f"{error.code}: {body}")
 
     def test_path_traversal_is_not_served(self) -> None:
         with self.assertRaises(urllib.error.HTTPError) as caught:

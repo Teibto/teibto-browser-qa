@@ -57,11 +57,16 @@ async function flowFiles() {
   return names.filter(name => /\.ya?ml$/i.test(name)).sort();
 }
 
-async function metadata(id, full = false) {
+// One resolver for every id-addressed endpoint, so a flow that lists (.yaml or .yml) also runs.
+async function flowPath(id) {
   safeId(id, "flow id");
   const candidates = (await flowFiles()).filter(name => path.parse(name).name === id);
   if (candidates.length !== 1) throw Object.assign(new Error("flow not found"), {status: 404});
-  return childJson(["--flow", path.join(FLOWS, candidates[0]), "--meta", ...(full ? ["--full"] : [])]);
+  return path.join(FLOWS, candidates[0]);
+}
+
+async function metadata(id, full = false) {
+  return childJson(["--flow", await flowPath(id), "--meta", ...(full ? ["--full"] : [])]);
 }
 
 function readBody(req) {
@@ -90,7 +95,7 @@ function publish(run, event) {
   for (const client of run.clients) client.write(line);
 }
 
-function startRun(body) {
+async function startRun(body) {
   const flow = safeId(body.flow, "flow");
   const targetId = body.target_id || process.env.TGT_ID;
   if (!targetId || typeof targetId !== "string") throw Object.assign(new Error("target_id is required"), {status: 400});
@@ -98,9 +103,7 @@ function startRun(body) {
     throw Object.assign(new Error("vars must be an object"), {status: 400});
   }
   const runId = `${Date.now()}-${crypto.randomBytes(4).toString("hex")}`;
-  const flowPath = path.join(FLOWS, `${flow}.yaml`);
-  if (!fs.existsSync(flowPath)) throw Object.assign(new Error("flow not found"), {status: 404});
-  const args = ["--flow", flowPath, "--out", path.join(RUNS, runId), "--vars-json", "-", "--target-id", targetId];
+  const args = ["--flow", await flowPath(flow), "--out", path.join(RUNS, runId), "--vars-json", "-", "--target-id", targetId];
   if (process.env.TEIBTO_CDP_SCRIPT) args.push("--cdp-script", process.env.TEIBTO_CDP_SCRIPT);
   if (process.env.CDP_PORT) args.push("--cdp-port", process.env.CDP_PORT);
   const child = spawn(PYTHON, [RUNNER, ...args], {cwd: ROOT, windowsHide: true, stdio: ["pipe", "pipe", "pipe"]});
@@ -172,7 +175,7 @@ async function handler(req, res) {
   }
   if (req.method === "POST" && url.pathname === "/api/run") {
     const body = await readBody(req);
-    return json(res, 202, {run_id: startRun(body)});
+    return json(res, 202, {run_id: await startRun(body)});
   }
   match = url.pathname.match(/^\/api\/events\/([A-Za-z0-9-]+)$/);
   if (match && req.method === "GET") {
