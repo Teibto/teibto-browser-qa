@@ -168,6 +168,7 @@ class CDPSession:
                  request_timeout: float = 45.0):
         if not target_id:
             raise RunnerError("UNPINNED_TARGET", "ต้องระบุ --target-id หรือ TGT_ID")
+        self.script = script
         command = [
             sys.executable,
             str(script),
@@ -207,10 +208,11 @@ class CDPSession:
                 raise RunnerError(
                     "DRIVER_INCOMPATIBLE",
                     f"cdp.py เก่าเกินไป: runner ต้องใช้ {SESSION_PROTOCOL} v{MIN_SESSION_VERSION}+ "
-                    f"ที่รองรับ --input-settle={INPUT_SETTLE_POLICY}",
+                    f"ที่รองรับ --input-settle={INPUT_SETTLE_POLICY} (driver: {script})",
                     detail=ready,
                 )
-            raise RunnerError(error.get("code", "CDP_NOT_READY"), message, detail=ready)
+            raise RunnerError(error.get("code", "CDP_NOT_READY"),
+                              f"{message} (driver: {script})", detail=ready)
         version = ready.get("version")
         if (ready.get("protocol") != SESSION_PROTOCOL or not isinstance(version, int)
                 or version < MIN_SESSION_VERSION
@@ -219,12 +221,12 @@ class CDPSession:
             raise RunnerError(
                 "DRIVER_INCOMPATIBLE",
                 f"runner ต้องใช้ {SESSION_PROTOCOL} v{MIN_SESSION_VERSION}+ "
-                f"และ input_settle={INPUT_SETTLE_POLICY}",
+                f"และ input_settle={INPUT_SETTLE_POLICY} (driver: {script})",
                 detail=ready,
             )
         if ready.get("target_id") != target_id:
             self.close(force=True)
-            raise RunnerError("TARGET_MISMATCH", "CDP ต่อผิด target", detail=ready)
+            raise RunnerError("TARGET_MISMATCH", f"CDP ต่อผิด target (driver: {script})", detail=ready)
         self.ready = ready
 
     def _read_stdout(self) -> None:
@@ -523,6 +525,7 @@ def run_flow(flow: dict[str, Any], path: Path, output_dir: Path, variables: dict
         session = CDPSession(cdp_script, target_id, port=port)
         startup_ms = round((time.perf_counter() - startup_started) * 1000, 3)
         sink.emit({"type": "session_ready", "target_id": target_id,
+                   "cdp_script": str(session.script),
                    "protocol": session.ready.get("protocol"),
                    "version": session.ready.get("version"),
                    "input_settle": session.ready.get("input_settle"),

@@ -80,7 +80,9 @@ Oracle JET ให้ใช้ selector หรือ `fn:<observable outcome>` �
 
 `run-log.jsonl` เก็บ runner wall-clock และ authoritative driver `duration_ms`/`attempts` แยก
 `action`, `wait`, `assert`, `capture`; failure มี partial phases + `failing_phase`, console check มี
-timing ของตัวเอง และ `run_done` แยก startup/total.
+timing ของตัวเอง และ `run_done` แยก startup/total. `session_ready.cdp_script` และข้อความ
+`DRIVER_INCOMPATIBLE`/`CDP_NOT_READY` ระบุ path ของ `cdp.py` ที่ runner resolve ได้จริง เพื่อให้รู้ว่า
+ต้องอัปเดตสำเนาไหนเมื่อเครื่องมี driver หลายชุด.
 
 **Traceability (สำหรับทีม):** `ticket`/`requirement` + `acceptance` ทำให้ตอบได้ว่า *test นี้ยืนยัน
 req ไหน* และ *req นี้ครอบด้วย scenario ไหน*. 1 acceptance criterion → 1 scenario (map 1:1) →

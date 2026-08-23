@@ -78,6 +78,7 @@ class FlowRunnerTests(unittest.TestCase):
         ready = next(item for item in payloads if item["type"] == "session_ready")
         self.assertEqual(2, ready["version"])
         self.assertEqual("none", ready["input_settle"])
+        self.assertEqual(str(FAKE_CDP), ready["cdp_script"])
         self.assertGreaterEqual(ready["duration_ms"], 0)
         steps = [item for item in payloads if item["type"] == "step_done"]
         self.assertTrue(all("timings" in item for item in steps))
@@ -165,6 +166,9 @@ class FlowRunnerTests(unittest.TestCase):
         events = (out / "run-log.jsonl").read_text(encoding="utf-8")
         self.assertIn("DRIVER_INCOMPATIBLE", events)
         self.assertIn("v2+", events)
+        fatal = next(json.loads(line) for line in events.splitlines()
+                     if '"type":"fatal"' in line)
+        self.assertIn(str(FAKE_CDP), fatal["error"]["message"])
 
     def test_driver_rejecting_fast_policy_is_mapped_to_incompatible(self):
         process, out, _ = self.run_flow("""

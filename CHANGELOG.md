@@ -10,6 +10,11 @@
 
 ## [Unreleased]
 
+### Added
+
+- `session_ready.cdp_script` และข้อความ `DRIVER_INCOMPATIBLE`/`CDP_NOT_READY`/`TARGET_MISMATCH`
+  ระบุ path ของ `cdp.py` ที่ runner resolve ได้ เพื่อชี้สำเนาที่ต้องอัปเดตเมื่อเครื่องมี driver หลายชุด (#58)
+
 ## [2.2.0] - 2026-08-22
 
 **Current v2 browser guidance with stale transport history and unsupported flow examples removed.**
