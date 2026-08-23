@@ -75,7 +75,9 @@ The runner is verified against one canonical driver generation: `TEIBTO_DEV_STAN
 protocol v2). CI job `driver-compat` clones that exact tag and runs `tests/test-flow-runner-live.sh`
 in real Chrome on every pull request, so driver drift fails before merge instead of on a developer
 machine. `teibto-dev-standards` is private: the job needs the repository secret
-`DEV_STANDARDS_TOKEN` (fine-grained PAT, Contents: read on that repository only). Without the secret
+`DEV_STANDARDS_DEPLOY_KEY` — the private half of a **read-only deploy key** registered on that repository
+(`gh api -X POST repos/Teibto/teibto-dev-standards/keys -f title=... -f key="$(cat key.pub)" -F read_only=true`,
+then `gh secret set DEV_STANDARDS_DEPLOY_KEY --repo Teibto/teibto-browser-qa < key`). Without the secret
 the job fails for this repository's branches and is skipped with a warning only for fork PRs — a
 gate that cannot check must not report green.
 

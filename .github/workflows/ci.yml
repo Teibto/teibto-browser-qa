@@ -64,8 +64,8 @@ jobs:
         run: sha256sum teibto-browser-qa.skill
 
   # Real-driver gate: flow-runner.py against the pinned canonical cdp.py in real Chrome.
-  # teibto-dev-standards is private, so this needs the repository secret DEV_STANDARDS_TOKEN
-  # (fine-grained PAT, Contents: read on Teibto/teibto-dev-standards only). Without it the job
+  # teibto-dev-standards is private, so this needs the repository secret DEV_STANDARDS_DEPLOY_KEY
+  # (private half of a READ-ONLY deploy key registered on Teibto/teibto-dev-standards). Without it the job
   # FAILS for this repository's own branches (a gate that cannot check must not report green)
   # and is skipped with a visible warning only for pull requests from forks.
   driver-compat:
@@ -77,16 +77,16 @@ jobs:
       - name: Resolve driver access
         id: access
         env:
-          DEV_STANDARDS_TOKEN: ${{ secrets.DEV_STANDARDS_TOKEN }}
+          DEV_STANDARDS_DEPLOY_KEY: ${{ secrets.DEV_STANDARDS_DEPLOY_KEY }}
           IS_FORK_PR: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
         run: |
-          if [ -n "${DEV_STANDARDS_TOKEN}" ]; then
+          if [ -n "${DEV_STANDARDS_DEPLOY_KEY}" ]; then
             echo "available=true" >> "$GITHUB_OUTPUT"
           elif [ "${IS_FORK_PR}" = "true" ]; then
-            echo "::warning title=driver-compat skipped::fork pull request has no DEV_STANDARDS_TOKEN; the live test against canonical cdp.py ${TEIBTO_DEV_STANDARDS_REF} did not run."
+            echo "::warning title=driver-compat skipped::fork pull request has no DEV_STANDARDS_DEPLOY_KEY; the live test against canonical cdp.py ${TEIBTO_DEV_STANDARDS_REF} did not run."
             echo "available=false" >> "$GITHUB_OUTPUT"
           else
-            echo "::error title=driver-compat cannot run::repository secret DEV_STANDARDS_TOKEN is not set. Add a fine-grained PAT with Contents: read on Teibto/teibto-dev-standards so the runner is verified against cdp.py ${TEIBTO_DEV_STANDARDS_REF}."
+            echo "::error title=driver-compat cannot run::repository secret DEV_STANDARDS_DEPLOY_KEY is not set. Register a read-only deploy key on Teibto/teibto-dev-standards and store its private key here so the runner is verified against cdp.py ${TEIBTO_DEV_STANDARDS_REF}."
             exit 1
           fi
 
@@ -96,7 +96,7 @@ jobs:
         with:
           repository: Teibto/teibto-dev-standards
           ref: ${{ env.TEIBTO_DEV_STANDARDS_REF }}
-          token: ${{ secrets.DEV_STANDARDS_TOKEN }}
+          ssh-key: ${{ secrets.DEV_STANDARDS_DEPLOY_KEY }}
           path: .dev-standards
 
       - uses: actions/setup-python@v6
