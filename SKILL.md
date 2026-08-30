@@ -67,7 +67,7 @@ Use `a11y "<visible name>"` to obtain a semantic `@ref` when a stable selector i
 that it had no errors. Use `lens netlog` only inside a `run` that enabled `netlog on`.
 
 For repeatable flows, `scripts/flow-runner.py` validates the YAML schema, requires a pinned target,
-negotiates CDP JSONL protocol v2+, and owns one bounded `session --jsonl --input-settle=none` per run.
+negotiates CDP JSONL protocol v3+, and owns one bounded `session --jsonl --input-settle=none` per run.
 It replaces fixed input sleeps with bounded outcome checks, keeps application latency visible in
 action/wait timing, and emits separate action/wait/assert/capture timings. The runner fails closed on an old
 driver, an unsupported field, an assertion failure, or missing evidence.

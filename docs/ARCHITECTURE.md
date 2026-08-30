@@ -53,7 +53,7 @@ flowchart LR
     yaml["flow YAML"] --> schema["flow.schema.json<br/>fail closed"]
     ui["local UI<br/>127.0.0.1"] --> runner
     schema --> runner["flow-runner.py<br/>events + report + shots"]
-    runner -->|"JSONL v2 · one child per run<br/>event nav + phase timing"| session["cdp.py session<br/>bounded + pinned target<br/>input-settle=none"]
+    runner -->|"JSONL v3 · one child per run<br/>event nav + phase timing + dialogs"| session["cdp.py session<br/>bounded + pinned target<br/>input-settle=none"]
     session -->|"one WebSocket"| chrome["Chrome target"]
     runner --> artifacts["run-log.jsonl<br/>qa-report.md<br/>shots/"]
     runner -->|"--stdout summary"| terminal["terminal verdict<br/>token-safe agent context"]

@@ -10,10 +10,10 @@ permissions:
   contents: read
 
 env:
-  # Canonical driver generation this runner is verified against (JSONL protocol v2+).
+  # Canonical driver generation this runner is verified against (JSONL protocol v3+).
   # Bump deliberately together with README/CONTRIBUTING; driver-compat runs the live test
   # against exactly this tag of Teibto/teibto-dev-standards.
-  TEIBTO_DEV_STANDARDS_REF: v0.82.0
+  TEIBTO_DEV_STANDARDS_REF: v0.83.0
 
 jobs:
   quality-gate:

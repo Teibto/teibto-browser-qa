@@ -7,6 +7,7 @@
 <script>
 document.getElementById('save').addEventListener('click', function (event) {
   var trusted = event.isTrusted;
+  alert('Live save started');
   setTimeout(function () {
     document.getElementById('status').textContent =
       (trusted ? 'saved ' : 'untrusted ') + document.getElementById('name').value;

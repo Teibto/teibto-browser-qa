@@ -43,13 +43,11 @@ PLACEHOLDER = re.compile(r"\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}")
 MUTATING_ACTIONS = {"click", "select", "press", "eval"}
 MAX_EVENT_TEXT = 2_000
 SESSION_PROTOCOL = "teibto-cdp-jsonl"
-MIN_SESSION_VERSION = 2
+MIN_SESSION_VERSION = 3
 INPUT_SETTLE_POLICY = "none"
 DIALOG_POLICIES = ("safe", "accept", "dismiss")
 STDOUT_MODES = ("events", "summary")
 SUMMARY_EVENT_TYPES = {"fatal", "run_done"}
-# cdp.py prints every auto-answered dialog to stderr as "[dialog] <kind>: <message> -> <answer>".
-DIALOG_LINE = re.compile(r"^\[dialog\] (?P<kind>[^:]+): (?P<message>.*) -> (?P<answer>\S+)$")
 
 
 class RunnerError(RuntimeError):
@@ -254,14 +252,29 @@ class CDPSession:
             text = line.rstrip()
             if len(self.stderr) < 200:
                 self.stderr.append(text)
-            match = DIALOG_LINE.match(text)
-            if match:
-                self.dialogs.put({**match.groupdict(), "line": text})
-            elif text.startswith("[dialog]"):
-                self.dialogs.put({"kind": "unknown", "message": text, "answer": "unknown", "line": text})
+
+    def _record_dialogs(self, payload: dict[str, Any]) -> None:
+        """Validate protocol-v3 per-command dialogs and queue them for step attribution."""
+        items = payload.get("dialogs")
+        if items is None:
+            return
+        if not isinstance(items, list):
+            raise RunnerError("INVALID_SESSION_OUTPUT", "CDP session dialogs ต้องเป็น array")
+        validated: list[dict[str, str]] = []
+        for item in items:
+            if not isinstance(item, dict):
+                raise RunnerError("INVALID_SESSION_OUTPUT", "CDP session dialog ต้องเป็น object")
+            kind, message, answer = item.get("type"), item.get("message"), item.get("answer")
+            if (not isinstance(kind, str) or not isinstance(message, str)
+                    or answer not in ("accept", "dismiss")):
+                raise RunnerError("INVALID_SESSION_OUTPUT", "CDP session dialog shape ไม่ถูกต้อง")
+            validated.append({"kind": kind, "message": message, "answer": answer,
+                              "line": f"[dialog] {kind}: {message} -> {answer}"})
+        for item in validated:
+            self.dialogs.put(item)
 
     def drain_dialogs(self) -> list[dict[str, str]]:
-        """Dialogs the driver answered since the previous drain (stderr arrives asynchronously)."""
+        """Protocol-v3 dialogs answered by commands since the previous drain."""
         items: list[dict[str, str]] = []
         while True:
             try:
@@ -305,6 +318,7 @@ class CDPSession:
                 raise RunnerError("SESSION_CLOSED", f"CDP session ปิด: {payload.get('reason')}", detail=payload)
             if payload.get("id") != request_id:
                 raise RunnerError("CORRELATION_MISMATCH", "CDP response id ไม่ตรงกับ request", detail=payload)
+            self._record_dialogs(payload)
             if not payload.get("ok"):
                 error = payload.get("error") or {}
                 raise RunnerError(error.get("code", "CDP_COMMAND_FAILED"),
@@ -331,8 +345,8 @@ class CDPSession:
                 self.process.kill()
                 self.process.wait(timeout=3)
         finally:
-            # cdp.py reports the dialogs it answered on stderr at close; make sure the reader
-            # has consumed that tail before the caller drains dialogs for the report.
+            # Keep stderr complete for diagnostics. Dialog evidence itself comes from the
+            # protocol-v3 result payload, so stderr timing cannot create duplicates or races.
             self._stderr_thread.join(timeout=3)
 
 
@@ -568,6 +582,7 @@ def run_flow(flow: dict[str, Any], path: Path, output_dir: Path, variables: dict
                                  "min_version": MIN_SESSION_VERSION,
                                  "input_settle": INPUT_SETTLE_POLICY,
                                  "dialog": dialog,
+                                 "dialog_evidence": "structured-per-command",
                                  "navigation": "event-bound-load"},
                "scenarios": [{"id": item["id"], "steps": len(item["steps"])}
                              for item in flow["scenarios"]]})
@@ -725,17 +740,6 @@ def run_flow(flow: dict[str, Any], path: Path, output_dir: Path, variables: dict
     finally:
         if session:
             session.close()
-            # Current cdp.py session mode prints its dialog ledger only at close, so these
-            # cannot be attributed to a step; they are still evidence and still counted.
-            late = session.drain_dialogs()
-            if late:
-                report.extend(["## Auto-answered dialogs (reported by the driver at session close)", ""])
-                for item in late:
-                    dialogs += 1
-                    sink.emit({"type": "dialog", "scenario": None, "index": None,
-                               "global_index": None, **item})
-                    report.append(f"- ⚠️ dialog {item['kind']}: \"{item['message']}\" -> {item['answer']}")
-                report.append("")
 
     verdict = "FAIL" if failures else ("UNVERIFIED" if unverified else "PASS")
     summary = [f"**Verdict:** {verdict}", f"**Assertions:** {passed}/{assertions} passed",

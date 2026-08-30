@@ -55,7 +55,7 @@ handler ของแอปอาจไม่ทำงานด้วยเหต
   คนละเรื่อง · เจอ error นี้ให้ `nav` ซ้ำ หรือ inject collector เอง
 - **collector ตายพร้อมหน้า** — navigate แล้ว log เริ่มใหม่ · **นี่คือพฤติกรรมที่ต้องการ**:
   buffer สะสมข้ามหน้าจะทำให้ error ของหน้าก่อนถูกนับเป็นของหน้าปัจจุบัน.
-- `cdp.py` protocol v2 register collector ด้วย `Page.addScriptToEvaluateOnNewDocument` ก่อน `nav`
+- `cdp.py` protocol v3 register collector ด้วย `Page.addScriptToEvaluateOnNewDocument` ก่อน `nav`
   ใน connection เดียวกัน จึงจับ load-time error ได้; post-nav eval ใช้ verify/fallback
 - **หน้าที่เปิด/เปลี่ยนไปก่อน connection ปัจจุบัน register collector ยังจับย้อนหลังไม่ได้** — เช่น
   คนเปิดแท็บไว้ก่อน หรือ one-shot `nav` จบแล้วแอป navigate เองภายหลัง · `console` จะ error ไม่ใช่ `[]`
@@ -344,4 +344,3 @@ c.nav(URL + "?qa=" + str(int(time.time())))   # cache-bust ทุกรอบ
 
 ตัวชี้ขาดว่าเจอกับดักนี้: เปิด URL พร้อม query ใหม่แล้วผลเปลี่ยนทันที · เจอจริง 2026-08-15
 (#117 ของ ERP-AI-First) เสียเวลาไปหนึ่งรอบเต็มกับการยืนยันว่า fix ที่ถูกอยู่แล้ว "ไม่ทำงาน"
-

@@ -22,7 +22,7 @@ one live flow into an evidence-backed verdict and, when needed, a user guide or 
 - Short, bounded assertions and filtered accessibility output instead of whole-page dumps.
 - Console, screenshot, visual-diff, responsive, theme, keyboard-focus, network, a11y, and performance
   evidence as opt-in layers.
-- A strict YAML runner that pins one target and uses one bounded CDP JSONL protocol-v2 session per run.
+- A strict YAML runner that pins one target and uses one bounded CDP JSONL protocol-v3 session per run.
 - Per-phase telemetry that separates driver work from application waits.
 - HTML/PDF templates for user guides and bug reports generated from the same evidence run.
 
@@ -33,7 +33,7 @@ plans, evidence packs, and release-readiness review use `teibto-qa-review`.
 ```mermaid
 flowchart LR
     spec["Flow YAML or ad-hoc steps"] --> runner["flow-runner.py"]
-    runner -->|"JSONL v2<br/>bounded session"| cdp["canonical cdp.py"]
+    runner -->|"JSONL v3<br/>bounded session"| cdp["canonical cdp.py"]
     cdp --> chrome["Pinned Chrome target"]
     chrome --> evidence["short results + screenshots"]
     evidence --> report["QA report"]
@@ -53,8 +53,8 @@ py -m pip install -r requirements.txt
 py -m pip install websocket-client pillow numpy
 ```
 
-The flow runner requires canonical `cdp.py` JSONL protocol v2 or newer, first released in
-[`teibto-dev-standards v0.82.0`](https://github.com/Teibto/teibto-dev-standards/releases/tag/v0.82.0).
+The flow runner requires canonical `cdp.py` JSONL protocol v3 or newer, first released in
+[`teibto-dev-standards v0.83.0`](https://github.com/Teibto/teibto-dev-standards/releases/tag/v0.83.0).
 Pass its path with `--cdp-script` or `TEIBTO_CDP_SCRIPT`. The runner also checks the standard team
 installation path automatically. CI verifies every change against that pinned tag in real Chrome
 (`driver-compat` job; see [`CONTRIBUTING.md`](CONTRIBUTING.md)).
@@ -108,7 +108,8 @@ runs/manual/
 ```
 
 It validates the schema before opening the driver, refuses to guess a shared tab, negotiates protocol
-v2+, waits for the new main-frame document on navigation, polls bounded observable outcomes after fast
+v3+, attributes structured dialog evidence to the command/step that caused it, waits for the new
+main-frame document on navigation, and polls bounded observable outcomes after fast
 inputs, redacts secret variables, records every auto-answered dialog as evidence under a pinned
 `safe` dialog policy, and fails closed on command, wait, assertion, capture, console, or transport
 errors. An unasserted state-changing action is `UNVERIFIED`, never `PASS`.

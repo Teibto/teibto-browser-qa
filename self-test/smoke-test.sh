@@ -6,7 +6,7 @@
 #
 # ต้องมี: Chrome + `py -m pip install websocket-client` (pillow/numpy ถ้าจะเทส diff)
 # ไม่มี Chrome = SKIP (exit 0) ไม่ใช่ FAIL
-# transport: canonical cdp.py protocol v2+ (direct CDP)
+# transport: canonical cdp.py protocol v3+ (direct CDP)
 set -u
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

@@ -16,7 +16,7 @@ $env:TEIBTO_CDP_SCRIPT = 'D:\path\to\teibto-dev-standards\scripts\cdp.py'
 
 - flow ทุกไฟล์ผ่าน `schemas/flow.schema.json` และ field ที่ไม่รู้จักทำให้หยุดทันที
 - secret ส่งผ่าน stdin (`--vars-json -`), ไม่อยู่ใน process argv/log/report
-- หนึ่ง run ใช้ target ที่ pin และ `cdp.py` JSONL protocol v2+ เพียง process/WebSocket เดียว;
+- หนึ่ง run ใช้ target ที่ pin และ `cdp.py` JSONL protocol v3+ เพียง process/WebSocket เดียว;
   runner ขอ `--input-settle=none` และ verify policy จาก ready handshake แบบ fail closed
 - `open` รอ main-frame commit/load event จริง; ไม่ใช้ zero-drain + `readyState` ที่อาจอ่านหน้าเก่า
 - `click` ใช้ native input เท่านั้น; ไม่มี JS fallback เงียบ
@@ -84,14 +84,16 @@ action แล้วรอ URL/time origin เปลี่ยนพร้อม `
 Oracle JET ให้ใช้ selector หรือ `fn:<observable outcome>` เช่น
 `fn:document.querySelector('#status').textContent==='saved'` แล้ว assert ครั้งเดียว.
 
-Dialog: cdp.py พิมพ์ `[dialog] <kind>: <message> -> accept|dismiss` ลง stderr ทุกครั้งที่ตอบ dialog;
-runner แปลงเป็น event `{"type":"dialog","scenario","index","global_index","kind","message","answer","line"}`,
+Dialog: cdp.py protocol v3 แนบ `dialogs: [{type,message,answer}]` ใน result ของ command ที่ตอบ dialog
+และพิมพ์ `[dialog] <kind>: <message> -> accept|dismiss` ลง stderr ทันที. Runner ใช้ structured result
+เป็น authority (stderr ใช้ diagnosis เท่านั้น จึงไม่เกิด event ซ้ำ/race) แล้วแปลงเป็น event
+`{"type":"dialog","scenario","index","global_index","kind","message","answer","line"}`,
 นับรวมใน `run_done.dialogs` และสรุปใน report เป็น
 `**Auto-answered dialogs:** <n> (policy: <policy>)`. `run_start.driver_policy.dialog` บอก policy ที่ใช้จริง;
+`run_start.driver_policy.dialog_evidence` เป็น `structured-per-command`;
 default `safe` (alert = accept, อย่างอื่น = dismiss) และเปลี่ยนได้เฉพาะ `--dialog` ของ runner —
-QA run ไม่ inherit `DIALOG` จาก shell ตาม SKILL.md invariant 5. cdp.py v2 (v0.82) พิมพ์ ledger นี้ตอนปิด
-session จึงได้ event ที่ `scenario`/`index` เป็น `null` และหัวข้อ "Auto-answered dialogs (reported by
-the driver at session close)" ท้าย report; ถ้า driver รายงานระหว่าง step runner จะผูกกับ step นั้นให้เอง.
+QA run ไม่ inherit `DIALOG` จาก shell ตาม SKILL.md invariant 5. ทุก dialog จึงผูกกับ step/command
+ที่ทำให้เกิดได้โดยตรง; payload ที่ shape ผิดทำให้ `INVALID_SESSION_OUTPUT` แทนการทิ้ง evidence เงียบ ๆ.
 
 `run-log.jsonl` เก็บ runner wall-clock และ authoritative driver `duration_ms`/`attempts` แยก
 `action`, `wait`, `assert`, `capture`; failure มี partial phases + `failing_phase`, console check มี
