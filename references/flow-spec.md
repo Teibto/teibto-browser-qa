@@ -10,7 +10,8 @@ test-design.md ตัดสิน *จะทดสอบอะไร*. ไฟล
 $env:TGT_ID = '<target id จาก cdp.py newtab หรือ tabs>'
 $env:TEIBTO_CDP_SCRIPT = 'D:\path\to\teibto-dev-standards\scripts\cdp.py'
 '{"username":"qa-user","password":"..."}' |
-  py scripts/flow-runner.py --flow examples/saucedemo.yaml --out runs/manual --vars-json -
+  py scripts/flow-runner.py --flow examples/saucedemo.yaml --out runs/manual --vars-json - `
+    --stdout summary
 ```
 
 - flow ทุกไฟล์ผ่าน `schemas/flow.schema.json` และ field ที่ไม่รู้จักทำให้หยุดทันที
@@ -24,6 +25,8 @@ $env:TEIBTO_CDP_SCRIPT = 'D:\path\to\teibto-dev-standards\scripts\cdp.py'
   policy เป็น `safe` เสมอ (ไม่ inherit `DIALOG` จาก shell) เว้นแต่สั่ง `--dialog accept|dismiss`
 - action ที่เปลี่ยน state แต่ไม่มี explicit assertion = verdict `UNVERIFIED`, ไม่ใช่ `PASS`
 - artifact อยู่ที่ `<out>/run-log.jsonl`, `<out>/qa-report.md`, `<out>/shots/`
+- `--stdout summary` ลด output เข้า agent context แต่ `run-log.jsonl` ยังเก็บ event เต็มเหมือนเดิม
+- `perf_budget_ms` ระดับ step วัด action → explicit wait → assertion; ไม่รวม startup/capture
 
 Local UI (ไม่จำเป็นต่อ CI):
 
@@ -64,6 +67,7 @@ scenarios:
         target: "<selector | @eN | {{var}} | url>"
         value: "<ค่า/ข้อความ (สำหรับ fill/select) — รองรับ {{var}}>"
         wait: networkidle | <ms> | "<selector>" | "fn:<js>"  # รอหลัง action
+        perf_budget_ms: 3000       # optional; เกินแล้ว PERF_BUDGET_EXCEEDED + FAIL
         capture: true|false        # override screenshot policy ของ scenario นี้
         assert:                  # พิสูจน์ผล (ตาม gotchas: อย่าเชื่อ ✓Done)
           url_contains: "/inventory.html"
@@ -95,6 +99,10 @@ timing ของตัวเอง และ `run_done` แยก startup/total.
 `DRIVER_INCOMPATIBLE`/`CDP_NOT_READY` ระบุ path ของ `cdp.py` ที่ runner resolve ได้จริง เพื่อให้รู้ว่า
 ต้องอัปเดตสำเนาไหนเมื่อเครื่องมี driver หลายชุด.
 
+เมื่อ step มี `perf_budget_ms`, `step_done.performance.outcome_ms` วัดตั้งแต่ก่อน action ถึงหลัง
+explicit wait/assert โดยไม่รวม screenshot; `run_done.performance_budgets` สรุป pass/evaluated/total.
+เกิน budget = typed failure `PERF_BUDGET_EXCEEDED` และเก็บ failure evidence ตาม capture policy.
+
 **Traceability (สำหรับทีม):** `ticket`/`requirement` + `acceptance` ทำให้ตอบได้ว่า *test นี้ยืนยัน
 req ไหน* และ *req นี้ครอบด้วย scenario ไหน*. 1 acceptance criterion → 1 scenario (map 1:1) →
 qa-report + user-guide อ้าง req เดียวกัน = ปิด loop req→test→doc. ดู playbook ทีมใน repo:
@@ -107,6 +115,9 @@ qa-report + user-guide อ้าง req เดียวกัน = ปิด loo
 Runner ปัจจุบันไม่รองรับ `fixtures`, `teardown`, `retry_on`, `quarantine`, `a11y`, `perf_budget`,
 `mask_regions`, `diff_threshold` หรือ `ci_candidate`; fail-closed schema ปฏิเสธทั้งหมดแทนการรับแล้ว
 ignore เงียบ ๆ.
+
+`perf_budget` แบบ object/scenario เดิมยังถูกปฏิเสธ; executable contract คือ integer
+`perf_budget_ms` ที่ step เท่านั้น.
 
 - เก็บ release/quarantine/coverage state ใน `qa/<feature>/coverage.yaml`.
 - ทำ setup/teardown เป็น orchestration แยก โดยใช้ scoped marker, identify-before-mutate และ dirty-state

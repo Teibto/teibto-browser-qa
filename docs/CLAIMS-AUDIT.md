@@ -9,6 +9,8 @@ history and `CHANGELOG.md`.
 - Browser QA release under review: `v2.1.0` (`2e65cec`).
 - Canonical driver: `teibto-dev-standards v0.82.0` (`df8121f`).
 - Performance runs: Windows host, Chrome `151.0.7922.140`, 2026-08-22.
+- Issue #69 revalidation: Windows host, Chrome `151.0.7922.174`, 2026-08-30; local driver file
+  blob `21bf0cb72adaee04633c21a1c5758cbbf7a4da96` from worktree commit `b745196`.
 - The tested `scripts/cdp.py` blob was `ce5b376df249cb479f902751bbbb4df7898889d0`, identical to
   the blob at canonical tag `v0.82.0`.
 - Driver internals are owned by canonical `tests/test-cdp.sh`; this repository keeps thin consumer
@@ -32,6 +34,8 @@ Status terms:
 | Fast input settle is scoped to direct runner input; `pick`/`lens` retain normal settle | verified | canonical session probe T19u/v |
 | Async fill/click outcomes remain bounded and observable | verified | delayed 150 ms input normalization and 300 ms trusted-click fixture in `tests/test-flow-runner-live.sh` |
 | Runner telemetry separates driver duration, runner wall time, attempts, and failing phase | verified | unit event assertions plus live `run-log.jsonl` parsing |
+| `--stdout summary` keeps the complete artifact but emits terminal output only | verified, measured | unit stream/artifact comparison; issue #69 o200k_base measurement below |
+| Step `perf_budget_ms` measures action through observable wait/assert and excludes capture/startup | verified | pass/exceedance unit tests with a delayed capture |
 | Missing/old driver fails as `DRIVER_INCOMPATIBLE` rather than using a silent fallback | verified | `tests/test_flow_runner.py` |
 | Success/failure screenshots follow scenario/step capture policy | verified | runner unit tests and live fixture |
 
@@ -44,6 +48,7 @@ The comparison measures summed live step time, excluding Chrome startup:
 | main baseline (`teibto-browser-qa@3ecafee`, driver `6656b9c`) | 5 isolated runs | 4,373.865 ms | fixed navigation/input settling |
 | protocol-v2 candidate | 20 fresh child sessions on one temporary Chrome target | 622.523 ms | 20/20 pass |
 | issue #54 revalidation | 20 fresh child sessions on one temporary Chrome target | 972.687 ms | 20/20 pass |
+| issue #69 current-host revalidation | 20 fresh child sessions on one temporary Chrome target | 618.904 ms | 20/20 pass |
 
 Measured improvement: **85.8%**. Candidate medians were startup 181.014 ms, open 30.552 ms, fill
 171.488 ms, click 396.767 ms, and total run 823.390 ms. The fixture intentionally waits 150/300 ms
@@ -53,6 +58,17 @@ The issue #54 revalidation medians were startup 208.707 ms, open 41.492 ms, fill
 739.543 ms, and total run 1,299.784 ms. The run verifies compatibility and records host variance; it
 does not replace the controlled release comparison or create a cross-machine latency gate.
 
+The issue #69 medians were startup 174.502 ms, open 24.486 ms, fill 215.526 ms, click 385.726 ms,
+and total run 826.889 ms. The 618.904 ms step flow is 85.8% below the 4,373.865 ms historical baseline;
+450 ms remains intentional fixture latency. This run used the exact local driver blob recorded above
+and does not change the repository's v0.82.0 compatibility pin (that bump is tracked separately).
+
+A controlled issue #69 regression check alternated 20 main/branch pairs after warm-up against the same
+Chrome target and the same pre-feature flow. Main versus branch medians were startup 309.575/310.072 ms
+(+0.2%), step flow 664.736/670.078 ms (+0.8%), and total 1,020.245/1,044.795 ms (+2.4%). This bounds
+the feature overhead on the measured host and explains why standalone runs at different times are not
+a valid before/after comparison.
+
 Absolute milliseconds are evidence for this host, not a cross-machine CI budget. The portable driver
 gate is ratio-based in canonical `tests/cdp-session-probe.py`. Reproduce with:
 
@@ -61,6 +77,14 @@ $env:TEIBTO_CDP_SCRIPT = '<teibto-dev-standards>/scripts/cdp.py'
 $env:LIVE_RUNS = '20'
 & 'C:\Program Files\Git\bin\bash.exe' tests/test-flow-runner-live.sh
 ```
+
+## Token evidence
+
+Measured with `tiktoken` 0.13.0, `o200k_base`, against the same three-step fake-driver flow on
+2026-08-30: full event stdout = 832 tokens; `--stdout summary` = 104 tokens, an **87.5% reduction**.
+Both modes retained the same complete 12-event start-to-done artifact sequence. The unit gate verifies
+the durable contract structurally (terminal result/error only on summary stdout, full artifact) rather
+than pinning a tokenizer-specific absolute count.
 
 ## Current browser/document claims
 
@@ -85,6 +109,9 @@ $env:LIVE_RUNS = '20'
 `retry_on`, `quarantine`, `a11y`, `perf_budget`, `mask_regions`, `diff_threshold`, and `ci_candidate`
 are **not executable fields** in v2.1.0. Their recipes/state live outside the flow until schema,
 execution behavior, reporting, and failure tests ship together.
+
+Issue #69 adds the executable integer field `perf_budget_ms` at step level. The older proposed
+scenario/object field `perf_budget` remains rejected; the two names are intentionally not aliases.
 
 This rule closed contradictory documentation found in `test-data.md`, `a11y-layer.md`,
 `perf-layer.md`, `visual-regression.md`, and `TEAM-PROCESS.md` during issue #54.

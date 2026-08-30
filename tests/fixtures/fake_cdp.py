@@ -4,6 +4,7 @@ import json
 import os
 import pathlib
 import sys
+import time
 
 target = next((arg.split("=", 1)[1] for arg in sys.argv if arg.startswith("--target-id=")), "")
 input_settle = next((arg.split("=", 1)[1] for arg in sys.argv
@@ -75,6 +76,7 @@ for line in sys.stdin:
     elif command == "console":
         data = []
     elif command == "shot":
+        time.sleep(float(os.environ.get("FAKE_CDP_SHOT_DELAY_MS", "0")) / 1000)
         pathlib.Path(args[0]).write_bytes(b"PNG")
         data = args[0]
     else:

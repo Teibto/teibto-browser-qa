@@ -94,7 +94,8 @@ scenario. Pin the target and send secrets through stdin rather than argv:
 $env:TGT_ID = '<page-target-id>'
 $env:TEIBTO_CDP_SCRIPT = 'D:\path\to\teibto-dev-standards\scripts\cdp.py'
 '{"username":"standard_user","password":"..."}' |
-  py scripts/flow-runner.py --flow examples/saucedemo.yaml --out runs/manual --vars-json -
+  py scripts/flow-runner.py --flow examples/saucedemo.yaml --out runs/manual --vars-json - `
+    --stdout summary
 ```
 
 The runner writes:
@@ -111,6 +112,10 @@ v2+, waits for the new main-frame document on navigation, polls bounded observab
 inputs, redacts secret variables, records every auto-answered dialog as evidence under a pinned
 `safe` dialog policy, and fails closed on command, wait, assertion, capture, console, or transport
 errors. An unasserted state-changing action is `UNVERIFIED`, never `PASS`.
+
+`--stdout summary` returns only the terminal result while the full event stream remains in
+`run-log.jsonl`. A step may set `perf_budget_ms` to fail when action + explicit outcome wait +
+assertion exceeds its budget; screenshot and session startup are excluded from that clock.
 
 For the exact YAML, wait, capture, and telemetry contracts, read
 [`references/flow-spec.md`](references/flow-spec.md).

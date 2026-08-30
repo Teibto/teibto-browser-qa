@@ -12,6 +12,10 @@
 
 ### Added
 
+- Token-safe runner stdout (`--stdout summary`) preserves the complete `run-log.jsonl` while returning
+  only terminal output to agent context; step `perf_budget_ms` now fails closed on slow observable
+  outcomes and records budget evidence in JSONL/report artifacts (measured 87.5% fewer stdout tokens
+  on the three-step fixture, #69).
 - CI job `driver-compat` รัน `tests/test-flow-runner-live.sh` กับ canonical `cdp.py` ที่ pin tag
   `TEIBTO_DEV_STANDARDS_REF` (v0.82.0) ใน Chrome จริงทุก PR; ไม่มี secret `DEV_STANDARDS_DEPLOY_KEY` (read-only deploy key) = fail
   (fork PR = skip พร้อม warning) — drift ระหว่าง runner กับ driver ถูกจับก่อน merge (#66)

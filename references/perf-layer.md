@@ -1,11 +1,42 @@
-# Performance layer — วัดเวลาโดยไม่ซ่อน application latency
+# Performance layer — วัด action ถึง observable outcome จริง
 
-เก็บเฉพาะตัวเลขที่ตอบ budget ของ scenario. ห้าม dump Navigation/Resource Timing ทั้งก้อน และห้าม
-เอา driver duration ไปอ้างเป็นเวลาที่ผู้ใช้รอ.
+Performance budget ที่ใช้ตัดสิน QA ต้องครอบเวลาที่ผู้ใช้รอผลธุรกิจ ไม่ใช่แค่เวลาที่ driver ส่ง click.
+คืนเฉพาะ milliseconds + budget verdict; ห้าม dump Navigation/Resource Timing ทั้งก้อน.
 
-## Navigation timing
+## Executable budget ใน flow
 
-หลัง `nav --until=load` อ่าน Navigation Timing API แบบย่อ:
+ใส่ `perf_budget_ms` ที่ step ซึ่งมี observable wait/assert ครบ:
+
+```yaml
+- intent: Save and wait for confirmation
+  action: click
+  target: "#btn_save"
+  wait: "fn:document.querySelector('#status')?.textContent==='saved'"
+  assert: {target: "#status", contains: "saved"}
+  perf_budget_ms: 3000
+```
+
+Clock เริ่มก่อน action และหยุดหลัง explicit wait + assertion:
+
+```text
+included: action + automatic fill verification + explicit wait + assertion
+excluded: session startup + screenshot capture + scenario console check
+```
+
+การแยกนี้สำคัญ: screenshot อาจช้าตามขนาดหน้า/เครื่อง แต่ไม่ใช่เวลาที่ผู้ใช้รอ Save. ถ้าเกิน budget
+runner คืน `PERF_BUDGET_EXCEEDED`, verdict `FAIL`, และเก็บ failure screenshot ตาม capture policy.
+
+หลักฐานอยู่สามที่:
+
+- `step_done.performance` = `outcome_ms`, `budget_ms`, `verdict`;
+- `run_done.performance_budgets` = `passed`, `evaluated`, `total`;
+- `qa-report.md` = บรรทัด `outcome: 842.123ms / budget 1500ms → PASS`.
+
+`step_done.duration_ms` ยังรวม capture จึงอาจมากกว่า `performance.outcome_ms`; อย่าใช้สองค่านี้แทนกัน.
+
+## Navigation timing สำหรับ diagnosis
+
+หลัง `nav --until=load` อ่าน Navigation Timing API แบบย่อได้:
 
 ```bash
 AB eval "(function(){var n=performance.getEntriesByType('navigation')[0]||{};
@@ -14,44 +45,50 @@ AB eval "(function(){var n=performance.getEntriesByType('navigation')[0]||{};
     load_ms:Math.round(n.loadEventEnd||0)});})()"
 ```
 
-`load_ms` เป็น browser lifecycle ไม่ใช่หลักฐานว่าข้อมูลของแอปพร้อม. ถ้าหน้ามี async component ให้
-รอและวัด observable outcome ที่ Acceptance Criteria ระบุ เช่น status text, row count หรือ enabled
-state.
+`load_ms` เป็น browser lifecycle ไม่ใช่หลักฐานว่าข้อมูล async พร้อม. Budget ใน flow จึงควรผูกกับ
+status text, row count, URL, enabled state หรือสัญญาณธุรกิจที่ Acceptance Criteria ระบุ.
 
-## Action-to-outcome timing
-
-สำหรับ flow YAML ใช้ `run-log.jsonl` เป็นแหล่งหลัก:
-
-- `action.driver_ms` = เวลาที่ driver ใช้ส่ง trusted input;
-- `wait.wall_ms` = เวลาที่ application ใช้จน observable condition เป็นจริง;
-- `step.total_ms` = runner wall time รวม assertion/capture ที่เปิดใช้;
-- `attempts` และ `failing_phase` ใช้แยก transport retry จาก application failure.
-
-Runner protocol v2 ตัดเฉพาะ fixed input settle และย้ายเวลาที่ต้องรอจริงไปอยู่ใน bounded outcome
-wait. อย่าสรุปว่า action เร็วขึ้นจาก `driver_ms` อย่างเดียว.
-
-งาน ad-hoc ที่อยู่ใน document เดิมใช้ mark ก่อน trusted action แล้ววัดหลัง bounded wait:
+งาน ad-hoc ที่ไม่ navigate ใช้ performance mark ได้ แต่ mark จะหายเมื่อเปลี่ยน document:
 
 ```bash
 AB eval "performance.clearMarks('qa_start');performance.mark('qa_start');'marked'"
 AB click "#save"
 AB wait "document.querySelector('#status')?.textContent==='saved'" 20 0.05
 AB eval "performance.mark('qa_end');performance.measure('qa_action','qa_start','qa_end');
-  JSON.stringify({action_to_outcome_ms:Math.round(performance.getEntriesByName('qa_action').at(-1).duration)})"
+  JSON.stringify({outcome_ms:Math.round(performance.getEntriesByName('qa_action').at(-1).duration)})"
 ```
 
-ถ้า action navigate ไป document ใหม่ performance mark เดิมจะหาย ให้ใช้ runner phase telemetry หรือ
-Navigation Timing ของ document ใหม่แทน.
+ถ้า action navigate ให้ใช้ `perf_budget_ms` ของ runner; clock ฝั่ง runner ไม่ตายพร้อม document.
 
-## Budget และรายงาน
+## Fast path สำหรับ NetSuite
 
-`perf_budget` ยังไม่ใช่ executable `flow.yaml` field. เก็บ budget ใน Acceptance Criteria หรือ
-coverage manifest แล้วเปรียบเทียบกับค่าที่วัดได้ในรายงาน เช่น:
+สำหรับ Suitelet/non-record page ให้ลด overhead โดยยังเก็บหลักฐานที่เชื่อได้:
 
-```text
-checkout confirmation: 842 ms / budget 1,500 ms -> PASS
-source: step SC-CHECKOUT-01 wait.wall_ms
+1. ใช้ persistent `--user-data-dir` เพื่อเก็บ login/trusted-device token แต่แยกหนึ่ง profile + port
+   ต่อ job; ห้ามรันขนานด้วย profile เดียวเพราะ cookie/session ชนกัน.
+2. รวม scenarios ที่เกี่ยวข้องไว้ใน flow เดียว เพื่อ reuse `cdp.py session --jsonl` process/WebSocket
+   เดียว; อย่าเรียก driver process ใหม่ทุก step.
+3. ใช้ page-specific observable `wait: "fn:..."`; หลีกเลี่ยง fixed sleep และชื่อ compatibility
+   `networkidle` เมื่อผลที่ต้องการเป็น AJAX/Oracle JET state.
+4. ใช้ `doc: false` ใน performance/adversarial pass และไม่ต้องใส่ `capture:false`: step ที่ผ่านจะไม่ถ่าย
+   แต่ failure ยังได้ screenshot อัตโนมัติ.
+5. รัน agent ด้วย `--stdout summary`; JSONL เต็มยังอยู่ใน artifact โดยไม่ไหลเข้า context.
+6. ใช้ selector/get/count แบบแคบ; ห้าม whole-page HTML หรือ a11y dump.
+
+ตัวอย่าง:
+
+```powershell
+'{"base_url":"https://..."}' |
+  py scripts/flow-runner.py --flow qa/suitelet/flow.yaml --out runs/suitelet-perf `
+    --vars-json - --target-id $env:TGT_ID --stdout summary
 ```
 
-รายงาน environment, จำนวนรอบ และ median/p95 เมื่อใช้ตัวเลขตัดสิน release. รอบเดียวเหมาะกับ diagnosis
-แต่ไม่พอสำหรับ claim เรื่อง performance regression.
+NetSuite record-form QA ยังเป็นขอบเขตของ `netsuite-ui-qa-testing`; ใช้หลัก profile isolation,
+observable outcome และ token-safe output เดียวกัน แต่ใช้ pipeline ของ skill นั้น.
+
+## ตีความตัวเลข
+
+- รอบเดียวเหมาะกับ diagnosis และ budget ต่อ run; claim regression ควรรันซ้ำแล้วรายงาน median/p95.
+- รายงาน Chrome, driver revision, จำนวนรอบ และ fixture/application delay ที่ตั้งใจไว้.
+- เปรียบเทียบ host เดียวกันเมื่อใช้ absolute milliseconds; CI ข้ามเครื่องควรใช้ budget ที่เผื่อ variance.
+- ห้ามอ้าง `driver_ms` อย่างเดียวว่า Save เร็ว เพราะ application latency อยู่ใน wait wall time.

@@ -71,6 +71,8 @@ negotiates CDP JSONL protocol v2+, and owns one bounded `session --jsonl --input
 It replaces fixed input sleeps with bounded outcome checks, keeps application latency visible in
 action/wait timing, and emits separate action/wait/assert/capture timings. The runner fails closed on an old
 driver, an unsupported field, an assertion failure, or missing evidence.
+For agent-run flows, pass `--stdout summary`; the complete event stream remains in `run-log.jsonl`.
+Use step-level `perf_budget_ms` when action-to-observable-outcome time is an acceptance criterion.
 
 ## Outputs
 
