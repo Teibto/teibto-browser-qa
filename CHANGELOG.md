@@ -10,6 +10,10 @@
 
 ## [Unreleased]
 
+## [2.3.0] - 2026-08-30
+
+**Token-safe performance budgets with protocol-v3 dialog attribution and pinned driver compatibility.**
+
 ### Added
 
 - Token-safe runner stdout (`--stdout summary`) preserves the complete `run-log.jsonl` while returning
