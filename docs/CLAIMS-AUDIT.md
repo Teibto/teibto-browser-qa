@@ -6,13 +6,13 @@ history and `CHANGELOG.md`.
 
 ## Evidence boundary
 
-- Browser QA release under review: `v2.1.0` (`2e65cec`).
-- Canonical driver: `teibto-dev-standards v0.82.0` (`df8121f`).
+- Browser QA release under review: `v2.2.0` (`1434cb6`).
+- Canonical driver: `teibto-dev-standards v0.83.0` (`3868281`).
 - Performance runs: Windows host, Chrome `151.0.7922.140`, 2026-08-22.
 - Issue #69 revalidation: Windows host, Chrome `151.0.7922.174`, 2026-08-30; local driver file
   blob `21bf0cb72adaee04633c21a1c5758cbbf7a4da96` from worktree commit `b745196`.
-- The tested `scripts/cdp.py` blob was `ce5b376df249cb479f902751bbbb4df7898889d0`, identical to
-  the blob at canonical tag `v0.82.0`.
+- The pinned `scripts/cdp.py` blob is `28ca9e4a6475639f102d24a1cb2aab2dc736a3c9`, identical to
+  the blob at canonical tag `v0.83.0`.
 - Driver internals are owned by canonical `tests/test-cdp.sh`; this repository keeps thin consumer
   checks in `self-test/smoke-test.sh` plus runner unit/live tests.
 
@@ -28,7 +28,8 @@ Status terms:
 
 | Claim | Status | Evidence |
 |---|---|---|
-| Runner requires `teibto-cdp-jsonl` protocol v2+ and verifies `input-settle=none` | verified | `tests/test_flow_runner.py` protocol/incompatibility cases |
+| Runner requires `teibto-cdp-jsonl` protocol v3+ and verifies `input-settle=none` | verified, version-pinned | unit incompatibility cases plus live consumer gate against v0.83.0 |
+| Structured per-command dialogs are attributed once to the causing step | verified, version-pinned | unit structured-payload/malformed-payload cases plus v0.83.0 live alert fixture |
 | Event-bound navigation waits for the new main-frame commit/load and fails on cancel/timeout | verified | canonical `tests/test-cdp.sh` T16c–T16j; runner live test |
 | Collector is installed before next-document scripts and resets per page | verified | canonical T15/T16d; `self-test/smoke-test.sh` console checks |
 | Fast input settle is scoped to direct runner input; `pick`/`lens` retain normal settle | verified | canonical session probe T19u/v |
@@ -49,6 +50,7 @@ The comparison measures summed live step time, excluding Chrome startup:
 | protocol-v2 candidate | 20 fresh child sessions on one temporary Chrome target | 622.523 ms | 20/20 pass |
 | issue #54 revalidation | 20 fresh child sessions on one temporary Chrome target | 972.687 ms | 20/20 pass |
 | issue #69 current-host revalidation | 20 fresh child sessions on one temporary Chrome target | 618.904 ms | 20/20 pass |
+| issue #68 exact v0.83.0 pin | 20 fresh child sessions on one temporary Chrome target | 743.579 ms | 20/20 pass; per-step alert dialog |
 
 Measured improvement: **85.8%**. Candidate medians were startup 181.014 ms, open 30.552 ms, fill
 171.488 ms, click 396.767 ms, and total run 823.390 ms. The fixture intentionally waits 150/300 ms
@@ -60,14 +62,20 @@ does not replace the controlled release comparison or create a cross-machine lat
 
 The issue #69 medians were startup 174.502 ms, open 24.486 ms, fill 215.526 ms, click 385.726 ms,
 and total run 826.889 ms. The 618.904 ms step flow is 85.8% below the 4,373.865 ms historical baseline;
-450 ms remains intentional fixture latency. This run used the exact local driver blob recorded above
-and does not change the repository's v0.82.0 compatibility pin (that bump is tracked separately).
+450 ms remains intentional fixture latency. This run used the issue #69 local driver blob recorded
+above and preceded the repository's v0.83.0 compatibility pin.
 
 A controlled issue #69 regression check alternated 20 main/branch pairs after warm-up against the same
 Chrome target and the same pre-feature flow. Main versus branch medians were startup 309.575/310.072 ms
 (+0.2%), step flow 664.736/670.078 ms (+0.8%), and total 1,020.245/1,044.795 ms (+2.4%). This bounds
 the feature overhead on the measured host and explains why standalone runs at different times are not
 a valid before/after comparison.
+
+The issue #68 exact-tag revalidation used Chrome 151.0.7922.174 and canonical driver blob
+`28ca9e4a6475639f102d24a1cb2aab2dc736a3c9`. Medians were startup 414.374 ms, open 62.663 ms,
+fill 235.235 ms, click 442.186 ms, step flow 743.579 ms, and total 1,208.506 ms. All 20 runs
+attributed one live alert exactly once to step 3. This fixture adds a dialog round trip, so its absolute
+time is compatibility evidence, not a direct latency regression comparison with earlier rows.
 
 Absolute milliseconds are evidence for this host, not a cross-machine CI budget. The portable driver
 gate is ratio-based in canonical `tests/cdp-session-probe.py`. Reproduce with:

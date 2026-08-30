@@ -20,42 +20,32 @@ if os.environ.get("FAKE_CDP_REJECT_INPUT_SETTLE") and input_settle != "fixed":
                                 "transient": False}}), flush=True)
     raise SystemExit(2)
 print(json.dumps({"type": "ready", "ok": True, "protocol": "teibto-cdp-jsonl",
-                  "version": int(os.environ.get("FAKE_CDP_VERSION", "2")),
+                  "version": int(os.environ.get("FAKE_CDP_VERSION", "3")),
                   "input_settle": input_settle, "target_id": target, "port": 9222}), flush=True)
 values = {}
 url = "about:blank"
 # FAKE_CDP_DIALOG=<kind>:<message> makes every click raise that dialog; the answer follows the
-# DIALOG policy the way cdp.py does (safe = dismiss anything that is not an alert). Like the
-# real driver the ledger is printed to stderr at close; FAKE_CDP_DIALOG_WHEN=click prints it
-# live instead (a future driver behaviour the runner attributes per step).
+# DIALOG policy the way protocol v3 does (safe = dismiss anything that is not an alert).
+# The result carries structured dialogs and stderr reports each one immediately.
 dialog_spec = os.environ.get("FAKE_CDP_DIALOG")
 dialog_policy = os.environ.get("DIALOG", "safe")
-dialog_when = os.environ.get("FAKE_CDP_DIALOG_WHEN", "close")
-dialog_ledger = []
-
-
-def report_dialogs():
-    for line in dialog_ledger:
-        sys.stderr.write(line)
-    sys.stderr.flush()
-    dialog_ledger.clear()
 for line in sys.stdin:
     request = json.loads(line)
     if request.get("type") == "close":
         print(json.dumps({"type": "closed", "id": request.get("id"), "ok": True,
                           "reason": "requested", "target_id": target}), flush=True)
-        report_dialogs()
         break
     command, args = request["command"], request.get("args", [])
+    command_dialogs = []
     if command == "click" and dialog_spec:
         kind, message = dialog_spec.split(":", 1)
         if dialog_policy == "safe":
             answer = "accept" if kind == "alert" else "dismiss"
         else:
             answer = dialog_policy
-        dialog_ledger.append(f"[dialog] {kind}: {message} -> {answer}\n")
-        if dialog_when == "click":
-            report_dialogs()
+        command_dialogs.append({"type": kind, "message": message, "answer": answer})
+        sys.stderr.write(f"[dialog] {kind}: {message} -> {answer}\n")
+        sys.stderr.flush()
     if command == "nav":
         url = args[0]
         data = url
@@ -81,6 +71,11 @@ for line in sys.stdin:
         data = args[0]
     else:
         data = True
-    print(json.dumps({"type": "result", "id": request["id"], "ok": True,
-                      "command": command, "target_id": target, "duration_ms": 0.1,
-                      "attempts": 1, "data": data}), flush=True)
+    payload = {"type": "result", "id": request["id"], "ok": True,
+               "command": command, "target_id": target, "duration_ms": 0.1,
+               "attempts": 1, "data": data}
+    if command_dialogs:
+        payload["dialogs"] = command_dialogs
+    if command == "click" and os.environ.get("FAKE_CDP_BAD_DIALOGS"):
+        payload["dialogs"] = "not-an-array"
+    print(json.dumps(payload), flush=True)

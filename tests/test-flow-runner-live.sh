@@ -93,7 +93,7 @@ for run in range(1, count + 1):
     events = [json.loads(line) for line in
               (work / f"out-{run}" / "run-log.jsonl").read_text(encoding="utf-8").splitlines()]
     ready = next(item for item in events if item["type"] == "session_ready")
-    assert ready["version"] >= 2 and ready["input_settle"] == "none", ready
+    assert ready["version"] >= 3 and ready["input_settle"] == "none", ready
     steps = [item for item in events if item["type"] == "step_done"]
     assert len(steps) == 3 and all(item["status"] != "fail" for item in steps), steps
     fill = steps[1]["timings"]["phases"]
@@ -106,8 +106,16 @@ for run in range(1, count + 1):
     assert steps[2]["performance"]["verdict"] == "PASS", steps[2]
     assert 280 <= steps[2]["performance"]["outcome_ms"] <= 10000, steps[2]
     assert next(item for item in events if item["type"] == "errors").get("timing"), events
+    dialogs = [item for item in events if item["type"] == "dialog"]
+    assert len(dialogs) == 1, dialogs
+    assert {key: dialogs[0][key] for key in
+            ("scenario", "index", "global_index", "kind", "message", "answer")} == {
+                "scenario": "native-click", "index": 3, "global_index": 3,
+                "kind": "alert", "message": "Live save started", "answer": "accept",
+            }, dialogs[0]
     done = next(item for item in events if item["type"] == "run_done")
     assert done["verdict"] == "PASS", done
+    assert done["dialogs"] == 1, done
     assert done["performance_budgets"] == {"passed": 1, "evaluated": 1, "total": 1}, done
     terminal = [json.loads(line) for line in
                 (work / f"runner-{run}.jsonl").read_text(encoding="utf-8").splitlines()]
@@ -122,4 +130,4 @@ print(json.dumps({"runs": count, "failures": 0,
 PY
 if grep -R -q 's3cret-Ada' "${WORK}"/out-*/run-log.jsonl; then exit 1; fi
 if grep -R -q 's3cret-Ada' "${WORK}"/out-*/qa-report.md; then exit 1; fi
-echo "PASS: ${LIVE_RUNS} real-Chrome run(s) used protocol v2, event-bound nav, fast native input, async waits, performance budgets, summary stdout, redaction, telemetry, and artifacts"
+echo "PASS: ${LIVE_RUNS} real-Chrome run(s) used protocol v3, per-step dialogs, event-bound nav, fast native input, async waits, performance budgets, summary stdout, redaction, telemetry, and artifacts"
