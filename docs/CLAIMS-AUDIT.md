@@ -16,6 +16,9 @@ history and `CHANGELOG.md`.
 - Issue #74 revalidation: same Windows host, Chrome `151.0.7922.174`, 2026-08-30; foreground-ready
   candidate commit/blob above. The candidate is not a released dependency until its upstream review,
   CI, and release gates pass.
+- Issue #74 authenticated NetSuite SB2 revalidation: same host/Chrome/date and one pinned MRP
+  Suitelet target. The run used read-only planning actions only; it did not submit Create PR/PO/WO or
+  mutate production data.
 - The pinned `scripts/cdp.py` blob is `28ca9e4a6475639f102d24a1cb2aab2dc736a3c9`, identical to
   the blob at canonical tag `v0.83.0`.
 - Driver internals are owned by canonical `tests/test-cdp.sh`; this repository keeps thin consumer
@@ -91,12 +94,29 @@ startup 294.828/414.997, open 41.049/67.821, fill 192.673/226.710, click 432.772
 step flow 653.229/739.154, and total run 972.063/1,198.926. A preceding 20-run set also passed 20/20
 (median step flow 675.275 ms), so the final set was not a lone successful sample.
 
-The motivating anonymized NetSuite Suitelet/MRP evidence is recorded in canonical issue #276: the
-same-result foreground/background pairs were 34.784/389.246 seconds (about 11.2x) and
-31.094/160.035 seconds (about 5.1x). These are historical sandbox observations, not a controlled
-driver A/B and not a fresh authenticated NetSuite rerun. The mechanism is supported separately by
-the hidden/visible target proof and the client loop's `setTimeout(0)` behavior; no customer identifier
-is needed or retained here.
+Fresh authenticated NetSuite SB2 evidence used the same MRP inputs and explicitly invalidated the
+page's last-run and BOM caches before each run:
+
+| Run | Visibility method | MRP elapsed | Observable result |
+|---|---|---:|---|
+| foreground cold | exact target visible throughout | 55.529 s | identical |
+| foreground warm | exact target visible throughout | 34.664 s | identical |
+| background/recovery | clicked visible, hidden after 0.683 s, foregrounded after 617.747 s | 644.391 s | identical after foreground recovery |
+| issue #74 runner + PR #277 driver | target hidden before session; ready foreground and visible throughout MRP | 31.310 s | identical |
+
+The background/recovery run did not complete while hidden: it exceeded the bounded 600-second wait,
+then finished about 26.6 seconds after the exact target returned to foreground. Its total was 18.59x
+the warm foreground run and 11.60x the cold foreground run. Starting the same flow through the
+foreground-ready contract completed in 31.310 seconds, 95.1% less elapsed time than that
+background/recovery run, and remained inside the observed foreground band. This is not a server-side
+speedup claim; it removes a browser scheduling artifact.
+
+All four runs produced 10,020 table rows, 9,470 filtered rows, 4,620 BOM roots/groups, status counts
+`OK=8565`, `Period Shortage=47`, `Shortage=1408`, the same two known warning codes
+(`comp_demand_dropped`, `location_stock_unconfigured`), and no errors. The older anonymized pairs in
+canonical issue #276 were 34.784/389.246 seconds (about 11.2x) and 31.094/160.035 seconds (about
+5.1x); the fresh authenticated run now reproduces the mechanism without retaining a customer
+identifier.
 
 Canonical PR #277 measured readiness overhead with 30 alternating same-host pairs: baseline/candidate
 median wall time 220.358/233.825 ms, +13.467 ms (about 6.1%) per session. Its synthetic headless

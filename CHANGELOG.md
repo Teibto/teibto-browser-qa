@@ -15,7 +15,9 @@
 - Runner fail closed ก่อนเริ่ม flow ถ้า canonical driver ไม่แนบ foreground-ready evidence หรือ target
   ที่ pin ยัง hidden; real-Chrome consumer gate บังคับแท็บคู่แข่งให้ active ก่อนทุก run แล้วพิสูจน์ว่า
   driver foreground target ที่ถูกต้อง ป้องกัน NetSuite background-timer throttle และ performance
-  baseline ช้าปลอม (#74).
+  baseline ช้าปลอม. Fresh authenticated SB2 MRP measurement จบที่ 31.310 วินาทีเมื่อ foreground-ready
+  เทียบกับ background/recovery 644.391 วินาที (ลด elapsed 95.1%) โดยผล 10,020 แถว สถานะ คำเตือน
+  และ error ตรงกัน; รอบช้าจบหลัง foreground recovery ไม่ได้จบขณะ hidden (#74).
 
 ## [2.3.0] - 2026-08-30
 
