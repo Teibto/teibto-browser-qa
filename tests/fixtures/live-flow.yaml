@@ -18,4 +18,5 @@ scenarios:
         target: "#save"
         wait: "fn:document.querySelector('#status').textContent.startsWith('saved')"
         assert: {target: "#status", contains: "saved"}
+        perf_budget_ms: 10000
         capture: true

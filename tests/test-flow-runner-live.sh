@@ -65,14 +65,16 @@ LIVE_RUNS="${LIVE_RUNS:-1}"
 [[ "${LIVE_RUNS}" =~ ^[0-9]+$ ]] && [ "${LIVE_RUNS}" -ge 1 ] && [ "${LIVE_RUNS}" -le 50 ] \
   || { echo "FAIL: LIVE_RUNS must be an integer in 1..50"; exit 2; }
 for run in $(seq 1 "${LIVE_RUNS}"); do
-  # Print the runner log on failure: cleanup removes ${WORK}, so a silent exit would hide the cause
-  # (for example DRIVER_INCOMPATIBLE from a stale cdp.py).
+  # Print terminal output and the full artifact on failure: cleanup removes ${WORK}, so a silent
+  # exit would hide the cause (for example DRIVER_INCOMPATIBLE from a stale cdp.py).
   printf '%s' "${VARS}" | "${PY}" "${ROOT}/scripts/flow-runner.py" \
     --flow "${ROOT}/tests/fixtures/live-flow.yaml" --out "${WORK}/out-${run}" --vars-json - \
-    --target-id "${TARGET_ID}" --cdp-script "${CDP}" >"${WORK}/runner-${run}.jsonl" || {
+    --target-id "${TARGET_ID}" --cdp-script "${CDP}" --stdout summary \
+    >"${WORK}/runner-${run}.jsonl" || {
     code=$?
     echo "FAIL: runner exit ${code} on run ${run} (driver: ${CDP})"
     cat "${WORK}/runner-${run}.jsonl"
+    [ ! -f "${WORK}/out-${run}/run-log.jsonl" ] || cat "${WORK}/out-${run}/run-log.jsonl"
     exit 1
   }
 done
@@ -101,9 +103,15 @@ for run in range(1, count + 1):
     assert fill["action"]["wall_ms"] + fill["wait"]["wall_ms"] >= 140, fill
     assert click["action"]["wall_ms"] + click["wait"]["wall_ms"] >= 280, click
     assert "assert" in click and "capture" in click, click
+    assert steps[2]["performance"]["verdict"] == "PASS", steps[2]
+    assert 280 <= steps[2]["performance"]["outcome_ms"] <= 10000, steps[2]
     assert next(item for item in events if item["type"] == "errors").get("timing"), events
     done = next(item for item in events if item["type"] == "run_done")
     assert done["verdict"] == "PASS", done
+    assert done["performance_budgets"] == {"passed": 1, "evaluated": 1, "total": 1}, done
+    terminal = [json.loads(line) for line in
+                (work / f"runner-{run}.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert [item["type"] for item in terminal] == ["run_done"], terminal
     rows.append({"startup_ms": done["startup_ms"], "open_ms": steps[0]["duration_ms"],
                  "fill_ms": steps[1]["duration_ms"], "click_ms": steps[2]["duration_ms"],
                  "step_total_ms": sum(item["duration_ms"] for item in steps),
@@ -114,4 +122,4 @@ print(json.dumps({"runs": count, "failures": 0,
 PY
 if grep -R -q 's3cret-Ada' "${WORK}"/out-*/run-log.jsonl; then exit 1; fi
 if grep -R -q 's3cret-Ada' "${WORK}"/out-*/qa-report.md; then exit 1; fi
-echo "PASS: ${LIVE_RUNS} real-Chrome run(s) used protocol v2, event-bound nav, fast native input, async waits, redaction, telemetry, and artifacts"
+echo "PASS: ${LIVE_RUNS} real-Chrome run(s) used protocol v2, event-bound nav, fast native input, async waits, performance budgets, summary stdout, redaction, telemetry, and artifacts"

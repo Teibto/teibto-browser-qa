@@ -56,12 +56,15 @@ flowchart LR
     runner -->|"JSONL v2 · one child per run<br/>event nav + phase timing"| session["cdp.py session<br/>bounded + pinned target<br/>input-settle=none"]
     session -->|"one WebSocket"| chrome["Chrome target"]
     runner --> artifacts["run-log.jsonl<br/>qa-report.md<br/>shots/"]
+    runner -->|"--stdout summary"| terminal["terminal verdict<br/>token-safe agent context"]
 ```
 
 Secrets enter the runner through stdin, not argv. Fixed input sleeps are removed only in this
 bounded runner contract; observable application latency is paid in explicit waits and reported
 separately from action/assert/capture driver time. An action, wait, screenshot, console check, or
 transport failure stops the scenario. Unasserted state-changing actions produce `UNVERIFIED`.
+Step-level `perf_budget_ms` compares action-through-observable-wait/assert wall time and excludes
+session startup and screenshot capture.
 
 ---
 
@@ -106,7 +109,7 @@ flowchart LR
 | Visual | UI changes | `steady` then `diff <base> <cur>` | diff within threshold |
 | Error surfacing | every key step | `console` | errors surface, not swallowed |
 | a11y | forms, new screens | `evalf` axe-core | count + top N within budget |
-| Perf | save/load paths | `eval` timing marks | under the scenario's ms budget |
+| Perf | save/load paths | step `perf_budget_ms`; ad-hoc timing marks | observable outcome under budget |
 | UX/UI lens | responsive / theme / keyboard work | `lens layout\|responsive\|theme\|focus\|netlog` | `verdict: PASS` — and `UNVERIFIED` is **not** a pass |
 
 Two things the table cannot show:

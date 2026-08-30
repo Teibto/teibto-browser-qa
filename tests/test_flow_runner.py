@@ -89,6 +89,93 @@ class FlowRunnerTests(unittest.TestCase):
         self.assertIn("assert", steps[2]["timings"]["phases"])
         self.assertIn("timing", next(item for item in payloads if item["type"] == "errors"))
 
+    def test_summary_stdout_preserves_complete_run_log(self):
+        process, out, _ = self.run_flow("""
+            story: token-safe
+            title: Token-safe stdout
+            scenarios:
+              - id: smoke
+                steps:
+                  - {action: open, target: "https://example.test", capture: false}
+        """, extra_args=["--stdout", "summary"])
+        self.assertEqual(0, process.returncode, process.stdout + process.stderr)
+        stdout_events = [json.loads(line) for line in process.stdout.splitlines()]
+        artifact_events = [json.loads(line) for line in
+                           (out / "run-log.jsonl").read_text(encoding="utf-8").splitlines()]
+        self.assertEqual(["run_done"], [item["type"] for item in stdout_events])
+        self.assertGreater(len(artifact_events), len(stdout_events))
+        self.assertEqual("run_start", artifact_events[0]["type"])
+        self.assertEqual("run_done", artifact_events[-1]["type"])
+
+    def test_summary_stdout_keeps_fatal_error_visible(self):
+        process, _, _ = self.run_flow("""
+            story: token-safe-fatal
+            title: Token-safe fatal output
+            scenarios:
+              - id: smoke
+                steps:
+                  - {action: open, target: "https://example.test", capture: false}
+        """, env_overrides={"FAKE_CDP_VERSION": "1"}, extra_args=["--stdout", "summary"])
+        self.assertEqual(1, process.returncode)
+        stdout_events = [json.loads(line) for line in process.stdout.splitlines()]
+        self.assertEqual(["fatal", "run_done"], [item["type"] for item in stdout_events])
+        self.assertEqual("DRIVER_INCOMPATIBLE", stdout_events[0]["error"]["code"])
+
+    def test_perf_budget_excludes_capture_and_reports_pass(self):
+        process, out, _ = self.run_flow("""
+            story: perf-pass
+            title: Performance pass
+            scenarios:
+              - id: load
+                doc: true
+                steps:
+                  - action: open
+                    target: "https://example.test"
+                    wait: 30
+                    perf_budget_ms: 500
+        """, env_overrides={"FAKE_CDP_SHOT_DELAY_MS": "800"})
+        self.assertEqual(0, process.returncode, process.stdout + process.stderr)
+        payloads = [json.loads(line) for line in
+                    (out / "run-log.jsonl").read_text(encoding="utf-8").splitlines()]
+        step = next(item for item in payloads if item["type"] == "step_done")
+        self.assertEqual("PASS", step["performance"]["verdict"])
+        self.assertLessEqual(step["performance"]["outcome_ms"], 500)
+        self.assertGreaterEqual(step["duration_ms"] - step["performance"]["outcome_ms"], 700)
+        done = next(item for item in payloads if item["type"] == "run_done")
+        self.assertEqual({"passed": 1, "evaluated": 1, "total": 1},
+                         done["performance_budgets"])
+        report = (out / "qa-report.md").read_text(encoding="utf-8")
+        self.assertIn("**Performance budgets:** 1/1 passed (1 evaluated)", report)
+        self.assertIn("budget 500ms → PASS", report)
+
+    def test_perf_budget_exceedance_fails_closed_with_evidence(self):
+        process, out, _ = self.run_flow("""
+            story: perf-fail
+            title: Performance failure
+            scenarios:
+              - id: save
+                steps:
+                  - action: open
+                    target: "https://example.test"
+                    wait: 50
+                    perf_budget_ms: 5
+        """)
+        self.assertEqual(1, process.returncode)
+        payloads = [json.loads(line) for line in
+                    (out / "run-log.jsonl").read_text(encoding="utf-8").splitlines()]
+        step = next(item for item in payloads if item["type"] == "step_done")
+        self.assertEqual("PERF_BUDGET_EXCEEDED", step["error"]["code"])
+        self.assertEqual("FAIL", step["performance"]["verdict"])
+        self.assertGreater(step["performance"]["outcome_ms"], 5)
+        self.assertEqual("perf_budget", step["timings"]["failing_phase"])
+        self.assertTrue(Path(step["shot"]).is_file())
+        done = next(item for item in payloads if item["type"] == "run_done")
+        self.assertEqual({"passed": 0, "evaluated": 1, "total": 1},
+                         done["performance_budgets"])
+        report = (out / "qa-report.md").read_text(encoding="utf-8")
+        self.assertIn("PERF_BUDGET_EXCEEDED", report)
+        self.assertIn("budget 5ms → FAIL", report)
+
     def test_unasserted_click_is_unverified(self):
         process, out, _ = self.run_flow("""
             story: unverified
@@ -112,6 +199,21 @@ class FlowRunnerTests(unittest.TestCase):
               - id: smoke
                 steps:
                   - {action: click, target: "#x", silentFallback: true}
+        """), encoding="utf-8")
+        with self.assertRaises(runner.RunnerError) as caught:
+            runner.load_flow(path)
+        self.assertEqual("INVALID_FLOW", caught.exception.code)
+
+    def test_schema_rejects_nonpositive_perf_budget(self):
+        runner = load_runner()
+        path = self.workspace() / "bad-perf.yaml"
+        path.write_text(textwrap.dedent("""
+            story: bad-perf
+            title: Bad performance budget
+            scenarios:
+              - id: smoke
+                steps:
+                  - {action: open, target: "https://example.test", perf_budget_ms: 0}
         """), encoding="utf-8")
         with self.assertRaises(runner.RunnerError) as caught:
             runner.load_flow(path)

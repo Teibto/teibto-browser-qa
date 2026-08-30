@@ -75,6 +75,7 @@
         "target": {"type": "string"},
         "value": {"type": ["string", "number", "boolean", "null"]},
         "wait": {"anyOf": [{"const": "networkidle"}, {"type": "integer", "minimum": 0, "maximum": 60000}, {"type": "string", "minLength": 1}]},
+        "perf_budget_ms": {"type": "integer", "minimum": 1, "maximum": 600000},
         "assert": {"$ref": "#/$defs/assertion"},
         "capture": {"type": "boolean"}
       },

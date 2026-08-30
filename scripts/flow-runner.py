@@ -7,7 +7,8 @@ Examples:
   '{"password":"..."}' | py scripts/flow-runner.py --flow examples/saucedemo.yaml `
       --out runs/manual --vars-json -
 
-JSON events are written to stdout and runs/<id>/run-log.jsonl. Secrets are never
+Complete JSON events are written to runs/<id>/run-log.jsonl. Stdout defaults to the
+same event stream; use --stdout summary for token-safe agent runs. Secrets are never
 placed in argv or artifacts. Exit 0=PASS, 1=FAIL/UNVERIFIED, 2=setup/input error.
 """
 from __future__ import annotations
@@ -45,6 +46,8 @@ SESSION_PROTOCOL = "teibto-cdp-jsonl"
 MIN_SESSION_VERSION = 2
 INPUT_SETTLE_POLICY = "none"
 DIALOG_POLICIES = ("safe", "accept", "dismiss")
+STDOUT_MODES = ("events", "summary")
+SUMMARY_EVENT_TYPES = {"fatal", "run_done"}
 # cdp.py prints every auto-answered dialog to stderr as "[dialog] <kind>: <message> -> <answer>".
 DIALOG_LINE = re.compile(r"^\[dialog\] (?P<kind>[^:]+): (?P<message>.*) -> (?P<answer>\S+)$")
 
@@ -146,17 +149,20 @@ def resolve_cdp_script(explicit: str | None) -> Path:
 
 
 class EventSink:
-    def __init__(self, output: TextIO, path: Path | None, secrets: set[str], variables: dict[str, Any]):
+    def __init__(self, output: TextIO, path: Path | None, secrets: set[str], variables: dict[str, Any],
+                 *, stdout_mode: str = "events"):
         self.output = output
         self.file = path.open("w", encoding="utf-8") if path else None
         self.secrets = secrets
         self.variables = variables
+        self.stdout_mode = stdout_mode
 
     def emit(self, payload: dict[str, Any]) -> None:
         safe = redact(payload, self.secrets, self.variables)
         line = json.dumps(safe, ensure_ascii=False, separators=(",", ":"))
-        self.output.write(line + "\n")
-        self.output.flush()
+        if self.stdout_mode == "events" or safe.get("type") in SUMMARY_EVENT_TYPES:
+            self.output.write(line + "\n")
+            self.output.flush()
         if self.file:
             self.file.write(line + "\n")
             self.file.flush()
@@ -405,6 +411,10 @@ class StepTimings:
             payload["failing_phase"] = self.failing_phase
         return payload
 
+    def elapsed_ms(self) -> float:
+        return round((time.perf_counter() - self.started) * 1000, 3)
+
+
 def js_selector(selector: str) -> str:
     return json.dumps(selector, ensure_ascii=False)
 
@@ -539,6 +549,9 @@ def run_flow(flow: dict[str, Any], path: Path, output_dir: Path, variables: dict
     assertions = sum(1 for scenario in flow["scenarios"] for step in scenario["steps"]
                      if step.get("assert"))
     passed = failures = unverified = dialogs = 0
+    perf_total = sum(1 for scenario in flow["scenarios"] for step in scenario["steps"]
+                     if step.get("perf_budget_ms") is not None)
+    perf_evaluated = perf_passed = 0
     session: CDPSession | None = None
 
     def flush_dialogs(scenario_id: str, index: int | None, global_index: int | None) -> None:
@@ -580,6 +593,7 @@ def run_flow(flow: dict[str, Any], path: Path, output_dir: Path, variables: dict
                 sink.emit({"type": "step", "scenario": scenario["id"], "index": index,
                            "global_index": global_index, "intent": intent, "status": "running"})
                 timings = StepTimings()
+                performance: dict[str, Any] | None = None
                 try:
                     context = perform_action(session, raw_step, variables, timings)
                     perform_wait(session, raw_step.get("wait"), variables, context, timings)
@@ -595,6 +609,24 @@ def run_flow(flow: dict[str, Any], path: Path, output_dir: Path, variables: dict
                     elif raw_step["action"] in MUTATING_ACTIONS:
                         unverified += 1
                         status, detail = "unverified", "state-changing step has no explicit assertion"
+                    budget_ms = raw_step.get("perf_budget_ms")
+                    if budget_ms is not None:
+                        outcome_ms = timings.elapsed_ms()
+                        perf_evaluated += 1
+                        within_budget = outcome_ms <= budget_ms
+                        performance = {
+                            "outcome_ms": outcome_ms,
+                            "budget_ms": budget_ms,
+                            "verdict": "PASS" if within_budget else "FAIL",
+                        }
+                        if not within_budget:
+                            timings.fail("perf_budget")
+                            raise RunnerError(
+                                "PERF_BUDGET_EXCEEDED",
+                                f"observable outcome {outcome_ms:.3f}ms exceeds budget {budget_ms}ms",
+                                detail=performance,
+                            )
+                        perf_passed += 1
                     shot = None
                     capture_success = (raw_step["capture"] if "capture" in raw_step
                                        else bool(scenario.get("doc", False)))
@@ -604,11 +636,17 @@ def run_flow(flow: dict[str, Any], path: Path, output_dir: Path, variables: dict
                         shot = str(shot_path)
                     marker = "✅" if status == "pass" else ("⚠️" if status == "unverified" else "▸")
                     report.append(f"- {marker} {intent}" + (f" — {detail}" if detail else ""))
+                    if performance:
+                        report.append(
+                            f"  - ⏱ outcome: {performance['outcome_ms']:.3f}ms / "
+                            f"budget {performance['budget_ms']}ms → {performance['verdict']}"
+                        )
                     flush_dialogs(scenario["id"], index, global_index)
                     timing_payload = timings.payload()
                     sink.emit({"type": "step_done", "scenario": scenario["id"], "index": index,
                                "global_index": global_index, "intent": intent, "status": status,
                                "detail": detail, "shot": shot,
+                               **({"performance": performance} if performance else {}),
                                "duration_ms": timing_payload["total_ms"],
                                "timings": timing_payload})
                 except RunnerError as exc:
@@ -624,12 +662,18 @@ def run_flow(flow: dict[str, Any], path: Path, output_dir: Path, variables: dict
                         except RunnerError as capture_exc:
                             evidence_error = {"code": capture_exc.code, "message": str(capture_exc)}
                     report.append(f"- ❌ {intent} — {exc.code}: {exc}")
+                    if performance:
+                        report.append(
+                            f"  - ⏱ outcome: {performance['outcome_ms']:.3f}ms / "
+                            f"budget {performance['budget_ms']}ms → {performance['verdict']}"
+                        )
                     flush_dialogs(scenario["id"], index, global_index)
                     timing_payload = timings.payload()
                     sink.emit({"type": "step_done", "scenario": scenario["id"], "index": index,
                                "global_index": global_index, "intent": intent, "status": "fail",
                                "error": {"code": exc.code, "message": str(exc)},
                                "shot": shot,
+                               **({"performance": performance} if performance else {}),
                                **({"evidence_error": evidence_error} if evidence_error else {}),
                                "duration_ms": timing_payload["total_ms"],
                                "timings": timing_payload})
@@ -697,11 +741,16 @@ def run_flow(flow: dict[str, Any], path: Path, output_dir: Path, variables: dict
     summary = [f"**Verdict:** {verdict}", f"**Assertions:** {passed}/{assertions} passed",
                f"**Unverified state changes:** {unverified}",
                f"**Auto-answered dialogs:** {dialogs} (policy: {dialog})", ""]
+    if perf_total:
+        summary.insert(3, f"**Performance budgets:** {perf_passed}/{perf_total} passed "
+                          f"({perf_evaluated} evaluated)")
     report[4:4] = summary
     safe_report = redact("\n".join(report), sink.secrets, variables, truncate=False)
     report_path.write_text(str(safe_report), encoding="utf-8")
     sink.emit({"type": "run_done", "passed": passed, "total": assertions,
                "failures": failures, "unverified": unverified, "dialogs": dialogs,
+               "performance_budgets": {"passed": perf_passed, "evaluated": perf_evaluated,
+                                       "total": perf_total},
                "verdict": verdict,
                "duration_ms": round((time.perf_counter() - run_started) * 1000, 3),
                "startup_ms": startup_ms,
@@ -732,6 +781,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--cdp-script")
     parser.add_argument("--dialog", choices=DIALOG_POLICIES, default="safe",
                         help="dialog policy handed to cdp.py (default: safe; never inherited from env)")
+    parser.add_argument("--stdout", choices=STDOUT_MODES, default="events",
+                        help="events (default) or terminal summary only; run-log.jsonl is always complete")
     parser.add_argument("--meta", action="store_true")
     parser.add_argument("--full", action="store_true")
     args = parser.parse_args(argv)
@@ -758,7 +809,8 @@ def main(argv: list[str] | None = None) -> int:
             raise RunnerError("OUTPUT_EXISTS", f"output directory มีอยู่แล้ว: {output_dir}")
         output_dir.mkdir(parents=True)
         log_path = output_dir / "run-log.jsonl"
-        sink = EventSink(sys.stdout, log_path, secret_names(flow), variables)
+        sink = EventSink(sys.stdout, log_path, secret_names(flow), variables,
+                         stdout_mode=args.stdout)
         return run_flow(flow, path, output_dir, variables, cdp_script,
                         args.target_id or "", args.cdp_port, sink, dialog=args.dialog)
     except RunnerError as exc:
