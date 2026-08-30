@@ -1,7 +1,8 @@
 # Command Reference — `cdp.py` (CDP ตรง)
 
 transport ของ skill นี้คือ **`cdp.py`** ซึ่งเป็น asset กลางของ `Teibto/teibto-dev-standards`
-(`scripts/cdp.py`). Flow runner ต้องใช้ JSONL protocol v3+; ad-hoc command ใช้ policy ปกติของ driver.
+(`scripts/cdp.py`). Flow runner ต้องใช้ JSONL protocol v3+ ที่ ready หลังทำ target ที่ pin เป็น
+foreground และยืนยัน `visibility_state=visible`; ad-hoc command ใช้ policy ปกติของ driver.
 
 ## เตรียม (ครั้งเดียวต่อเครื่อง)
 
