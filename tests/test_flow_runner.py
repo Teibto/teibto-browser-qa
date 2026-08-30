@@ -80,6 +80,8 @@ class FlowRunnerTests(unittest.TestCase):
         ready = next(item for item in payloads if item["type"] == "session_ready")
         self.assertEqual(3, ready["version"])
         self.assertEqual("none", ready["input_settle"])
+        self.assertIs(True, ready["foreground"])
+        self.assertEqual("visible", ready["visibility_state"])
         self.assertEqual(str(FAKE_CDP), ready["cdp_script"])
         self.assertGreaterEqual(ready["duration_ms"], 0)
         steps = [item for item in payloads if item["type"] == "step_done"]
@@ -286,6 +288,41 @@ class FlowRunnerTests(unittest.TestCase):
         self.assertEqual(1, process.returncode)
         self.assertIn("DRIVER_INCOMPATIBLE",
                       (out / "run-log.jsonl").read_text(encoding="utf-8"))
+
+    def test_driver_without_foreground_evidence_is_rejected_as_incompatible(self):
+        process, out, _ = self.run_flow("""
+            story: missing-foreground
+            title: Missing foreground evidence
+            scenarios:
+              - id: smoke
+                steps:
+                  - {action: open, target: "https://example.test", capture: false}
+        """, env_overrides={"FAKE_CDP_OMIT_FOREGROUND": "1"})
+        self.assertEqual(1, process.returncode)
+        payloads = [json.loads(line) for line in
+                    (out / "run-log.jsonl").read_text(encoding="utf-8").splitlines()]
+        fatal = next(item for item in payloads if item["type"] == "fatal")
+        self.assertEqual("DRIVER_INCOMPATIBLE", fatal["error"]["code"])
+        self.assertIn("foreground-ready evidence", fatal["error"]["message"])
+        self.assertIn(str(FAKE_CDP), fatal["error"]["message"])
+
+    def test_hidden_target_fails_closed_before_any_flow_step(self):
+        process, out, _ = self.run_flow("""
+            story: hidden-target
+            title: Hidden target
+            scenarios:
+              - id: smoke
+                steps:
+                  - {action: open, target: "https://example.test", capture: false}
+        """, env_overrides={"FAKE_CDP_FOREGROUND": "false",
+                             "FAKE_CDP_VISIBILITY": "hidden"})
+        self.assertEqual(1, process.returncode)
+        payloads = [json.loads(line) for line in
+                    (out / "run-log.jsonl").read_text(encoding="utf-8").splitlines()]
+        fatal = next(item for item in payloads if item["type"] == "fatal")
+        self.assertEqual("TARGET_BACKGROUND", fatal["error"]["code"])
+        self.assertFalse(any(item["type"] == "step" for item in payloads))
+        self.assertIn("performance baseline", fatal["error"]["message"])
 
     def test_auto_answered_dialogs_are_evidence_and_policy_is_pinned(self):
         flow = """

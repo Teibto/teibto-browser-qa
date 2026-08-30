@@ -10,6 +10,13 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Runner fail closed ก่อนเริ่ม flow ถ้า canonical driver ไม่แนบ foreground-ready evidence หรือ target
+  ที่ pin ยัง hidden; real-Chrome consumer gate บังคับแท็บคู่แข่งให้ active ก่อนทุก run แล้วพิสูจน์ว่า
+  driver foreground target ที่ถูกต้อง ป้องกัน NetSuite background-timer throttle และ performance
+  baseline ช้าปลอม (#74).
+
 ## [2.3.0] - 2026-08-30
 
 **Token-safe performance budgets with protocol-v3 dialog attribution and pinned driver compatibility.**

@@ -10,10 +10,10 @@ permissions:
   contents: read
 
 env:
-  # Canonical driver generation this runner is verified against (JSONL protocol v3+).
-  # Bump deliberately together with README/CONTRIBUTING; driver-compat runs the live test
-  # against exactly this tag of Teibto/teibto-dev-standards.
-  TEIBTO_DEV_STANDARDS_REF: v0.83.0
+  # Temporary immutable pin to teibto-dev-standards PR #277 while its release is blocked by #274.
+  # Before this browser PR leaves draft, replace the SHA with the reviewed release tag and update
+  # README/CONTRIBUTING/CLAIMS-AUDIT in the same commit.
+  TEIBTO_DEV_STANDARDS_REF: 56b4e788ab80807c3f62b43b88a151a52a96df8e
 
 jobs:
   quality-gate:
@@ -90,7 +90,7 @@ jobs:
             exit 1
           fi
 
-      - name: Checkout canonical driver at the pinned tag
+      - name: Checkout canonical driver at the pinned revision
         if: steps.access.outputs.available == 'true'
         uses: actions/checkout@v5
         with:

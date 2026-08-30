@@ -23,6 +23,7 @@
 15. `innerWidth` ใต้ device-metrics override รวม scrollbar — ด่าน overflow จึงแดงทุกความกว้าง (fail ปลอม)
 16. `el.focus()` ไม่ทำให้ `:focus-visible` ทำงาน — ด่าน focus ring รายงานว่า "ทุกปุ่มไม่มี ring"
 17. Chrome cache หน้าเดิม — แก้ไฟล์แล้ว QA ยังวัดโค้ดเก่า ผลที่ได้จึงเป็นของรุ่นก่อนแก้
+18. NetSuite อยู่แท็บเบื้องหลัง — timer throttle ทำให้ performance baseline ช้าปลอมหลายเท่า
 
 ---
 
@@ -344,3 +345,17 @@ c.nav(URL + "?qa=" + str(int(time.time())))   # cache-bust ทุกรอบ
 
 ตัวชี้ขาดว่าเจอกับดักนี้: เปิด URL พร้อม query ใหม่แล้วผลเปลี่ยนทันที · เจอจริง 2026-08-15
 (#117 ของ ERP-AI-First) เสียเวลาไปหนึ่งรอบเต็มกับการยืนยันว่า fix ที่ถูกอยู่แล้ว "ไม่ทำงาน"
+
+---
+
+## 18. NetSuite อยู่แท็บเบื้องหลัง — performance baseline ช้าปลอมหลายเท่า [HIGH]
+
+NetSuite client loop ที่ yield ด้วย `setTimeout(0)` ถูก Chrome throttle เมื่อ
+`document.visibilityState=hidden`. คำสั่งยังสำเร็จและผลธุรกิจอาจเหมือนเดิม แต่เวลารวมพองขึ้นหลายเท่า;
+การสรุปว่า Suitelet/MRP ช้าจาก run นี้จึงผิด.
+
+ก่อน `session_ready`, canonical driver ต้องเรียก `Page.bringToFront` กับ **target ที่ pin** และยืนยัน
+`document.visibilityState=visible`. Runner ต้องเห็น `foreground=true` กับ
+`visibility_state=visible` จึงเริ่ม step; ขาด field ให้ถือว่า driver ไม่ compatible และ hidden ให้ fail
+`TARGET_BACKGROUND`. อย่าใช้ screenshot เพื่อปลุกแท็บ เพราะ performance pass ที่ไม่ถ่ายภาพจะย้อนกลับ
+ไปช้าโดยไม่มีสัญญาณเตือน.

@@ -7,10 +7,15 @@ history and `CHANGELOG.md`.
 ## Evidence boundary
 
 - Browser QA release under review: `v2.2.0` (`1434cb6`).
-- Canonical driver: `teibto-dev-standards v0.83.0` (`3868281`).
+- Canonical released driver: `teibto-dev-standards v0.83.0` (`3868281`).
+- Foreground-ready driver candidate: `teibto-dev-standards@56b4e788ab80807c3f62b43b88a151a52a96df8e`
+  (PR #277), `scripts/cdp.py` blob `6d9dcc7ea5a8a9a36a7138945dbece8a86a9177f`.
 - Performance runs: Windows host, Chrome `151.0.7922.140`, 2026-08-22.
 - Issue #69 revalidation: Windows host, Chrome `151.0.7922.174`, 2026-08-30; local driver file
   blob `21bf0cb72adaee04633c21a1c5758cbbf7a4da96` from worktree commit `b745196`.
+- Issue #74 revalidation: same Windows host, Chrome `151.0.7922.174`, 2026-08-30; foreground-ready
+  candidate commit/blob above. The candidate is not a released dependency until its upstream review,
+  CI, and release gates pass.
 - The pinned `scripts/cdp.py` blob is `28ca9e4a6475639f102d24a1cb2aab2dc736a3c9`, identical to
   the blob at canonical tag `v0.83.0`.
 - Driver internals are owned by canonical `tests/test-cdp.sh`; this repository keeps thin consumer
@@ -28,8 +33,9 @@ Status terms:
 
 | Claim | Status | Evidence |
 |---|---|---|
-| Runner requires `teibto-cdp-jsonl` protocol v3+ and verifies `input-settle=none` | verified, version-pinned | unit incompatibility cases plus live consumer gate against v0.83.0 |
-| Structured per-command dialogs are attributed once to the causing step | verified, version-pinned | unit structured-payload/malformed-payload cases plus v0.83.0 live alert fixture |
+| Runner requires protocol v3+, verifies `input-settle=none`, and requires foreground-ready fields | verified, version-pinned | missing/hidden unit cases plus 20-run two-tab live consumer gate against candidate `56b4e788` |
+| The exact pinned target is visible before any flow step while the competing tab becomes hidden | verified, version-pinned | canonical two-tab gate plus browser live test that re-hides the target before every run |
+| Structured per-command dialogs are attributed once to the causing step | verified, version-pinned | unit structured-payload/malformed-payload cases plus v0.83.0 and candidate live alert fixtures |
 | Event-bound navigation waits for the new main-frame commit/load and fails on cancel/timeout | verified | canonical `tests/test-cdp.sh` T16c–T16j; runner live test |
 | Collector is installed before next-document scripts and resets per page | verified | canonical T15/T16d; `self-test/smoke-test.sh` console checks |
 | Fast input settle is scoped to direct runner input; `pick`/`lens` retain normal settle | verified | canonical session probe T19u/v |
@@ -51,6 +57,7 @@ The comparison measures summed live step time, excluding Chrome startup:
 | issue #54 revalidation | 20 fresh child sessions on one temporary Chrome target | 972.687 ms | 20/20 pass |
 | issue #69 current-host revalidation | 20 fresh child sessions on one temporary Chrome target | 618.904 ms | 20/20 pass |
 | issue #68 exact v0.83.0 pin | 20 fresh child sessions on one temporary Chrome target | 743.579 ms | 20/20 pass; per-step alert dialog |
+| issue #74 foreground-ready candidate | 20 fresh child sessions; target hidden before every session | 653.229 ms | 20/20 pass; p95 739.154 ms |
 
 Measured improvement: **85.8%**. Candidate medians were startup 181.014 ms, open 30.552 ms, fill
 171.488 ms, click 396.767 ms, and total run 823.390 ms. The fixture intentionally waits 150/300 ms
@@ -76,6 +83,26 @@ The issue #68 exact-tag revalidation used Chrome 151.0.7922.174 and canonical dr
 fill 235.235 ms, click 442.186 ms, step flow 743.579 ms, and total 1,208.506 ms. All 20 runs
 attributed one live alert exactly once to step 3. This fixture adds a dialog round trip, so its absolute
 time is compatibility evidence, not a direct latency regression comparison with earlier rows.
+
+The final issue #74 live set used one temporary Chrome instance with a competing tab. Before each of
+20 sessions the harness activated the competing tab and proved the pinned target hidden; after runner
+startup it proved the pinned target visible and competitor hidden. Median/p95 milliseconds were:
+startup 294.828/414.997, open 41.049/67.821, fill 192.673/226.710, click 432.772/467.162,
+step flow 653.229/739.154, and total run 972.063/1,198.926. A preceding 20-run set also passed 20/20
+(median step flow 675.275 ms), so the final set was not a lone successful sample.
+
+The motivating anonymized NetSuite Suitelet/MRP evidence is recorded in canonical issue #276: the
+same-result foreground/background pairs were 34.784/389.246 seconds (about 11.2x) and
+31.094/160.035 seconds (about 5.1x). These are historical sandbox observations, not a controlled
+driver A/B and not a fresh authenticated NetSuite rerun. The mechanism is supported separately by
+the hidden/visible target proof and the client loop's `setTimeout(0)` behavior; no customer identifier
+is needed or retained here.
+
+Canonical PR #277 measured readiness overhead with 30 alternating same-host pairs: baseline/candidate
+median wall time 220.358/233.825 ms, +13.467 ms (about 6.1%) per session. Its synthetic headless
+fixture did not reproduce the background timer clamp, so this repository makes no synthetic speedup
+claim. The large speed-risk finding comes from the NetSuite observations above; the fixture gates the
+foreground invariant and bounds its startup cost.
 
 Absolute milliseconds are evidence for this host, not a cross-machine CI budget. The portable driver
 gate is ratio-based in canonical `tests/cdp-session-probe.py`. Reproduce with:

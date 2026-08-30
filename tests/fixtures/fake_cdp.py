@@ -19,9 +19,13 @@ if os.environ.get("FAKE_CDP_REJECT_INPUT_SETTLE") and input_settle != "fixed":
                                 "message": f"session: flag ไม่รู้จัก: --input-settle={input_settle}",
                                 "transient": False}}), flush=True)
     raise SystemExit(2)
-print(json.dumps({"type": "ready", "ok": True, "protocol": "teibto-cdp-jsonl",
-                  "version": int(os.environ.get("FAKE_CDP_VERSION", "3")),
-                  "input_settle": input_settle, "target_id": target, "port": 9222}), flush=True)
+ready = {"type": "ready", "ok": True, "protocol": "teibto-cdp-jsonl",
+         "version": int(os.environ.get("FAKE_CDP_VERSION", "3")),
+         "input_settle": input_settle, "target_id": target, "port": 9222}
+if not os.environ.get("FAKE_CDP_OMIT_FOREGROUND"):
+    ready["foreground"] = os.environ.get("FAKE_CDP_FOREGROUND", "true").lower() == "true"
+    ready["visibility_state"] = os.environ.get("FAKE_CDP_VISIBILITY", "visible")
+print(json.dumps(ready), flush=True)
 values = {}
 url = "about:blank"
 # FAKE_CDP_DIALOG=<kind>:<message> makes every click raise that dialog; the answer follows the

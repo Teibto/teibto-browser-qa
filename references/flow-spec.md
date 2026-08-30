@@ -18,6 +18,8 @@ $env:TEIBTO_CDP_SCRIPT = 'D:\path\to\teibto-dev-standards\scripts\cdp.py'
 - secret ส่งผ่าน stdin (`--vars-json -`), ไม่อยู่ใน process argv/log/report
 - หนึ่ง run ใช้ target ที่ pin และ `cdp.py` JSONL protocol v3+ เพียง process/WebSocket เดียว;
   runner ขอ `--input-settle=none` และ verify policy จาก ready handshake แบบ fail closed
+- ready handshake ต้องยืนยัน `foreground=true` + `visibility_state=visible` ของ target ที่ pin;
+  ขาด field = `DRIVER_INCOMPATIBLE`, target ยัง hidden = `TARGET_BACKGROUND` และไม่มี step ใดเริ่ม
 - `open` รอ main-frame commit/load event จริง; ไม่ใช้ zero-drain + `readyState` ที่อาจอ่านหน้าเก่า
 - `click` ใช้ native input เท่านั้น; ไม่มี JS fallback เงียบ
 - action/wait/assert/screenshot/console ล้ม = หยุด scenario และ verdict `FAIL`
@@ -94,6 +96,12 @@ Dialog: cdp.py protocol v3 แนบ `dialogs: [{type,message,answer}]` ใน r
 default `safe` (alert = accept, อย่างอื่น = dismiss) และเปลี่ยนได้เฉพาะ `--dialog` ของ runner —
 QA run ไม่ inherit `DIALOG` จาก shell ตาม SKILL.md invariant 5. ทุก dialog จึงผูกกับ step/command
 ที่ทำให้เกิดได้โดยตรง; payload ที่ shape ผิดทำให้ `INVALID_SESSION_OUTPUT` แทนการทิ้ง evidence เงียบ ๆ.
+
+ก่อน emit `ready`, canonical driver ทำ target ที่ pin เป็น foreground และพิสูจน์
+`document.visibilityState=visible`. Runner ไม่เรียก screenshot เพื่อ activate แบบอ้อมและไม่ยอมรับ
+run ที่ target hidden เพราะ Chrome อาจ throttle timer ของ NetSuite จน performance baseline ช้าปลอม.
+`run_start.driver_policy.foreground_required` และ `session_ready.foreground`/`visibility_state` เก็บ
+contract กับหลักฐานที่ใช้จริงใน artifact.
 
 `run-log.jsonl` เก็บ runner wall-clock และ authoritative driver `duration_ms`/`attempts` แยก
 `action`, `wait`, `assert`, `capture`; failure มี partial phases + `failing_phase`, console check มี
