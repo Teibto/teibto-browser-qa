@@ -12,6 +12,24 @@
 
 ### Added
 
+- **Origin gate** — flow ประกาศ `allowed_origins` (origin เต็ม ไม่รับ wildcard) แล้ว runner ตรวจสองชั้น:
+  เป้าหมายที่ประกาศไว้ตรวจก่อนเปิดเบราว์เซอร์ และ **URL จริงหลังทุก step** เพื่อจับ redirect/SSO ที่พา run
+  ออกนอกขอบเขตหลังจากผ่านด่านแรกไปแล้ว หลุด = typed failure `ORIGIN_NOT_ALLOWED` ที่หยุด scenario
+  พร้อม failure evidence การเทียบใช้การ parse URL ไม่ใช่ prefix เพราะ
+  `https://sb1.example.com.attacker.test` ขึ้นต้นด้วย origin ที่อนุญาตเมื่อมองเป็นสตริงแต่เป็นคนละ origin
+  จริง ๆ · flow ที่ไม่ประกาศ `allowed_origins` ทำงานเหมือนเดิมและไม่จ่าย round trip เพิ่ม (#79)
+- **Risk class ระดับ step** — `risk: read | write | destructive` โดย `destructive` ต้องสั่ง
+  `--allow-destructive` ที่ระดับ run มิฉะนั้น runner ปฏิเสธ flow ตั้งแต่ก่อนเปิด session
+  (`DESTRUCTIVE_NOT_ALLOWED`) — เจตนาที่จะลบหรือทับข้อมูลจริงต้องถูกประกาศไว้ในไฟล์ ไม่ใช่ค้นพบตอนรัน (#79)
+- `run_start.run_policy` และ `run_done.origin_gate`/`risk_counts` รายงาน policy ที่ใช้จริง และ
+  `qa-report.md` ขึ้นสองบรรทัดบนหัวรายงานว่า origin ไหนถูกอนุญาต ผ่านด่านกี่ step และ destructive
+  ถูกอนุญาตหรือไม่ (#79)
+
+### Changed
+
+- `perf_budget_ms` หักเวลาที่ใช้กับ origin gate ออกจาก `outcome_ms` — budget วัดผลลัพธ์ที่สังเกตได้ของ
+  แอป ไม่ใช่ policy check ของเรา flow ที่ประกาศ origin ของตัวเองจึงไม่ถูกลงโทษด้วย budget ที่เข้มขึ้น (#79)
+
 - ลำดับการเล็งเป้าแบบ semantic-first เป็นกติกาใน `SKILL.md` + `references/commands.md`:
   `@ref` จาก `a11y` → `data-test`/`id` → CSS เชิงโครงสร้าง → พิกัด (canvas/วิดีโอ/surface ที่ฝังมาเท่านั้น
   และ `cdp.py` ไม่มีคำสั่งที่รับพิกัดอยู่แล้ว จึงเป็นข้อจำกัดที่บันทึกไว้ ไม่ใช่ fallback) (#78)

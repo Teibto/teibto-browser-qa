@@ -28,7 +28,9 @@ def load_runner():
     return module
 
 
-class FlowRunnerTests(unittest.TestCase):
+class RunnerHarness:
+    """Shared fixture plumbing; mixed into a TestCase so suites do not re-run each other."""
+
     def workspace(self) -> Path:
         root = TEST_TMP / uuid.uuid4().hex
         root.mkdir()
@@ -54,6 +56,8 @@ class FlowRunnerTests(unittest.TestCase):
         )
         return process, out, counter
 
+
+class FlowRunnerTests(RunnerHarness, unittest.TestCase):
     def test_pass_uses_one_session_and_redacts_secret(self):
         process, out, counter = self.run_flow("""
             story: login
@@ -390,6 +394,189 @@ class FlowRunnerTests(unittest.TestCase):
         step = next(item for item in payloads if item["type"] == "step_done")
         self.assertEqual("assert", step["timings"]["failing_phase"])
         self.assertIn("capture", step["timings"]["phases"])
+
+
+class OriginAndRiskPolicyTests(RunnerHarness, unittest.TestCase):
+    """BAS-4: a run declares where it is allowed to go, and fails closed when it leaves."""
+
+    ALLOWED = "https://sb1.example.test"
+
+    def payloads(self, out: Path) -> list[dict]:
+        return [json.loads(line) for line in
+                (out / "run-log.jsonl").read_text(encoding="utf-8").splitlines()]
+
+    def test_flow_without_allowed_origins_keeps_previous_behaviour(self):
+        process, out, counter = self.run_flow("""
+            story: no-policy
+            title: No declared origins
+            scenarios:
+              - id: smoke
+                steps:
+                  - {action: open, target: "https://anywhere.test/page", capture: false}
+        """)
+        self.assertEqual(0, process.returncode, process.stdout + process.stderr)
+        self.assertEqual(["start"], counter.read_text(encoding="utf-8").splitlines())
+        start = next(item for item in self.payloads(out) if item["type"] == "run_start")
+        self.assertEqual("not-declared", start["run_policy"]["origin_gate"])
+        done = next(item for item in self.payloads(out) if item["type"] == "run_done")
+        self.assertFalse(done["origin_gate"]["enforced"])
+        self.assertIn("none declared", (out / "qa-report.md").read_text(encoding="utf-8"))
+
+    def test_declared_target_outside_allowed_origins_fails_before_the_browser(self):
+        process, out, counter = self.run_flow(f"""
+            story: wrong-origin
+            title: Declared target escapes
+            allowed_origins: ["{self.ALLOWED}"]
+            scenarios:
+              - id: smoke
+                steps:
+                  - {{action: open, target: "https://prod.example.test/app", capture: false}}
+        """)
+        self.assertEqual(1, process.returncode)
+        self.assertFalse(counter.exists(), "the session must not start once the flow is rejected")
+        fatal = next(item for item in self.payloads(out) if item["type"] == "fatal")
+        self.assertEqual("ORIGIN_NOT_ALLOWED", fatal["error"]["code"])
+        self.assertIn("prod.example.test", fatal["error"]["message"])
+
+    def test_redirect_outside_allowed_origins_fails(self):
+        """The declared target is fine; the live URL is not. Only a post-navigation check sees it."""
+        process, out, _ = self.run_flow(f"""
+            story: redirected
+            title: Redirect escapes
+            allowed_origins: ["{self.ALLOWED}"]
+            scenarios:
+              - id: smoke
+                steps:
+                  - {{action: open, target: "{self.ALLOWED}/login", capture: false}}
+        """, env_overrides={"FAKE_CDP_REDIRECT_TO": "https://prod.example.test/app"})
+        self.assertEqual(1, process.returncode)
+        step = next(item for item in self.payloads(out) if item["type"] == "step_done")
+        self.assertEqual("ORIGIN_NOT_ALLOWED", step["error"]["code"])
+        self.assertEqual("origin", step["timings"]["failing_phase"])
+
+    def test_lookalike_host_is_rejected_where_a_prefix_match_would_pass(self):
+        lookalike = f"{self.ALLOWED}.attacker.test/app"
+        self.assertTrue(lookalike.startswith(self.ALLOWED), "fixture must fool a prefix match")
+        process, out, _ = self.run_flow(f"""
+            story: lookalike
+            title: Lookalike host
+            allowed_origins: ["{self.ALLOWED}"]
+            scenarios:
+              - id: smoke
+                steps:
+                  - {{action: open, target: "{self.ALLOWED}/login", capture: false}}
+        """, env_overrides={"FAKE_CDP_REDIRECT_TO": lookalike})
+        self.assertEqual(1, process.returncode)
+        step = next(item for item in self.payloads(out) if item["type"] == "step_done")
+        self.assertEqual("ORIGIN_NOT_ALLOWED", step["error"]["code"])
+
+    def test_non_http_scheme_is_rejected(self):
+        process, out, counter = self.run_flow(f"""
+            story: bad-scheme
+            title: Non-http scheme
+            allowed_origins: ["{self.ALLOWED}"]
+            scenarios:
+              - id: smoke
+                steps:
+                  - {{action: open, target: "javascript:alert(1)", capture: false}}
+        """)
+        self.assertEqual(1, process.returncode)
+        self.assertFalse(counter.exists())
+        fatal = next(item for item in self.payloads(out) if item["type"] == "fatal")
+        self.assertEqual("ORIGIN_NOT_ALLOWED", fatal["error"]["code"])
+        self.assertIn("scheme is not http/https", fatal["error"]["message"])
+
+    def test_destructive_step_is_blocked_without_the_run_level_opt_in(self):
+        process, out, counter = self.run_flow("""
+            story: destructive
+            title: Destructive step
+            scenarios:
+              - id: cleanup
+                steps:
+                  - action: click
+                    target: "#delete-everything"
+                    risk: destructive
+                    assert: {target: "#notice", contains: "saved"}
+                    capture: false
+        """)
+        self.assertEqual(1, process.returncode)
+        self.assertFalse(counter.exists())
+        fatal = next(item for item in self.payloads(out) if item["type"] == "fatal")
+        self.assertEqual("DESTRUCTIVE_NOT_ALLOWED", fatal["error"]["code"])
+        self.assertIn("cleanup#1", fatal["error"]["message"])
+
+    def test_destructive_step_runs_with_the_opt_in(self):
+        process, out, counter = self.run_flow("""
+            story: destructive-ok
+            title: Destructive step allowed
+            scenarios:
+              - id: cleanup
+                steps:
+                  - action: click
+                    target: "#delete-everything"
+                    risk: destructive
+                    assert: {target: "#notice", contains: "saved"}
+                    capture: false
+        """, extra_args=["--allow-destructive"])
+        self.assertEqual(0, process.returncode, process.stdout + process.stderr)
+        self.assertEqual(["start"], counter.read_text(encoding="utf-8").splitlines())
+        start = next(item for item in self.payloads(out) if item["type"] == "run_start")
+        self.assertTrue(start["run_policy"]["destructive_allowed"])
+        self.assertEqual(1, start["run_policy"]["risk_counts"]["destructive"])
+        self.assertIn("destructive allowed", (out / "qa-report.md").read_text(encoding="utf-8"))
+
+    def test_origin_check_is_not_charged_to_the_performance_budget(self):
+        """perf_budget_ms measures the application's observable outcome, not our policy check."""
+        process, out, _ = self.run_flow(f"""
+            story: budget
+            title: Budget with the gate on
+            allowed_origins: ["{self.ALLOWED}"]
+            scenarios:
+              - id: smoke
+                steps:
+                  - action: open
+                    target: "{self.ALLOWED}/page"
+                    perf_budget_ms: 600000
+                    capture: false
+        """)
+        self.assertEqual(0, process.returncode, process.stdout + process.stderr)
+        step = next(item for item in self.payloads(out) if item["type"] == "step_done")
+        self.assertIn("origin", step["timings"]["phases"])
+        self.assertLess(step["performance"]["outcome_ms"], step["timings"]["total_ms"])
+        done = next(item for item in self.payloads(out) if item["type"] == "run_done")
+        self.assertEqual(1, done["origin_gate"]["checks"])
+
+
+class OriginHelperTests(unittest.TestCase):
+    """Pure helpers, so the parsing rules are pinned without starting a run."""
+
+    def setUp(self) -> None:
+        self.runner = load_runner()
+
+    def test_origin_of_normalises_case_and_keeps_the_port(self):
+        self.assertEqual("https://sb1.example.test:8443",
+                         self.runner.origin_of("HTTPS://SB1.Example.Test:8443/path?q=1#x"))
+
+    def test_origin_of_rejects_other_schemes(self):
+        for url in ("javascript:alert(1)", "file:///c:/tmp/x.html", "data:text/html,hi", "", "/rel"):
+            with self.subTest(url=url):
+                self.assertIsNone(self.runner.origin_of(url))
+
+    def test_origin_violation_distinguishes_host_suffixes(self):
+        allowed = ["https://sb1.example.test"]
+        self.assertIsNone(self.runner.origin_violation("https://sb1.example.test/a/b", allowed))
+        self.assertIsNotNone(
+            self.runner.origin_violation("https://sb1.example.test.attacker.test/", allowed))
+        self.assertIsNotNone(self.runner.origin_violation("http://sb1.example.test/", allowed))
+
+    def test_flow_policy_defaults_missing_risk_to_read(self):
+        policy = self.runner.flow_policy({
+            "scenarios": [{"id": "s", "steps": [{"action": "click"},
+                                                {"action": "click", "risk": "write"},
+                                                {"action": "click", "risk": "destructive"}]}]
+        })
+        self.assertEqual({"read": 1, "write": 1, "destructive": 1}, policy["risk_counts"])
+        self.assertEqual(["s#3"], policy["destructive_steps"])
 
 
 if __name__ == "__main__":

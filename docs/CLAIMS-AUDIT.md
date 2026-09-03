@@ -37,6 +37,11 @@ Status terms:
 | Runner telemetry separates driver duration, runner wall time, attempts, and failing phase | verified | unit event assertions plus live `run-log.jsonl` parsing |
 | `--stdout summary` keeps the complete artifact but emits terminal output only | verified, measured | unit stream/artifact comparison; issue #69 o200k_base measurement below |
 | Step `perf_budget_ms` measures action through observable wait/assert and excludes capture/startup | verified | pass/exceedance unit tests with a delayed capture |
+| `allowed_origins` is enforced against the live URL after every step, not only against declared targets | verified | redirect and lookalike-host cases in `tests/test_flow_runner.py` |
+| Origin comparison parses the URL, so a host that merely starts with an allowed origin is rejected | verified | `OriginHelperTests` suffix case plus the lookalike run |
+| A step marked `risk: destructive` cannot run without `--allow-destructive`, and the session never starts | verified | blocked/allowed unit pair asserting the session counter |
+| The origin check is excluded from `perf_budget_ms` | verified | budget run asserting `outcome_ms` below step `total_ms` with an `origin` phase present |
+| A flow that declares no `allowed_origins` keeps its previous behaviour and pays no extra round trip | verified | no-policy run asserting `origin_gate: not-declared` |
 | Missing/old driver fails as `DRIVER_INCOMPATIBLE` rather than using a silent fallback | verified | `tests/test_flow_runner.py` |
 | Success/failure screenshots follow scenario/step capture policy | verified | runner unit tests and live fixture |
 

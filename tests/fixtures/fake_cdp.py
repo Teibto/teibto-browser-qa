@@ -47,7 +47,9 @@ for line in sys.stdin:
         sys.stderr.write(f"[dialog] {kind}: {message} -> {answer}\n")
         sys.stderr.flush()
     if command == "nav":
-        url = args[0]
+        # FAKE_CDP_REDIRECT_TO models a server-side redirect: the navigation is accepted but
+        # the live URL is somewhere else, which is the case a prefix match would let through.
+        url = os.environ.get("FAKE_CDP_REDIRECT_TO") or args[0]
         data = url
     elif command == "fill":
         values[args[0]] = args[1]
