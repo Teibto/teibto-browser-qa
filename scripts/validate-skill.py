@@ -34,6 +34,14 @@ PROPOSAL_STATUS = "สถานะ: ข้อเสนอ"
 EXPECTED_BAS_RULES = 9
 BAS_SPLIT_RE = re.compile(r"(?m)^### (?=BAS-)")
 
+TARGETING_ORDER_MARKER = "Target in this order"
+TARGETING_TIERS = ('a11y "<visible name>"', "data-test", "coordinates")
+VISUAL_VERDICT = "`PASS(visual)`"
+# A recipe, not a mention: `AB click 412 233` / `cdp.py click 412 233`. The descriptive
+# `elementFromPoint` note in gotchas.md is a limit being documented, not an instruction to follow,
+# so matching bare words here would fail the gate on honest prose.
+COORDINATE_CLICK_RE = re.compile(r"(?:\bAB|cdp\.py)\s+click\s+[\"']?-?\d")
+
 
 class ValidationError(ValueError):
     pass
@@ -148,6 +156,40 @@ def standard_violations(skill_text: str, standard_text: str) -> list[str]:
     return problems
 
 
+def targeting_violations(texts: dict[str, str]) -> list[str]:
+    """Return every way the docs break BAS-1 (semantic targeting, pixels are second class).
+
+    `texts` maps a repo-relative path to its content so the negative cases stay unit-testable.
+    """
+    problems: list[str] = []
+
+    skill_text = texts.get("SKILL.md", "")
+    if TARGETING_ORDER_MARKER not in skill_text:
+        problems.append("SKILL.md does not state the targeting order (BAS-1)")
+    missing_tiers = [tier for tier in TARGETING_TIERS if tier not in skill_text]
+    if missing_tiers:
+        problems.append("SKILL.md targeting order omits: " + ", ".join(missing_tiers))
+
+    limits_text = texts.get("references/cdp-limits.md", "")
+    if VISUAL_VERDICT not in limits_text:
+        problems.append("references/cdp-limits.md does not define PASS(visual)")
+
+    for name, text in sorted(texts.items()):
+        for match in COORDINATE_CLICK_RE.finditer(text):
+            line = text.count("\n", 0, match.start()) + 1
+            problems.append(f"{name}:{line} teaches a coordinate click; BAS-1 allows refs first")
+    return problems
+
+
+def validate_targeting() -> None:
+    texts = {"SKILL.md": (ROOT / "SKILL.md").read_text(encoding="utf-8")}
+    for path in sorted((ROOT / "references").glob("*.md")):
+        texts[f"references/{path.name}"] = path.read_text(encoding="utf-8")
+    problems = targeting_violations(texts)
+    if problems:
+        raise ValidationError("semantic targeting: " + "; ".join(problems))
+
+
 def validate_standard() -> None:
     problems = standard_violations(
         (ROOT / "SKILL.md").read_text(encoding="utf-8"),
@@ -165,12 +207,13 @@ def main() -> int:
         validate_active_names()
         validate_doc_links()
         validate_standard()
+        validate_targeting()
     except (OSError, yaml.YAMLError, ValidationError) as exc:
         print(f"FAIL: {exc}", file=sys.stderr)
         return 1
     print(
         "PASS: skill identity, active names, example flows, local Markdown links, "
-        "and browser agent standard gates"
+        "browser agent standard gates, and semantic targeting"
     )
     return 0
 
