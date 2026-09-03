@@ -62,6 +62,10 @@ fallback ของ action เพราะ synthetic click จะซ่อนป�
 
 ## หา element แบบ semantic (ทน dynamic UI)
 
+**ลำดับการเล็งเป้า — หยุดที่ตัวแรกที่ใช้ได้:** `@ref` จาก `a11y` → `data-test`/`id` ที่แอปเป็นเจ้าของ →
+CSS เชิงโครงสร้าง → พิกัด (canvas/วิดีโอ/surface ที่ฝังมาเท่านั้น และ **`cdp.py` ไม่มีคำสั่งที่รับพิกัด**)
+ผลที่มีแต่ pixel ยืนยันได้คือ `PASS(visual)` ไม่ใช่ `PASS` → `cdp-limits.md` §0
+
 `a11y` คืน role + accessible name + ref สำหรับค้น element แบบ semantic:
 
 ```bash

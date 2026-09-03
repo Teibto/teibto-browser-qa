@@ -12,6 +12,17 @@
 
 ### Added
 
+- ลำดับการเล็งเป้าแบบ semantic-first เป็นกติกาใน `SKILL.md` + `references/commands.md`:
+  `@ref` จาก `a11y` → `data-test`/`id` → CSS เชิงโครงสร้าง → พิกัด (canvas/วิดีโอ/surface ที่ฝังมาเท่านั้น
+  และ `cdp.py` ไม่มีคำสั่งที่รับพิกัดอยู่แล้ว จึงเป็นข้อจำกัดที่บันทึกไว้ ไม่ใช่ fallback) (#78)
+- `references/cdp-limits.md` §0 นิยาม **`PASS(visual)`** เป็นผลคนละชั้นกับ `PASS` และเพิ่มคอลัมน์
+  **ชั้นหลักฐานสูงสุด** ให้ตารางข้อจำกัด — เดิมตารางบอกแค่ว่าทำอะไรไม่ได้ ไม่ได้บอกว่าเส้นทางที่เหลือ
+  ให้ผลแข็งแค่ไหน คนอ่านจึงยกผลจาก `PASS(visual)` ขึ้นเป็น `PASS` ได้โดยไม่มีอะไรทัดทาน (#78)
+- ด่าน `targeting_violations()` ใน `scripts/validate-skill.py`: ล้มเมื่อ `SKILL.md` ไม่ระบุลำดับการเล็งเป้า
+  หรือขาดชั้นใดชั้นหนึ่ง, เมื่อ `cdp-limits.md` ทิ้งนิยาม `PASS(visual)`, และเมื่อเอกสารใดสอนสูตรคลิกด้วยพิกัด
+  โดย **ยังปล่อยผ่านข้อความที่แค่ *อธิบาย* ข้อจำกัดเรื่องพิกัด** (เช่น `elementFromPoint` ใน `gotchas.md` §8)
+  — ถ้าจับกว้างกว่านี้ เอกสารที่ซื่อสัตย์จะกลายเป็นตัวที่ทำให้ CI แดง (#78)
+
 - `docs/BROWSER-AGENT-STANDARD.md` — Browser Agent Standard (BAS) v1 เป็น **ข้อเสนอ**: pain inventory
   26 ข้อจากบันทึกจริงของ repo (17 gotchas + CHANGELOG + claims ledger), กฎ BAS-1 ถึง BAS-9,
   coverage matrix ที่บอกว่ากฎข้อไหนปิด pain ข้อไหน, มติยืนยันว่า transport ยังเป็น `cdp.py` ตัวเดียว

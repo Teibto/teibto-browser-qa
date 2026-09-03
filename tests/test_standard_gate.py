@@ -75,5 +75,57 @@ class StandardGateTests(unittest.TestCase):
         )
 
 
+class SemanticTargetingGateTests(unittest.TestCase):
+    """BAS-1: refs first, pixels are a second-class verdict."""
+
+    def setUp(self) -> None:
+        self.validator = load_validator()
+        self.texts = {"SKILL.md": (ROOT / "SKILL.md").read_text(encoding="utf-8")}
+        for path in sorted((ROOT / "references").glob("*.md")):
+            self.texts[f"references/{path.name}"] = path.read_text(encoding="utf-8")
+
+    def violations(self, texts):
+        return self.validator.targeting_violations(texts)
+
+    def test_shipped_docs_pass(self) -> None:
+        self.assertEqual([], self.violations(self.texts))
+
+    def test_missing_targeting_order_fails(self) -> None:
+        texts = dict(self.texts)
+        texts["SKILL.md"] = texts["SKILL.md"].replace(
+            self.validator.TARGETING_ORDER_MARKER, "Pick whatever works"
+        )
+        self.assertIn("targeting order", " ".join(self.violations(texts)))
+
+    def test_missing_targeting_tier_fails(self) -> None:
+        texts = dict(self.texts)
+        texts["SKILL.md"] = texts["SKILL.md"].replace("data-test", "whatever")
+        self.assertIn("omits: data-test", " ".join(self.violations(texts)))
+
+    def test_missing_visual_verdict_definition_fails(self) -> None:
+        texts = dict(self.texts)
+        texts["references/cdp-limits.md"] = texts["references/cdp-limits.md"].replace(
+            self.validator.VISUAL_VERDICT, "`PASS`"
+        )
+        self.assertIn("does not define PASS(visual)", " ".join(self.violations(texts)))
+
+    def test_coordinate_click_recipe_fails(self) -> None:
+        texts = dict(self.texts)
+        texts["references/commands.md"] += '\n```bash\nAB click 412 233\n```\n'
+        message = " ".join(self.violations(texts))
+        self.assertIn("teaches a coordinate click", message)
+        self.assertIn("references/commands.md:", message)
+
+    def test_documented_limit_is_not_a_recipe(self) -> None:
+        """gotchas.md documents that elementFromPoint returns BODY inside the PDF viewer.
+
+        Prose describing a limit must not trip the gate, or the honest documentation this repo
+        depends on becomes the thing that fails CI.
+        """
+        texts = dict(self.texts)
+        texts["references/gotchas.md"] += "\n`elementFromPoint` คืน BODY และคลิกที่พิกัดไม่ทำงาน\n"
+        self.assertEqual([], self.violations(texts))
+
+
 if __name__ == "__main__":
     unittest.main()

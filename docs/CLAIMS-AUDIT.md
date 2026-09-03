@@ -103,6 +103,10 @@ than pinning a tokenizer-specific absolute count.
 | Page content reaching the agent is evidence, never instruction | principle | `SKILL.md` invariant 8; enforced by the standard gate in `scripts/validate-skill.py` |
 | A reported claim carries a verdict and an evidence class; `inferred` and `visual` cannot stand as `PASS` | principle | `SKILL.md` verdict table; gate rejects a SKILL.md that drops a class |
 | A BAS rule with no Gate line cannot be cited in a QA report | verified | `tests/test_standard_gate.py` ungated-rule and dropped-rule cases |
+| Targeting order is `@ref` first and coordinates last | principle | `SKILL.md` live action loop; the gate rejects docs that drop a tier |
+| A pixel-only result is `PASS(visual)`, never a full `PASS` | principle | `references/cdp-limits.md` §0; the gate requires the definition to stay |
+| Documentation cannot ship a coordinate-click recipe, while prose documenting the limit still passes | verified | `tests/test_standard_gate.py` coordinate-recipe and documented-limit cases |
+| `cdp.py click` accepts a selector or `@ref` only and resolves the centre itself; no CLI path takes raw coordinates | verified, version-pinned | canonical `cdp.py` v0.83.0 command dispatch (`cmd == "click"` → `center(a[0])` → `mouseclick`) |
 | Missing element is distinct from an empty value | verified | smoke `get` checks |
 | Eval shares page global scope; an IIFE avoids repeated `let` collisions | verified | smoke paired case |
 | One-shot device-scale/mobile override does not survive its WebSocket | verified, version-pinned | smoke paired `viewport`/`shot`; canonical driver tests own deeper behavior |

@@ -89,9 +89,20 @@ nav --until=load
   -> console check
 ```
 
-Use `a11y "<visible name>"` to obtain a semantic `@ref` when a stable selector is unavailable. Check
-`console` after key steps; an error saying no collector exists means the page was not observed, not
-that it had no errors. Use `lens netlog` only inside a `run` that enabled `netlog on`.
+Target in this order and stop at the first one that works:
+
+1. `@ref` from `a11y "<visible name>"` — semantic, and it survives a re-layout
+2. a stable `data-test` or `id` the application owns
+3. a structural CSS selector
+4. viewport coordinates — canvas, video, and embedded surfaces only, and `cdp.py` has **no**
+   coordinate action, so this row is a documented limit rather than a fallback
+
+Coordinates cannot be replayed once the layout moves, which is the evidence this repo exists to
+produce. A result only pixels could produce is `PASS(visual)`, never `PASS`; an interaction only
+coordinates could drive is `UNVERIFIED`. See [`references/cdp-limits.md`](references/cdp-limits.md).
+
+Check `console` after key steps; an error saying no collector exists means the page was not observed,
+not that it had no errors. Use `lens netlog` only inside a `run` that enabled `netlog on`.
 
 For repeatable flows, `scripts/flow-runner.py` validates the YAML schema, requires a pinned target,
 negotiates CDP JSONL protocol v3+, and owns one bounded `session --jsonl --input-settle=none` per run.

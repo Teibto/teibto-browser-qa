@@ -9,18 +9,45 @@
 
 ---
 
+## 0. ลำดับการเล็งเป้า และ `PASS(visual)`
+
+เล็งเป้าตามลำดับนี้ หยุดที่ตัวแรกที่ใช้ได้:
+
+| ลำดับ | ใช้อะไร | ทำไมอยู่ตรงนี้ |
+|---|---|---|
+| 1 | `@ref` จาก `a11y "<ชื่อที่มองเห็น>"` | semantic · ทน re-layout · ราคาถูกที่สุดต่อการค้นหนึ่งครั้ง |
+| 2 | `data-test` / `id` ที่แอปเป็นเจ้าของ | นิ่งพอ ๆ กัน แต่ผูกกับ implementation |
+| 3 | CSS selector เชิงโครงสร้าง | ใช้ได้ แต่เปราะต่อการ re-render → ต้องยืนยัน identity ที่กำลังจะคลิก |
+| 4 | พิกัดใน viewport | **canvas · วิดีโอ · surface ที่ฝังมา เท่านั้น** |
+
+**`PASS(visual)` คือผลคนละชั้นกับ `PASS`** — ใช้เมื่อสิ่งเดียวที่ยืนยันผลได้คือ pixel: ภาพหน้าจอ,
+`diff`, เนื้อหาใน canvas, หน้าที่อ่านค่าจาก DOM ไม่ได้. ห้ามนับเป็น `PASS` เต็ม เพราะ:
+
+- **replay ไม่ได้** — "คลิกที่ (412,233)" ตายทันทีที่ layout ขยับ ในขณะที่ `@ref`/selector ใส่
+  `flow.yaml` แล้วรันซ้ำได้ · หลักฐานที่ replay ไม่ได้คือหลักฐานที่ตรวจซ้ำไม่ได้
+- **ตัวเลขไม่ได้บอกว่าถูก** — `diff` บอกว่า "ต่างกี่ pixel" ไม่ได้บอกว่า "ผลลัพธ์ทางธุรกิจถูกไหม"
+
+ยกระดับจาก `PASS(visual)` เป็น `PASS` ได้ด้วยการหา assertion ที่อ่านจาก DOM/API มายืนยันเรื่องเดียวกัน
+ถ้าหาไม่ได้ ให้รายงานตามจริงว่าอยู่ชั้นนี้ พร้อมบอกว่าอะไรจะทำให้ยกระดับได้
+
+---
+
 ## 1. สิ่งที่ CDP แตะไม่ได้
 
-| ทำไม่ได้ | ทำไม | ต้องทำแทน |
-|---|---|---|
-| screenshot ของ `alert` / `confirm` / file dialog | เป็น native UI นอก DOM ทั้งหมด | OS-level capture (สูตรใน skill `netsuite-ui-qa-testing`) · ถ้าไม่ได้ทำ **ห้ามอ้างว่ามีภาพ** |
-| screenshot ของ native `<select>` popup ที่กางอยู่ | popup เป็น layer นอก DOM บางรุ่นจับติดบางรุ่นไม่ติด | ท่า DOM `size=N` (`commands.md` §จับภาพ native `<select>`) — อยู่ใน DOM จึงจับติดทุกรุ่น |
-| element-scoped `shot` ที่ต้องมี top-layer popup ติดมาด้วย | `<dialog>`/tooltip ที่ portal ออกไปอยู่คนละ layer | ถ่ายทั้ง viewport แล้ว crop ทีหลัง (`gotchas.md` §5) |
-| สคริปต์หน้า `chrome://*` และ Chrome PDF viewer | สิทธิ์ของ renderer คนละชั้น | ตรวจ PDF **จากไฟล์** ไม่ใช่จากหน้าจอ (`pdf-reports.md`) |
-| ตอบ dialog ที่เกิด**ก่อน** เราต่อ CDP | ไม่มีใครฟัง event ตอนนั้น | เปิดแท็บของตัวเองด้วย `newtab` แล้วค่อยทำงาน (golden rule #1) |
-| ยืนยันว่า `setfile` แนบไฟล์สำเร็จผ่าน `input.files.length` | `DOM.setFileInputFiles` ใส่สำเร็จแต่ page JS เห็น 0 | ดู **ชื่อไฟล์ที่โผล่ใน UI** เป็นสัญญาณจริง (`cdp.md` ของ `netsuite-qa-browser`) |
-| วัด contrast ของสี | lens `theme` เทียบสีแบบตรงตัวเท่านั้น | axe-core ผ่าน `a11y-layer.md` |
-| จำลอง input ของ touch/gesture หลายนิ้ว | `Input` domain ครอบเท่าที่ `cdp.py` ใช้อยู่ | ยังไม่รองรับ — อย่ารายงานว่าเทสแล้ว |
+คอลัมน์สุดท้ายคือ **ชั้นหลักฐานที่สูงที่สุดที่เส้นทางนั้นให้ได้** — ไม่ใช่สิ่งที่หวังไว้
+
+| ทำไม่ได้ | ทำไม | ต้องทำแทน | ชั้นสูงสุด |
+|---|---|---|---|
+| screenshot ของ `alert` / `confirm` / file dialog | เป็น native UI นอก DOM ทั้งหมด | OS-level capture (สูตรใน skill `netsuite-ui-qa-testing`) · ถ้าไม่ได้ทำ **ห้ามอ้างว่ามีภาพ** | `UNVERIFIED` |
+| screenshot ของ native `<select>` popup ที่กางอยู่ | popup เป็น layer นอก DOM บางรุ่นจับติดบางรุ่นไม่ติด | ท่า DOM `size=N` (`commands.md` §จับภาพ native `<select>`) — อยู่ใน DOM จึงจับติดทุกรุ่น | `PASS(visual)` |
+| element-scoped `shot` ที่ต้องมี top-layer popup ติดมาด้วย | `<dialog>`/tooltip ที่ portal ออกไปอยู่คนละ layer | ถ่ายทั้ง viewport แล้ว crop ทีหลัง (`gotchas.md` §5) | `PASS(visual)` |
+| สคริปต์หน้า `chrome://*` และ Chrome PDF viewer | สิทธิ์ของ renderer คนละชั้น | ตรวจ PDF **จากไฟล์** ไม่ใช่จากหน้าจอ (`pdf-reports.md`) | `verified` เมื่อตรวจจากไฟล์ · `UNVERIFIED` เมื่อดูจากหน้าจอ |
+| ตอบ dialog ที่เกิด**ก่อน** เราต่อ CDP | ไม่มีใครฟัง event ตอนนั้น | เปิดแท็บของตัวเองด้วย `newtab` แล้วค่อยทำงาน (golden rule #1) | `UNVERIFIED` |
+| ยืนยันว่า `setfile` แนบไฟล์สำเร็จผ่าน `input.files.length` | `DOM.setFileInputFiles` ใส่สำเร็จแต่ page JS เห็น 0 | ดู **ชื่อไฟล์ที่โผล่ใน UI** เป็นสัญญาณจริง (`cdp.md` ของ `netsuite-qa-browser`) | `verified` ผ่าน UI · ห้ามอ้างจาก `files.length` |
+| วัด contrast ของสี | lens `theme` เทียบสีแบบตรงตัวเท่านั้น | axe-core ผ่าน `a11y-layer.md` | `measured` ผ่าน axe · `inferred` จาก lens |
+| จำลอง input ของ touch/gesture หลายนิ้ว | `Input` domain ครอบเท่าที่ `cdp.py` ใช้อยู่ | ยังไม่รองรับ — อย่ารายงานว่าเทสแล้ว | `UNVERIFIED` |
+| อ่านเนื้อหาใน `<canvas>` / วิดีโอ / surface ที่ฝังมา | ไม่มี DOM ให้ query | ภาพเป็นทางเดียว | `PASS(visual)` |
+| **คลิกที่พิกัดด้วย trusted input** | `cdp.py` ไม่มีคำสั่งที่รับพิกัด · ยิงเองผ่าน `eval` ได้แต่เป็น synthetic event ซึ่ง invariant 2 ห้ามใช้เป็น fallback | ยังไม่รองรับ — ถ้าฟีเจอร์ต้องการจริงให้เปิด issue ที่ `teibto-dev-standards` (§4) | `UNVERIFIED` |
 
 ## 2. สิ่งที่ CDP ทำได้ แต่ **ไม่ควรใช้ browser ทำ**
 
