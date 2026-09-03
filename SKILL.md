@@ -111,6 +111,10 @@ action/wait timing, and emits separate action/wait/assert/capture timings. The r
 driver, an unsupported field, an assertion failure, or missing evidence.
 For agent-run flows, pass `--stdout summary`; the complete event stream remains in `run-log.jsonl`.
 Use step-level `perf_budget_ms` when action-to-observable-outcome time is an acceptance criterion.
+Declare `allowed_origins` on any flow that must not leave its environment: the runner re-checks the
+live URL after every step, so an SSO or server redirect fails as `ORIGIN_NOT_ALLOWED` instead of
+running on. Mark a step `risk: destructive` when it deletes or overwrites real data; those steps need
+`--allow-destructive` on the run.
 
 ## Outputs
 

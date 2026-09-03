@@ -24,6 +24,7 @@ import threading
 import time
 from pathlib import Path
 from typing import Any, TextIO
+from urllib.parse import urlsplit
 
 import yaml
 from jsonschema import Draft202012Validator
@@ -48,6 +49,9 @@ INPUT_SETTLE_POLICY = "none"
 DIALOG_POLICIES = ("safe", "accept", "dismiss")
 STDOUT_MODES = ("events", "summary")
 SUMMARY_EVENT_TYPES = {"fatal", "run_done"}
+ALLOWED_SCHEMES = ("http", "https")
+RISK_LEVELS = ("read", "write", "destructive")
+DEFAULT_RISK = "read"
 
 
 class RunnerError(RuntimeError):
@@ -128,6 +132,82 @@ def redact(value: Any, secrets: set[str], variables: dict[str, Any], *, truncate
             value = value.replace(secret, "***")
         return value[:MAX_EVENT_TEXT] if truncate else value
     return value
+
+
+def origin_of(url: str) -> str | None:
+    """Return `scheme://host[:port]` lowercased, or None when the URL is not http(s)."""
+    parts = urlsplit(str(url).strip())
+    if parts.scheme.lower() not in ALLOWED_SCHEMES or not parts.netloc:
+        return None
+    return f"{parts.scheme.lower()}://{parts.netloc.lower()}"
+
+
+def origin_violation(url: str, allowed: list[str]) -> str | None:
+    """Describe why `url` is outside `allowed`, or None when it is inside.
+
+    Parsed, never prefix-matched: `https://sb1.example.com.attacker.test` starts with an
+    allowed origin as a string and is a different origin as a URL. That difference is the
+    whole point of the gate, so a redirect is checked the same way a declared target is.
+    """
+    origin = origin_of(url)
+    if origin is None:
+        return f"scheme is not http/https: {str(url)[:200]}"
+    if origin not in allowed:
+        return f"origin {origin} is not in allowed_origins ({', '.join(allowed)})"
+    return None
+
+
+def flow_policy(flow: dict[str, Any]) -> dict[str, Any]:
+    """Summarise the declared run policy without deciding anything."""
+    counts = {level: 0 for level in RISK_LEVELS}
+    destructive: list[str] = []
+    for scenario in flow["scenarios"]:
+        for index, step in enumerate(scenario["steps"], 1):
+            level = step.get("risk", DEFAULT_RISK)
+            counts[level] = counts.get(level, 0) + 1
+            if level == "destructive":
+                destructive.append(f"{scenario['id']}#{index}")
+    return {
+        "allowed_origins": list(flow.get("allowed_origins") or []),
+        "risk_counts": counts,
+        "destructive_steps": destructive,
+    }
+
+
+def enforce_policy(policy: dict[str, Any], flow: dict[str, Any], variables: dict[str, Any],
+                   *, allow_destructive: bool) -> list[str]:
+    """Fail closed before the browser is touched; return the normalised allowed origins.
+
+    A flow that declares nothing keeps its old behaviour, so the gate is opt-in per flow
+    rather than a breaking change to every existing flow.
+    """
+    if policy["destructive_steps"] and not allow_destructive:
+        raise RunnerError(
+            "DESTRUCTIVE_NOT_ALLOWED",
+            "step ที่ risk: destructive ต้องสั่ง --allow-destructive: "
+            + ", ".join(policy["destructive_steps"]),
+            detail={"steps": policy["destructive_steps"]},
+        )
+    allowed: list[str] = []
+    for raw in policy["allowed_origins"]:
+        origin = origin_of(raw)
+        if origin is None:
+            raise RunnerError("INVALID_ALLOWED_ORIGIN",
+                              f"allowed_origins ต้องเป็น http(s) origin: {raw}")
+        allowed.append(origin)
+    if not allowed:
+        return allowed
+    for scenario in flow["scenarios"]:
+        for index, step in enumerate(scenario["steps"], 1):
+            if step["action"] != "open":
+                continue
+            target = str(substitute(step.get("target", ""), variables))
+            problem = origin_violation(target, allowed)
+            if problem:
+                raise RunnerError("ORIGIN_NOT_ALLOWED", f"{scenario['id']}#{index}: {problem}",
+                                  detail={"scenario": scenario["id"], "index": index,
+                                          "url": target})
+    return allowed
 
 
 def resolve_cdp_script(explicit: str | None) -> Path:
@@ -552,7 +632,7 @@ def flow_meta(flow: dict[str, Any], path: Path, *, full: bool = False) -> dict[s
 
 def run_flow(flow: dict[str, Any], path: Path, output_dir: Path, variables: dict[str, Any],
              cdp_script: Path, target_id: str, port: str | None, sink: EventSink,
-             dialog: str = "safe") -> int:
+             dialog: str = "safe", allow_destructive: bool = False) -> int:
     run_started = time.perf_counter()
     output_dir.mkdir(parents=True, exist_ok=True)
     shots = output_dir / "shots"
@@ -566,6 +646,9 @@ def run_flow(flow: dict[str, Any], path: Path, output_dir: Path, variables: dict
     perf_total = sum(1 for scenario in flow["scenarios"] for step in scenario["steps"]
                      if step.get("perf_budget_ms") is not None)
     perf_evaluated = perf_passed = 0
+    policy = flow_policy(flow)
+    allowed_origins: list[str] = []
+    origin_checks = 0
     session: CDPSession | None = None
 
     def flush_dialogs(scenario_id: str, index: int | None, global_index: int | None) -> None:
@@ -584,11 +667,17 @@ def run_flow(flow: dict[str, Any], path: Path, output_dir: Path, variables: dict
                                  "dialog": dialog,
                                  "dialog_evidence": "structured-per-command",
                                  "navigation": "event-bound-load"},
+               "run_policy": {"allowed_origins": policy["allowed_origins"],
+                              "origin_gate": "enforced" if policy["allowed_origins"] else "not-declared",
+                              "risk_counts": policy["risk_counts"],
+                              "destructive_allowed": allow_destructive},
                "scenarios": [{"id": item["id"], "steps": len(item["steps"])}
                              for item in flow["scenarios"]]})
     startup_started = time.perf_counter()
     startup_ms: float | None = None
     try:
+        allowed_origins = enforce_policy(policy, flow, variables,
+                                         allow_destructive=allow_destructive)
         session = CDPSession(cdp_script, target_id, port=port, dialog=dialog)
         startup_ms = round((time.perf_counter() - startup_started) * 1000, 3)
         sink.emit({"type": "session_ready", "target_id": target_id,
@@ -612,6 +701,21 @@ def run_flow(flow: dict[str, Any], path: Path, output_dir: Path, variables: dict
                 try:
                     context = perform_action(session, raw_step, variables, timings)
                     perform_wait(session, raw_step.get("wait"), variables, context, timings)
+                    # The gate runs before the assertion so an escape is reported as an escape.
+                    # Asserting first on a foreign page would surface ASSERTION_FAILED and hide
+                    # the fact that the run had already left its declared origins.
+                    guard_ms = 0.0
+                    if allowed_origins:
+                        guard_started = time.perf_counter()
+                        current_url = str(
+                            timings.command(session, "origin", "url").get("data") or "")
+                        guard_ms = (time.perf_counter() - guard_started) * 1000
+                        problem = origin_violation(current_url, allowed_origins)
+                        if problem:
+                            timings.fail("origin")
+                            raise RunnerError("ORIGIN_NOT_ALLOWED", problem,
+                                              detail={"url": current_url})
+                        origin_checks += 1
                     assertion = raw_step.get("assert")
                     status, detail = "done", ""
                     if assertion:
@@ -626,7 +730,9 @@ def run_flow(flow: dict[str, Any], path: Path, output_dir: Path, variables: dict
                         status, detail = "unverified", "state-changing step has no explicit assertion"
                     budget_ms = raw_step.get("perf_budget_ms")
                     if budget_ms is not None:
-                        outcome_ms = timings.elapsed_ms()
+                        # The origin gate is policy, not the application's observable outcome,
+                        # so a flow does not get a stricter budget for declaring its origins.
+                        outcome_ms = round(timings.elapsed_ms() - guard_ms, 3)
                         perf_evaluated += 1
                         within_budget = outcome_ms <= budget_ms
                         performance = {
@@ -748,6 +854,14 @@ def run_flow(flow: dict[str, Any], path: Path, output_dir: Path, variables: dict
     if perf_total:
         summary.insert(3, f"**Performance budgets:** {perf_passed}/{perf_total} passed "
                           f"({perf_evaluated} evaluated)")
+    if policy["allowed_origins"]:
+        summary.insert(0, f"**Allowed origins:** {', '.join(policy['allowed_origins'])} "
+                          f"({origin_checks} step checks passed)")
+    else:
+        summary.insert(0, "**Allowed origins:** none declared — origin gate not enforced")
+    risky = ", ".join(f"{level}={policy['risk_counts'][level]}" for level in RISK_LEVELS)
+    summary.insert(1, f"**Step risk:** {risky} "
+                      f"(destructive {'allowed' if allow_destructive else 'blocked'})")
     report[4:4] = summary
     safe_report = redact("\n".join(report), sink.secrets, variables, truncate=False)
     report_path.write_text(str(safe_report), encoding="utf-8")
@@ -755,6 +869,9 @@ def run_flow(flow: dict[str, Any], path: Path, output_dir: Path, variables: dict
                "failures": failures, "unverified": unverified, "dialogs": dialogs,
                "performance_budgets": {"passed": perf_passed, "evaluated": perf_evaluated,
                                        "total": perf_total},
+               "origin_gate": {"allowed": policy["allowed_origins"], "checks": origin_checks,
+                               "enforced": bool(policy["allowed_origins"])},
+               "risk_counts": policy["risk_counts"],
                "verdict": verdict,
                "duration_ms": round((time.perf_counter() - run_started) * 1000, 3),
                "startup_ms": startup_ms,
@@ -787,6 +904,8 @@ def main(argv: list[str] | None = None) -> int:
                         help="dialog policy handed to cdp.py (default: safe; never inherited from env)")
     parser.add_argument("--stdout", choices=STDOUT_MODES, default="events",
                         help="events (default) or terminal summary only; run-log.jsonl is always complete")
+    parser.add_argument("--allow-destructive", action="store_true",
+                        help="allow steps declared risk: destructive; blocked by default")
     parser.add_argument("--meta", action="store_true")
     parser.add_argument("--full", action="store_true")
     args = parser.parse_args(argv)
@@ -816,7 +935,8 @@ def main(argv: list[str] | None = None) -> int:
         sink = EventSink(sys.stdout, log_path, secret_names(flow), variables,
                          stdout_mode=args.stdout)
         return run_flow(flow, path, output_dir, variables, cdp_script,
-                        args.target_id or "", args.cdp_port, sink, dialog=args.dialog)
+                        args.target_id or "", args.cdp_port, sink, dialog=args.dialog,
+                        allow_destructive=args.allow_destructive)
     except RunnerError as exc:
         payload = {"type": "fatal", "error": {"code": exc.code, "message": str(exc)}}
         if sink:

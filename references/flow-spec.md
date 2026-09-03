@@ -27,6 +27,10 @@ $env:TEIBTO_CDP_SCRIPT = 'D:\path\to\teibto-dev-standards\scripts\cdp.py'
 - artifact อยู่ที่ `<out>/run-log.jsonl`, `<out>/qa-report.md`, `<out>/shots/`
 - `--stdout summary` ลด output เข้า agent context แต่ `run-log.jsonl` ยังเก็บ event เต็มเหมือนเดิม
 - `perf_budget_ms` ระดับ step วัด action → explicit wait → assertion; ไม่รวม startup/capture
+- `allowed_origins` ระดับ story เปิด origin gate: ตรวจทั้งเป้าหมายที่ประกาศไว้ (ก่อนเปิดเบราว์เซอร์)
+  และ URL จริงหลังทุก step (จับ redirect); หลุด = `ORIGIN_NOT_ALLOWED` และหยุด scenario
+- `risk: read|write|destructive` ระดับ step; `destructive` ต้องสั่ง `--allow-destructive` ไม่งั้น
+  runner ปฏิเสธ flow ตั้งแต่ก่อนเริ่ม (`DESTRUCTIVE_NOT_ALLOWED`)
 
 Local UI (ไม่จำเป็นต่อ CI):
 
@@ -50,6 +54,8 @@ regression ได้, เติม vars ต่างค่าเพื่อย�
 story: <slug>                    # id สั้นๆ ของ flow (ใช้ตั้งชื่อโฟลเดอร์ artifact)
 title: <ชื่ออ่านเข้าใจ>          # ขึ้นหัว guide/report
 ticket: <PROJ-123>               # (team) link กลับ requirement/ticket — ไหลเข้า qa-report + guide
+allowed_origins:                 # optional; ประกาศแล้ว = เปิด origin gate (ไม่ประกาศ = พฤติกรรมเดิม)
+  - "https://1234567-sb1.app.netsuite.com"     # origin เต็มเท่านั้น ไม่รับ wildcard
 
 vars:                            # ค่าที่ inject ผ่าน {{name}} — UI render เป็นช่องกรอก
   - { name: base_url, label: URL, default: "https://..." }
@@ -68,6 +74,7 @@ scenarios:
         value: "<ค่า/ข้อความ (สำหรับ fill/select) — รองรับ {{var}}>"
         wait: networkidle | <ms> | "<selector>" | "fn:<js>"  # รอหลัง action
         perf_budget_ms: 3000       # optional; เกินแล้ว PERF_BUDGET_EXCEEDED + FAIL
+        risk: read|write|destructive   # optional (default read); destructive ต้อง --allow-destructive
         capture: true|false        # override screenshot policy ของ scenario นี้
         assert:                  # พิสูจน์ผล (ตาม gotchas: อย่าเชื่อ ✓Done)
           url_contains: "/inventory.html"
@@ -105,6 +112,27 @@ timing ของตัวเอง และ `run_done` แยก startup/total.
 explicit wait/assert โดยไม่รวม screenshot; `run_done.performance_budgets` สรุป pass/evaluated/total.
 เกิน budget = typed failure `PERF_BUDGET_EXCEEDED` และเก็บ failure evidence ตาม capture policy.
 
+## Origin gate และ risk class
+
+**ทำไมต้องตรวจซ้ำหลัง navigation:** เป้าหมายที่เขียนไว้ใน flow ผ่านการตรวจก่อนเปิดเบราว์เซอร์ แต่ SSO
+หรือ redirect ฝั่ง server พาไปที่อื่นได้หลังจากนั้น — การตรวจครั้งเดียวตอนต้นจึงเป็นด่านที่ fail open.
+Runner อ่าน `url` จริงหลัง action + wait ของทุก step **เมื่อ flow ประกาศ `allowed_origins` เท่านั้น**
+(flow ที่ไม่ประกาศไม่จ่าย round trip เพิ่มเลย)
+
+**ทำไมต้อง parse ไม่ใช่เทียบ prefix:** `https://sb1.example.com.attacker.test` ขึ้นต้นด้วย origin ที่
+อนุญาตเมื่อมองเป็นสตริง แต่เป็นคนละ origin เมื่อมองเป็น URL · `origin_violation()` จึง parse แล้วเทียบ
+`scheme://host[:port]` ทั้งก้อน และปฏิเสธทุก scheme ที่ไม่ใช่ `http`/`https`
+
+**ลำดับใน step:** action → wait → **origin gate** → assert · ด่านอยู่ก่อน assert เพราะถ้า assert ก่อน
+ผลที่ได้จะเป็น `ASSERTION_FAILED` ซึ่งกลบข้อเท็จจริงว่า run หลุดออกนอกขอบเขตไปแล้ว
+
+**ไม่นับรวมใน perf budget:** เวลาที่ใช้อ่าน `url` ของด่านถูกหักออกจาก `outcome_ms` — flow ที่ประกาศ
+origin ของตัวเองไม่ควรถูกลงโทษด้วย budget ที่เข้มขึ้น
+
+**รายงาน:** `run_start.run_policy` บอก origin ที่อนุญาต, `origin_gate` (`enforced`/`not-declared`),
+จำนวน step แยกตาม risk และว่า destructive ถูกอนุญาตหรือไม่ · `run_done.origin_gate.checks` นับจำนวน
+step ที่ผ่านด่าน · `qa-report.md` ขึ้นสองบรรทัดบนหัวรายงาน
+
 **Traceability (สำหรับทีม):** `ticket`/`requirement` + `acceptance` ทำให้ตอบได้ว่า *test นี้ยืนยัน
 req ไหน* และ *req นี้ครอบด้วย scenario ไหน*. 1 acceptance criterion → 1 scenario (map 1:1) →
 qa-report + user-guide อ้าง req เดียวกัน = ปิด loop req→test→doc. ดู playbook ทีมใน repo:
@@ -120,6 +148,10 @@ ignore เงียบ ๆ.
 
 `perf_budget` แบบ object/scenario เดิมยังถูกปฏิเสธ; executable contract คือ integer
 `perf_budget_ms` ที่ step เท่านั้น.
+
+`allowed_origins` และ `risk` **เป็น executable field แล้ว** (schema + พฤติกรรมตอนรัน + การรายงาน +
+เทสตอนล้ม ship พร้อมกัน) · `allowed_origins` รับเฉพาะ origin เต็ม ไม่รับ wildcard ระดับ subdomain
+เพราะ wildcard คือช่องที่ทำให้ด่านนี้ fail open ได้เงียบที่สุด.
 
 - เก็บ release/quarantine/coverage state ใน `qa/<feature>/coverage.yaml`.
 - ทำ setup/teardown เป็น orchestration แยก โดยใช้ scoped marker, identify-before-mutate และ dirty-state
