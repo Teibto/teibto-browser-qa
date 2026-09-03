@@ -12,6 +12,19 @@
 
 ### Added
 
+- กฎ BAS ทุกข้อประกาศบรรทัด `Status` เป็น `adopted` / `partial` / `proposed` พร้อมด่านที่พิสูจน์มัน
+  (สำหรับ adopted/partial) และ issue ที่ติดตาม (สำหรับ partial/proposed) · `standard_violations()`
+  ล้มเมื่อกฎไม่มีสถานะ, ใช้ค่านอกรายการ, ประกาศ `adopted` โดยไม่อ้างด่าน หรือ `proposed` โดยไม่อ้าง issue —
+  กฎที่ไม่บอกว่าบังคับใช้จริงหรือยัง คือกฎที่ทุกคนเดาเอาเอง (#83)
+- ตาราง Coverage ในเอกสารมาตรฐาน: pain ทั้ง 27 ข้อ ระบุว่าปิดด้วยกฎไหนและวันนี้อยู่ตรงไหน
+  (🟢 15 · 🟡 6 · 🔴 6) พร้อมเลข issue ฝั่ง driver ที่แต่ละช่องรออยู่ (#83)
+
+### Fixed
+
+- นับ pain inventory ผิดเป็น 26 ข้อใน changelog ของ #77 — จำนวนจริงคือ 27 (A10 · B6 · C4 · D4 · E3) (#83)
+
+### Added
+
 - **Origin gate** — flow ประกาศ `allowed_origins` (origin เต็ม ไม่รับ wildcard) แล้ว runner ตรวจสองชั้น:
   เป้าหมายที่ประกาศไว้ตรวจก่อนเปิดเบราว์เซอร์ และ **URL จริงหลังทุก step** เพื่อจับ redirect/SSO ที่พา run
   ออกนอกขอบเขตหลังจากผ่านด่านแรกไปแล้ว หลุด = typed failure `ORIGIN_NOT_ALLOWED` ที่หยุด scenario
@@ -42,7 +55,7 @@
   — ถ้าจับกว้างกว่านี้ เอกสารที่ซื่อสัตย์จะกลายเป็นตัวที่ทำให้ CI แดง (#78)
 
 - `docs/BROWSER-AGENT-STANDARD.md` — Browser Agent Standard (BAS) v1 เป็น **ข้อเสนอ**: pain inventory
-  26 ข้อจากบันทึกจริงของ repo (17 gotchas + CHANGELOG + claims ledger), กฎ BAS-1 ถึง BAS-9,
+  27 ข้อจากบันทึกจริงของ repo (17 gotchas + CHANGELOG + claims ledger), กฎ BAS-1 ถึง BAS-9,
   coverage matrix ที่บอกว่ากฎข้อไหนปิด pain ข้อไหน, มติยืนยันว่า transport ยังเป็น `cdp.py` ตัวเดียว
   และแผนรับมาตรฐาน. ที่มาของกฎคือการสำรวจ Anthropic browser use tool (`browser_toolset_20260801`),
   Claude in Chrome, Playwright MCP, Chrome DevTools MCP และ Stagehand แล้วหยิบเฉพาะหลักการที่แก้ pain

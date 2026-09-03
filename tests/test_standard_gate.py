@@ -75,6 +75,57 @@ class StandardGateTests(unittest.TestCase):
         )
 
 
+class RuleStatusGateTests(unittest.TestCase):
+    """Every rule must say whether it is enforced, and back the claim up."""
+
+    def setUp(self) -> None:
+        self.validator = load_validator()
+        self.standard_text = (ROOT / "docs" / "BROWSER-AGENT-STANDARD.md").read_text(
+            encoding="utf-8"
+        )
+        self.skill_text = (ROOT / "SKILL.md").read_text(encoding="utf-8")
+
+    def violations(self, standard_text: str):
+        return self.validator.standard_violations(self.skill_text, standard_text)
+
+    def test_every_rule_declares_a_known_status(self) -> None:
+        found = self.validator.STATUS_RE.findall(self.standard_text)
+        self.assertEqual(self.validator.EXPECTED_BAS_RULES, len(found))
+        self.assertTrue(set(found).issubset(set(self.validator.RULE_STATUSES)), found)
+
+    def test_missing_status_line_fails(self) -> None:
+        broken = self.standard_text.replace("**Status.**", "**สถานะ.**", 1)
+        self.assertIn("has no Status line", " ".join(self.violations(broken)))
+
+    def test_unknown_status_value_fails(self) -> None:
+        broken = self.standard_text.replace("**Status.** `adopted`", "**Status.** `done`", 1)
+        message = " ".join(self.violations(broken))
+        self.assertIn("has status `done`", message)
+
+    def test_adopted_rule_without_a_gate_path_fails(self) -> None:
+        """An `adopted` rule that names no test is an aspiration wearing a badge."""
+        lines = self.standard_text.splitlines()
+        for position, line in enumerate(lines):
+            if line.startswith("**Status.** `adopted`"):
+                lines[position] = "**Status.** `adopted` — บังคับใช้แล้ว"
+                break
+        else:  # pragma: no cover - fixture assumption
+            self.fail("the standard has no adopted rule to break")
+        message = " ".join(self.violations("\n".join(lines)))
+        self.assertIn("names no gate under tests/ or scripts/", message)
+
+    def test_proposed_rule_without_a_tracking_issue_fails(self) -> None:
+        lines = self.standard_text.splitlines()
+        for position, line in enumerate(lines):
+            if line.startswith("**Status.** `proposed`"):
+                lines[position] = "**Status.** `proposed` — ยังไม่ได้ทำ"
+                break
+        else:  # pragma: no cover - fixture assumption
+            self.fail("the standard has no proposed rule to break")
+        message = " ".join(self.violations("\n".join(lines)))
+        self.assertIn("names no tracking issue", message)
+
+
 class SemanticTargetingGateTests(unittest.TestCase):
     """BAS-1: refs first, pixels are a second-class verdict."""
 
