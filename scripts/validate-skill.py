@@ -33,6 +33,10 @@ CONFORMANCE_LEVELS = ("L0", "L1", "L2")
 PROPOSAL_STATUS = "สถานะ: ข้อเสนอ"
 EXPECTED_BAS_RULES = 9
 BAS_SPLIT_RE = re.compile(r"(?m)^### (?=BAS-)")
+RULE_STATUSES = ("adopted", "partial", "proposed")
+STATUS_RE = re.compile(r"(?m)^\*\*Status\.\*\*\s+`([a-z]+)`")
+GATE_PATH_RE = re.compile(r"`[^`]*(?:tests|scripts)/[^`]+`")
+TRACKING_REF_RE = re.compile(r"#\d+")
 
 TARGETING_ORDER_MARKER = "Target in this order"
 TARGETING_TIERS = ('a11y "<visible name>"', "data-test", "coordinates")
@@ -153,6 +157,28 @@ def standard_violations(skill_text: str, standard_text: str) -> list[str]:
         name = rule.split(maxsplit=1)[0] if rule.split() else "<unnamed>"
         if "**Gate.**" not in rule:
             problems.append(f"{name} has no Gate line, so it cannot be cited in a QA report (BAS-9)")
+        problems.extend(rule_status_problems(name, rule))
+    return problems
+
+
+def rule_status_problems(name: str, rule: str) -> list[str]:
+    """A rule must say whether it is actually enforced, and back that up.
+
+    Without this a reader cannot tell an enforced rule from an aspiration, which is the
+    exact failure mode `docs/CLAIMS-AUDIT.md` exists to prevent for behaviour claims.
+    """
+    match = STATUS_RE.search(rule)
+    if not match:
+        return [f"{name} has no Status line (`adopted`, `partial`, or `proposed`)"]
+    status = match.group(1)
+    if status not in RULE_STATUSES:
+        return [f"{name} has status `{status}`; expected one of " + ", ".join(RULE_STATUSES)]
+    line = rule[match.start():].splitlines()[0]
+    problems: list[str] = []
+    if status in ("adopted", "partial") and not GATE_PATH_RE.search(line):
+        problems.append(f"{name} is `{status}` but names no gate under tests/ or scripts/")
+    if status in ("partial", "proposed") and not TRACKING_REF_RE.search(line):
+        problems.append(f"{name} is `{status}` but names no tracking issue")
     return problems
 
 
