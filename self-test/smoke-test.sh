@@ -195,6 +195,38 @@ chk "ชื่อเอกสาร (text context) ไม่ถูก escape ท
 echo "=== about:blank เป็นเรื่องปกติ ไม่ใช่ paint พัง ==="
 chk "nav about:blank -> url == about:blank" "about:blank" "$(NAV about:blank)"
 
+echo "=== fonts.check ไม่พิสูจน์ว่าเครื่องมีฟอนต์ (gotcha #19) ==="
+NAV "$PAGE" >/dev/null
+cat > "$WORK/fontcheck.js" <<'JS'
+String(document.fonts.check('12px "__no_such_face__"'))
+JS
+chk "fonts.check ตอบ true ให้ family ที่ไม่มีจริง" "true" "$(AB evalf "$WORK/fontcheck.js")"
+cat > "$WORK/fontwidth.js" <<'JS'
+(function(){
+  var t = 'mmmmmmmmmmlli1WQ@#';
+  function w(fam){ var s = document.createElement('span');
+    s.style.cssText = 'position:absolute;visibility:hidden;font-size:40px;white-space:pre;font-family:' + fam;
+    s.textContent = t; document.body.appendChild(s);
+    var r = s.getBoundingClientRect().width; s.remove(); return Math.round(r * 100) / 100; }
+  return String(w('"__no_such_face_2__", serif') !== w('"__no_such_face__", serif'));
+})()
+JS
+chk "วัดความกว้างเทียบ serif ไม่ให้ผลบวกปลอม" "false" "$(AB evalf "$WORK/fontwidth.js")"
+
+echo "=== แท็บ background: rAF ไม่รัน ยกกลับมาหน้าแล้วรัน (gotcha #18) ==="
+NAV "$PAGE" >/dev/null
+FIRST="$(curl -s "http://127.0.0.1:${CDP_PORT}/json/list" | "$PY" -c 'import json,sys;print([t["id"] for t in json.load(sys.stdin) if t["type"]=="page" and "smoke-page" in t["url"]][0])')"
+SECOND="$(curl -s -X PUT "http://127.0.0.1:${CDP_PORT}/json/new?about:blank" | "$PY" -c 'import json,sys;print(json.load(sys.stdin)["id"])')"
+curl -s "http://127.0.0.1:${CDP_PORT}/json/activate/${SECOND}" >/dev/null; sleep 1
+cat > "$WORK/raf.js" <<'JS'
+(function(){ window.__raf = 0; requestAnimationFrame(function(){ window.__raf = 1; });
+  return new Promise(function(r){ setTimeout(function(){ r(String(document.hidden) + '/' + window.__raf); }, 400); }); })()
+JS
+chk "แท็บ background: hidden และ rAF ไม่รัน" "true/0" "$(TGT_ID="$FIRST" AB evalf "$WORK/raf.js")"
+curl -s "http://127.0.0.1:${CDP_PORT}/json/close/${SECOND}" >/dev/null
+curl -s "http://127.0.0.1:${CDP_PORT}/json/activate/${FIRST}" >/dev/null; sleep 1
+chk "ยกแท็บกลับมาหน้าแล้ว rAF รัน" "false/1" "$(TGT_ID="$FIRST" AB evalf "$WORK/raf.js")"
+
 echo "=== EFFICIENCY: หลายคำสั่ง vs รวมเป็น evalf ก้อนเดียว ==="
 NAV "$PAGE" >/dev/null
 t0=$(date +%s.%N)

@@ -18,6 +18,15 @@
   กฎที่ไม่บอกว่าบังคับใช้จริงหรือยัง คือกฎที่ทุกคนเดาเอาเอง (#83)
 - ตาราง Coverage ในเอกสารมาตรฐาน: pain ทั้ง 27 ข้อ ระบุว่าปิดด้วยกฎไหนและวันนี้อยู่ตรงไหน
   (🟢 15 · 🟡 6 · 🔴 6) พร้อมเลข issue ฝั่ง driver ที่แต่ละช่องรออยู่ (#83)
+- `gotchas.md` §18 แท็บ/หน้าต่างไม่อยู่หน้าสุด: `requestAnimationFrame` ไม่รัน (verified) และ trusted `click`
+  ที่ตอบสำเร็จแต่ไม่เกิดผล (inferred · #74) พร้อมท่าแยก synthetic เทียบ trusted (#85)
+- `gotchas.md` §19 `document.fonts.check()` ตอบ `true` ให้ฟอนต์ที่ไม่มี และท่าวัดความกว้างเทียบ baseline
+  คนละตระกูล (#85)
+- `gotchas.md` §4 หน้าต่างค้างขนาดหลัง `shot --vw` และ harness ที่ตั้ง viewport แยกคำสั่ง · §10 profile เก่ากินดิสก์
+  และเกณฑ์กวาด · §17 cache `immutable` ของ static file APEX (#85)
+- `ux-lens.md` §4 false positive ของ `tap-target-small` (wrapper), `text-invisible`/`no-focus-ring` บน shadow DOM,
+  `.focus()` บน custom element host และ Tab ใน `<input type=date>` (#85)
+- smoke test: `fonts.check` และ rAF ในแท็บ background · แถวใหม่ใน `docs/CLAIMS-AUDIT.md` (#85)
 
 ### Fixed
 
