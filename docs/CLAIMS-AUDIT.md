@@ -123,6 +123,15 @@ than pinning a tokenizer-specific absolute count.
 | `about:blank` can explain an apparently black headed window | verified | smoke URL case |
 | GPU/occlusion is the cause of a black headed window | inferred | not reproducible on the recorded host; diagnose URL and CDP screenshot first |
 | Headless Thai font availability and native popup capture vary by host/Chrome | version-pinned | require a current render/manual evidence check |
+| `document.fonts.check()` returns `true` for a family that is not installed, so it cannot prove presence | verified, version-pinned | smoke fonts case; Chrome 152.0.7977.84 headless and headed, 2026-09-14 (#85) |
+| Width comparison against a generic of a different family (`serif`) detects an installed family; a `monospace` baseline on Windows is Consolas and misreports Consolas as absent | measured, version-pinned | #85 probe on Windows 11, Chrome 152: Consolas present vs `serif`, absent vs `monospace`; smoke covers the no-false-positive side |
+| `requestAnimationFrame` callbacks do not run in a background tab (`document.hidden === true`) and run again once the tab is in front | verified, version-pinned | smoke background-tab rAF case; Chrome 152 headless and headed (#85) |
+| A trusted CDP click can report success yet have no effect while its tab/window is not in front | inferred | observed 2026-08-23 and 2026-09-08 on TBTKB; other clicks succeeded with `document.hidden === true` in the same session; not reproduced; tracked in #74 |
+| `shot --vw/--vh` leaves the window at the emulated size for later invocations while `devicePixelRatio` resets | measured, version-pinned | #85 probe, Chrome 152 headless and headed, canonical driver `fb1adc1` (shot metrics path unchanged since v0.83.0) |
+| `eval`/`evalf` await a returned promise | verified, version-pinned | #85 probe; canonical `Runtime.evaluate` uses `awaitPromise=True` at v0.83.0 |
+| lens `theme`/`focus` read the light DOM and the custom-element host, so shadow-DOM components can yield `text-invisible`/`no-focus-ring` false positives | measured, version-pinned | TBT-DS 1.46.1 page, 2026-09-08; confirm with `shot <sel>` and a `shadowRoot` probe before reporting |
+| `el.focus()` on some custom-element hosts leaves `activeElement` on `BODY`; only keyboard Tab focuses the host | measured, version-pinned | `tbt-button`, TBT-DS 1.46.1, 2026-09-08 |
+| `lens focus` reports `focus-stuck`/`unreachable-controls` on `<input type=date>` because Tab walks its date fields | measured, version-pinned | observed 2026-09-08; verify by pressing Tab 4–5 more times |
 
 ## Executable-flow authority
 

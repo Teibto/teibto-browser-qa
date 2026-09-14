@@ -29,6 +29,9 @@ non-zero on any failed assertion.
 - UX lens `PASS`/`FAIL` and `UNVERIFIED` behavior;
 - PDF-template escaping against stored script payloads;
 - `about:blank` diagnosis;
+- `document.fonts.check()` reporting missing families as present, and the width-baseline method not
+  producing a false positive;
+- `requestAnimationFrame` suspended in a background tab and resumed once the tab is in front;
 - read-only probe batching and template scoped-read measurements.
 
 The harness is a driver-drift detector, not the runner integration suite. Runner protocol, capture,
