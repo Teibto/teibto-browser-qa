@@ -44,6 +44,8 @@ py scripts/flow-runner.py --engine bsk --flow qa/<feature>/flow.yaml --out runs/
   จึงต้องประกาศเอง ไม่งั้น `click` ที่ไม่บอกอะไรจะผ่านฟรี)
 - `bsk` ตอบ accept ให้ dialog ทุกชนิด: `confirm`/`prompt`/`beforeunload` ที่ถูก accept = step ล้มด้วย
   `ENGINE_DIALOG_ACCEPTED` และยังถูกบันทึกเป็น event `dialog`; `alert` บันทึกแต่ไม่ล้ม
+- มี browser เชื่อม `bsk` หลายตัว ต้องระบุ `--bsk-browser <instance_id>` (หรือ `TEIBTO_BSK_BROWSER`; ดู id จาก
+  `bsk browsers --json`) — ไม่ระบุ = `BSK_BROWSER_AMBIGUOUS`, runner ไม่เดา; id ถูกบันทึกใน `session_ready`
 - daemon/extension ต้องเป็นรุ่นที่ runner pin ไว้ ไม่ตรง = `DRIVER_INCOMPATIBLE`; runner ไม่ start daemon เอง
 - verdict สูงสุดคือ `PASS(inferred)` และ exit 1; รับเฉพาะ CSS selector (`@ref` = `ENGINE_UNSUPPORTED`)
 - console check นับเฉพาะ `console.error` และ uncaught exception; resource ที่โหลดไม่ได้เป็นงานของ `lens netlog`

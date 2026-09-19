@@ -43,16 +43,23 @@ jget() { "$PY" -c "import json,sys;d=json.load(open(sys.argv[1],encoding='utf-8'
 timeout 15 bsk status --json >"$WORK/status.json" 2>/dev/null \
   || { echo "SKIP: bsk daemon ไม่ตอบ — รัน 'bsk daemon start --foreground' ใน terminal ของ host ก่อน"; exit 0; }
 timeout 15 bsk browsers --json >"$WORK/browsers.json" 2>/dev/null
-[ "$(jget "$WORK/browsers.json" 'len(d)')" = "1" ] \
-  || { echo "SKIP: ต้องมี browser ที่เชื่อม extension อยู่หนึ่งตัวพอดี (bsk browsers)"; exit 0; }
-echo "engine: bsk $(jget "$WORK/status.json" "d['daemon_version']") · extension $(jget "$WORK/browsers.json" "d[0]['extension_version']") · $(jget "$WORK/browsers.json" "d[0]['browser_name']+' '+d[0]['browser_version']")"
+# เลือก browser: ENGINE2_BROWSER=<instance_id> หรือมีตัวเดียวพอดี — ห้ามเดา เพราะ fixture นี้เปิด dialog จริง
+IDS="$(jget "$WORK/browsers.json" "' '.join(x['instance_id'] for x in d)")"
+BROWSER="${ENGINE2_BROWSER:-}"
+if [ -z "$BROWSER" ]; then
+  [ "$(jget "$WORK/browsers.json" 'len(d)')" = "1" ] \
+    || { echo "SKIP: มี browser เชื่อมอยู่ ${IDS:-0 ตัว} — ตั้ง ENGINE2_BROWSER=<instance_id> ของ profile ทดสอบ"; exit 0; }
+  BROWSER="$IDS"
+fi
+case " $IDS " in *" $BROWSER "*) ;; *) echo "SKIP: ไม่พบ browser $BROWSER (ที่เชื่อมอยู่: $IDS)"; exit 0 ;; esac
+echo "engine: bsk $(jget "$WORK/status.json" "d['daemon_version']") · browser $BROWSER · extension $(jget "$WORK/browsers.json" "[x for x in d if x['instance_id']=='$BROWSER'][0]['extension_version']")"
 
 (cd "$HERE" && exec "$PY" -m http.server "$PORT" --bind 127.0.0.1 >/dev/null 2>&1) &
 SRV_PID=$!
 for _ in $(seq 20); do curl -sf -o /dev/null "$PAGE" && break; sleep 0.5; done
 curl -sf -o /dev/null "$PAGE" || { echo "FAIL: เสิร์ฟ fixture ที่ $PAGE ไม่ได้"; exit 1; }
 
-timeout 40 bsk session start --json --name engine2-dialog-test --no-focus >"$WORK/sess.json" 2>"$WORK/err.txt" \
+timeout 40 bsk session start --json --name engine2-dialog-test --no-focus --browser "$BROWSER" >"$WORK/sess.json" 2>"$WORK/err.txt" \
   || { echo "FAIL: session start: $(head -c 300 "$WORK/err.txt")"; exit 1; }
 SID="$(jget "$WORK/sess.json" "d['session_id']")"
 

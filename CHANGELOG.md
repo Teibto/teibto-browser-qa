@@ -20,6 +20,8 @@
 
 ### Added
 
+- `flow-runner.py --bsk-browser <instance_id>` (`TEIBTO_BSK_BROWSER`): เลือก browser เมื่อ `bsk` เชื่อมอยู่หลายตัว ·
+  ไม่ระบุ = `BSK_BROWSER_AMBIGUOUS` (ไม่เดา) · self-test ของ engine ที่สองรับ `ENGINE2_BROWSER` (#95)
 - `gotchas.md` §20: `wait` หลัง `click` ไปหน้าที่โหลดเกิน ~10 วิ ล้มด้วย `WS_TIMEOUT` ทั้งที่ click สำเร็จ —
   พบจาก QA จริงบน NetSuite SB2 (Sales Order view โหลด 13.8 วิ) พร้อมท่าเลี่ยงและข้อจำกัด ·
   ต้นเหตุฝั่ง driver ติดตามที่ `Teibto/teibto-dev-standards#396` (#93)

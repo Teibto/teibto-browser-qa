@@ -35,7 +35,8 @@ READ_ONLY = """
 class BskEngineTests(unittest.TestCase):
     """BAS §4: the second engine is read-only, pinned, and never yields a bare PASS."""
 
-    def run_flow(self, yaml_text: str, env_overrides: dict[str, str] | None = None):
+    def run_flow(self, yaml_text: str, env_overrides: dict[str, str] | None = None,
+                 extra_args: list[str] | None = None):
         root = TEST_TMP / uuid.uuid4().hex
         root.mkdir()
         self.addCleanup(shutil.rmtree, root, True)
@@ -47,7 +48,7 @@ class BskEngineTests(unittest.TestCase):
         env.update(env_overrides or {})
         process = subprocess.run(
             [sys.executable, str(RUNNER), "--flow", str(flow), "--out", str(out),
-             "--engine", "bsk", "--bsk", str(FAKE_BSK)],
+             "--engine", "bsk", "--bsk", str(FAKE_BSK), *(extra_args or [])],
             capture_output=True, text=True, encoding="utf-8", env=env,
         )
         events = [json.loads(line) for line in process.stdout.splitlines() if line.strip()]
@@ -65,6 +66,7 @@ class BskEngineTests(unittest.TestCase):
         self.assertTrue((out / "shots" / "read-01.png").is_file())
         report = (out / "qa-report.md").read_text(encoding="utf-8")
         self.assertIn("**Engine:** bsk 0.3.0", report)
+        self.assertIn("**Target ID:** `fake-session` (bsk session · browser `only-one`)", report)
         self.assertIn("session stop", calls)
 
     def test_same_event_types_as_primary_engine(self):
@@ -133,6 +135,34 @@ class BskEngineTests(unittest.TestCase):
         fatal = next(event for event in events if event["type"] == "fatal")
         self.assertEqual(fatal["error"]["code"], "DRIVER_INCOMPATIBLE")
         self.assertNotIn("session start", calls)
+
+    def test_several_browsers_without_a_choice_is_ambiguous_not_guessed(self):
+        _, _, events, calls = self.run_flow(READ_ONLY, {"FAKE_BSK_BROWSERS": "work,qa"})
+        fatal = next(event for event in events if event["type"] == "fatal")
+        self.assertEqual(fatal["error"]["code"], "BSK_BROWSER_AMBIGUOUS")
+        self.assertIn("work", fatal["error"]["message"])
+        self.assertIn("qa", fatal["error"]["message"])
+        self.assertNotIn("session start", calls)
+
+    def test_chosen_browser_is_passed_to_session_start_and_recorded(self):
+        _, _, events, calls = self.run_flow(READ_ONLY, {"FAKE_BSK_BROWSERS": "work,qa"},
+                                            ["--bsk-browser", "qa"])
+        self.assertEqual(events[-1]["verdict"], "PASS(inferred)")
+        self.assertIn("browser=qa", calls)
+        ready = next(event for event in events if event["type"] == "session_ready")
+        self.assertEqual(ready["browser_instance"], "qa")
+
+    def test_unknown_browser_is_not_ready(self):
+        _, _, events, calls = self.run_flow(READ_ONLY, {"FAKE_BSK_BROWSERS": "work,qa"},
+                                            ["--bsk-browser", "gone"])
+        fatal = next(event for event in events if event["type"] == "fatal")
+        self.assertEqual(fatal["error"]["code"], "BSK_NOT_READY")
+        self.assertNotIn("session start", calls)
+
+    def test_single_browser_needs_no_choice(self):
+        _, _, events, calls = self.run_flow(READ_ONLY)
+        self.assertEqual(events[-1]["verdict"], "PASS(inferred)")
+        self.assertIn("browser=only-one", calls)
 
     def test_ref_target_is_unsupported_not_silently_a_selector(self):
         _, _, events, _ = self.run_flow("""

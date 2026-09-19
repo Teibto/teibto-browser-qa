@@ -59,7 +59,8 @@ reports for `alert`/`confirm`/`prompt`/`beforeunload` disagrees with the DOM, wh
 differs from the pinned `ENGINE2_EXPECT_*` values, when the first command after `beforeunload` does not
 answer within `ENGINE2_LIVENESS_S`, or when the daemon pid changes across `ENGINE2_ROUNDS` (default 20).
 It needs `bsk` on `PATH`, a daemon already started by the host (`bsk daemon start --foreground`), and
-exactly one browser with the extension connected; anything missing is an explicit `SKIP`. The script
+one connected browser — or `ENGINE2_BROWSER=<instance_id>` when several are connected, so the dialog
+fixture never lands in someone's everyday browser by accident; anything missing is an explicit `SKIP`. The script
 never starts the daemon itself and never pipes `bsk` output. Re-run it on every `bsk`, extension, or
 Chrome bump: a changed dialog policy turns it red on purpose so BAS §4.2 is re-decided, not inherited.
 
