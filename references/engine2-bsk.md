@@ -135,6 +135,25 @@ flow read-only ผ่าน runner 3 รอบ · edit + validation + dirty form
 | edit → save → verify (customer) | 8.2 s (7.6–10.8) | — |
 | สร้าง customer + Sales Order | 47.7 s (43.7–51.0) | — |
 
+### 6.7 หน้า React/suitelet และ workflow ที่ต่อหลาย record
+
+จากรอบที่เดิน Order-to-Cash เต็ม loop (2026-09-19): สร้าง Sales Order ด้วย item ที่มีสต็อกจริงได้ (40.3 s, 0 dialog)
+แต่ **หยุดที่ approve** — bundle อนุมัติของ account ไม่ได้สร้าง control record ให้ SO ใบนั้น หน้า Batch Approval จึงไม่มีแถวให้กด.
+fulfill และ invoice **ยังไม่ได้ขับ**.
+
+| กฎ | หลักฐาน |
+|---|---|
+| ก่อนขับ stage ของ workflow แบบ custom ให้พิสูจน์ **control record ของ workflow นั้น** ไม่ใช่สถานะ native | SO เป็น `Pending Approval` แต่ search `customrecord_apc_record_approval_level` ตาม transaction ได้ 0 แถว; SO ที่อยู่ในคิวจริงมี record (`level 1`, approver "Sales Manager") |
+| อย่าเชื่อสิ่งที่คิวแสดง — ตรวจ transaction ของแต่ละแถวฝั่ง server | สองแถวที่ขึ้น "รออนุมัติ" ฝั่ง server เป็น `fullyBilled` และ `pendingFulfillment` ไปแล้ว |
+| บนหน้า React รอ **text marker จากข้อมูล** (`body.innerText` มี prefix ของเลขเอกสาร) ไม่ใช่ `<table>/<tr>/checkbox` | หน้า Batch Approval มี `<table>` 0, `<tr>` 0, checkbox 0 — wait บน `tr` หมดเวลา 45 s ขณะที่ marker คืนทันทีที่ข้อมูลมา (~9–11 s) |
+| ระบุแถวด้วยการหา element ในสุดที่มีเลขเอกสาร แล้วไต่ขึ้นไปหา ancestor ที่ถือปุ่ม action | grid เป็น div ล้วน; selector แบบ `tr,li,[role=row]` ไม่เจออะไร |
+| ปุ่ม action ที่ `offsetParent === null` แปลว่า "แถวยังไม่ active" ไม่ใช่ "ไม่มีสิทธิ์" | ปุ่ม อนุมัติ/ปฏิเสธ อยู่ใน DOM ของทุกแถวตั้งแต่ก่อนเลือก |
+| ห้ามใช้ substring ใน HTML ของ list หลาย MB เป็นหลักฐานว่า record ผูกกัน — query field | list 2.28 MB `indexOf(เลขเอกสาร)` ได้ `true` ทั้งที่ไม่มี record ไหนอ้างถึง |
+| ช่องค้นหาแบบ controlled input ของ React ไม่ตอบ `bsk fill` — กรองด้วย tab/URL แทน | พิมพ์เลขเอกสารแล้ว list ไม่เปลี่ยน |
+| `evaluate` ที่ `fetch('/app/...')` บน session ใหม่ล้ม `Failed to parse URL` เพราะ tab ยังเป็น `about:blank` — เปิดหน้า classic ก่อนเสมอ | ได้ทั้ง base URL และด่าน identity ของหน้า non-classic ในคราวเดียว |
+| availability ต่อ location ต้องมาจาก search (`locationquantityavailable`) — `item.nl?xml=T` ไม่มี machine `locations` | item 617: non-lot, non-serial, ไม่มี bin, available 1000 ที่ location 30 |
+| stage ที่ไม่มีทางเดินที่ชอบธรรม: เก็บ (ก) ปุ่มที่มองเห็นบน record (ข) ข้อความของคิว (ค) approver ใน control record แล้ว **หยุด** | ห้ามใช้ URL `transform=` หรือแก้ field สถานะเพื่อสร้างการเปลี่ยนสถานะเอง |
+
 ## 7. สถานะความพร้อมใช้งาน
 
 | ใช้ได้แล้ว | ยังไม่พร้อม |
@@ -142,5 +161,5 @@ flow read-only ผ่าน runner 3 รอบ · edit + validation + dirty form
 | QA read-only ผ่าน `--engine bsk` บน browser ที่คน login ไว้ (verdict `PASS(inferred)`) | ใช้ตัดสิน release — ชั้นหลักฐานยังเป็น `inferred` (BAS §4.3) |
 | งานเปลี่ยนข้อมูลบน **sandbox** ด้วยสคริปต์ที่มีด่าน §3 ครบ | งานเปลี่ยนข้อมูลผ่าน runner — ยังห้าม (`ENGINE_RISK_NOT_ALLOWED`) |
 | รันมีคนเฝ้า บน browser ของคนนั้นเอง — agent 4 ตัวพร้อมกันใน session เดียวทำงานได้ | รันไม่มีคนเฝ้า / หลายเครื่อง — ต้องมี profile เฉพาะงาน + user ของ automation + CI gate ของ `bsk` |
-| | O2C ต่อจาก Sales Order บน SB2 — อนุมัติผ่าน suitelet ของ bundle APC ยังไม่ได้ขับ; item ทดสอบมี Available 0 |
+| | O2C ต่อจาก Sales Order บน SB2 — ติดที่ approve: bundle APC ไม่สร้าง control record ให้ SO ที่สร้างใหม่ (สาเหตุยังไม่ได้สืบ); fulfill/invoice ยังไม่ได้ขับ. item ที่ใช้ได้มีแล้ว (617) |
 | | Production ทุกกรณี |

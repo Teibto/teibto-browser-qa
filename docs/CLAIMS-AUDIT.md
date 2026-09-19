@@ -168,6 +168,17 @@ than pinning a tokenizer-specific absolute count.
 | `DOMParser` on a 2.7 MB fetched form page ends the bsk session | measured | observed once; regex on text or `xml=T` avoids it |
 | Sales Order approval on this account has no button on the record: it runs through the APC bundle's Batch Approval suitelet, which has no `nlapiGetContext` | verified | 40-button inventory on two orders, native approve page HTTP 500; O2C beyond the order is NOT yet driven |
 
+## O2C loop through bsk (SB2, 2026-09-19)
+
+| Claim | Status | Evidence/limit |
+|---|---|---|
+| A Sales Order with an in-stock, non-lot item is created and verified server-side in 40.3 s with no dialogs | measured | SO-TH-260900014 (id 1292749), item 617 qty 1 at location 30, n=1 |
+| The account's Batch Approval suitelet lists APC approval-level records, not native `Pending Approval` transactions; a newly created order had no such record and therefore no row | verified | search on `customrecord_apc_record_approval_level` by transaction: 0 rows for the new order, 1 each for the two queued orders |
+| Why APC did not route the new order | inferred — not investigated | reading the bundle's configuration was outside the run's stop condition |
+| The queue shows two documents as awaiting approval that are already billed / approved server-side | verified | `record_xml` on both rows |
+| The React approval page has no `<table>`, `<tr>` or checkbox; a data text marker is the working readiness signal | verified | element counts read from the page; `tr` wait timed out at 45 s |
+| Fulfilment and invoicing through bsk | not exercised | blocked upstream at approval; nothing was forced |
+
 ## Engine policy
 
 | Claim | Status | Evidence/limit |
