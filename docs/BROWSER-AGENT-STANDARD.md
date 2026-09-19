@@ -20,7 +20,7 @@
 
 ขอบเขต: ใช้กับทุก skill ของทีมที่ขับเบราว์เซอร์จริง — `teibto-browser-qa`, `netsuite-ui-qa-testing`,
 `netsuite-qa-browser`, QA run ของ `apex-page-as-code` และงานที่สั่งผ่าน TeibTalk.
-Transport ยังเป็น `cdp.py` ตัวเดียวตามมติเดิม (เหตุผลและข้อยกเว้นอยู่ใน §4).
+Engine หลักคือ `cdp.py`; BrowserSkill (`bsk`) เป็น engine ที่สองที่รับเข้ามาแบบมีเงื่อนไข (§4).
 
 ---
 
@@ -303,20 +303,70 @@ trusted input และคือรัศมีระเบิดของ injec
 
 ---
 
-## 4. มติเรื่อง transport — ยืนยันใหม่ ไม่ใช่สืบทอด
+## 4. มติเรื่อง transport — engine หลักหนึ่งตัว + engine ที่สองแบบมีเงื่อนไข
 
-**คงไว้ที่ `cdp.py` ตัวเดียว** เพราะ:
+**มติ (2026-09-19 · #87):** `cdp.py` ยังเป็น **engine หลัก** และเป็นค่าตั้งต้นของทุก run. ทีมรับ
+[Tencent BrowserSkill](https://github.com/Tencent/BrowserSkill) (`bsk`) เป็น **engine ที่สอง** สำหรับ session
+ที่ `cdp.py` เข้าไม่ถึง. มติเดิม "`cdp.py` ตัวเดียว" ถูกแทนที่ด้วยข้อนี้; เหตุผลสามข้อของมติเดิมยังจริง
+และถูกแปลงเป็นเงื่อนไข §4.2–§4.3 แทนการลบทิ้ง.
 
-- **หลักฐานที่ replay ได้เป็นของเรา** — `flow.yaml` → `run-log.jsonl` → `qa-report.md` → PDF พร้อม
-  traceability กลับไปที่ requirement. MCP stack คืนข้อความตอบรับ ไม่ใช่ event ที่มี type
-- **`lens` / `stub` / `steady` / `netlog` และกับดัก Windows/ไทย/NetSuite ทั้ง 17 ข้อ ถูกฝังไว้ใน driver แล้ว**
-- **สอง transport = สองชุดกับดัก** ซึ่งคือ drift ที่ job `driver-compat` ถูกตั้งขึ้นมาเพื่อกันโดยเฉพาะ
+> **สถานะของมตินี้:** เป็นนโยบายที่อนุญาตแล้ว แต่ **ยังไม่มีโค้ดใน repo นี้ที่ขับ `bsk`** —
+> `scripts/flow-runner.py` และ `schemas/flow.schema.json` ยังรับ `cdp.py` อย่างเดียว. ห้ามเขียนในรายงาน QA
+> ว่า run ผ่าน engine ที่สอง "ตามมาตรฐาน" จนกว่าด่านใน §4.3 จะครบ.
+
+### 4.1 ใช้ engine ที่สองได้เมื่อใด
+
+ใช้ได้เมื่อ **session ที่ต้องทดสอบเปิด CDP port ให้เราไม่ได้**:
+
+| กรณี | ทำไม `cdp.py` เข้าไม่ถึง |
+|---|---|
+| profile หลักของผู้ใช้/ลูกค้าที่ login ค้างอยู่ | Chrome 136+ ไม่เปิด `--remote-debugging-port` ให้ user-data-dir ตัว default |
+| browser บนเครื่องอื่นที่ agent รันอยู่คนละที่ | ไม่มี loopback port ให้ต่อ; `bsk` จับคู่ระยะไกลด้วย pairing link |
+| ขั้นตอนที่ต้องให้คนทำเองกลาง run (MFA, CAPTCHA, ยืนยันที่อ่อนไหว) | `cdp.py` ไม่มีสถานะ "รอคน"; `bsk request-help` มี |
+
+**ห้ามใช้ engine ที่สองเพื่อเลี่ยงข้อจำกัดของ `cdp.py`** — ความสามารถที่ `cdp.py` ควรมีแต่ยังไม่มี ยังต้องเปิด issue ที่
+`Teibto/teibto-dev-standards` ตาม `references/cdp-limits.md` §4. NetSuite SB1/SB2 บนเครื่องที่มี shared session
+coordinator อยู่แล้วให้ใช้ `cdp.py` ต่อ. `lens` / `stub` / `steady` / `netlog` / `diff` และ `flow-runner.py`
+เป็นของ `cdp.py` เท่านั้น: run ผ่าน engine ที่สองอ้าง layer เหล่านี้ไม่ได้.
+
+### 4.2 กฎที่ใช้กับทุก engine
+
+- invariant ของ `SKILL.md` และกฎ BAS-1…BAS-9 ไม่ขึ้นกับ engine. หลักฐานที่ engine ให้ไม่ได้ = `UNVERIFIED`
+  ไม่ใช่ข้อยกเว้นของกฎ.
+- หนึ่ง run ใช้หนึ่ง engine และรายงานต้องระบุ engine + เวอร์ชันบนหัวเอกสาร. ห้ามสลับ engine กลาง scenario
+  แล้วรวมผลเป็น verdict เดียว.
+- agent ไม่ได้รับ password, OTP seed, cookie หรือ token ไม่ว่า engine ใด. ขั้นตอนที่ต้องใช้ความลับเป็นของคน
+  (`request-help`) หรือเข้าทาง stdin ของ runner เท่านั้น.
+- tab ของผู้ใช้ต้องยืมอย่างชัดแจ้ง (`bsk tab borrow` → `bsk tab return`) — เทียบเท่า invariant 1
+  (หนึ่ง job หนึ่ง target ที่ปักไว้). ห้ามปิดสวิตช์ยืนยันการยืม tab ใน extension เพื่อให้ run ไม่ต้องมีคนดู.
+- ห้ามเขียน driver ตัวที่สอง **ในสกิลนี้**: เรารับ engine ภายนอกที่ pin เวอร์ชัน ไม่ fork และไม่แก้ core ของมัน.
+
+### 4.3 ชั้นหลักฐานและด่านที่ต้องมีก่อนยกระดับ
+
+ผลจาก engine ที่สองเข้ารายงานในชั้น **`inferred`** (ห้ามให้ `PASS` ลำพัง — BAS-8) จนกว่าจะมีครบ:
+
+1. **version pin** ของ `bsk` ใน CI คู่กับ live compat test แบบเดียวกับ job `driver-compat` —
+   ตอบเหตุผลเดิม "สอง transport = สองชุดกับดัก": drift ของ engine ที่สองต้องแดงก่อน merge เหมือนกัน
+2. **adapter ที่ออก event ชุดเดียวกับ `run-log.jsonl`** (`step_done`, `dialog`, typed failure) —
+   ตอบเหตุผลเดิม "หลักฐานที่ replay ได้เป็นของเรา": ข้อความตอบรับของ CLI ไม่ใช่หลักฐาน
+3. **เทสด้านลบเรื่อง dialog และ `beforeunload`** — ทีมเลิกใช้ daemon ตัวก่อน (#34) เพราะ `os error 10060`
+   วนซ้ำ, Chrome ตายเงียบ และ `beforeunload` ที่ wedge ถาวร. `bsk` ก็เป็น CLI + daemon + extension;
+   พฤติกรรมสามข้อนี้ **ยังไม่ได้ทดสอบกับ `bsk`** และต้องมี fixture พิสูจน์ก่อนใช้กับหน้าที่บันทึกข้อมูลจริง
+4. **แถวใน `docs/CLAIMS-AUDIT.md`** สถานะ `verified, version-pinned` ต่อ claim และไฟล์กับดักของ engine ที่สอง
+   แยกจาก `references/gotchas.md` (กับดักที่บันทึกไว้เป็นของ direct CDP ไม่ได้ย้ายตามมาเอง)
+
+ข้อเท็จจริงของ `bsk` ที่มตินี้อิง ตรวจจาก commit `fa953dc` (v0.3.0, 2026-09-16, MIT) และเป็น `version-pinned`:
+CLI + daemon + extension MV3 ที่ extension ขับ tab ผ่าน CDP · `observe` คืน ref `@eN` · `tab borrow`/`tab return` ·
+`request-help` · `screenshot` · `console`/`network` แบบอ่านอย่างเดียว · remote connection · operation audit ·
+Windows x64. โครงการออกรุ่นถี่ (0.2.1 → 0.3.0 ใน 7 วัน) จึงต้องตรวจซ้ำทุกครั้งที่ขยับ pin.
+
+### 4.4 เส้นทางอื่นที่ยังเป็นข้อยกเว้น
 
 **ทางออกฉุกเฉินที่ยอมรับได้** (บันทึกเป็นข้อยกเว้น ไม่ใช่ค่าตั้งต้น): สำรวจครั้งเดียวบนเครื่องที่ไม่มี harness ·
 งาน performance trace ลึก (`performance_start_trace` → LCP/TBT/CLS) และ heap/memory ที่ `cdp.py` ยังไม่ได้ทำ ·
 Lighthouse audit. **ผลจากเส้นทางเหล่านี้เข้ารายงานในชั้น `inferred` เท่านั้น** จนกว่าจะทำซ้ำได้บนเส้นทางมาตรฐาน
 
-**ของที่ควรดึงเข้ามาไว้ใน `cdp.py` แทนการรับ transport ที่สอง** (เปิดเป็น issue ที่ `teibto-dev-standards`):
+**ของที่ควรดึงเข้ามาไว้ใน `cdp.py` แทนการพึ่ง engine อื่น** (เปิดเป็น issue ที่ `teibto-dev-standards`):
 Core Web Vitals จาก Tracing domain · throttle CPU/network · `wait_for <text>` · download ledger (A10) ·
 batch `fill_form`
 
@@ -358,7 +408,7 @@ E3 — ทั้งหมดรอฝั่ง driver ตามลำดับ 4
 ## 7. สิ่งที่มาตรฐานนี้ไม่ทำ
 
 - ไม่ใช่ browser CI suite (Playwright/Cypress) — ยังอยู่นอกขอบเขต repo นี้
-- ไม่ใช่ driver ตัวที่สอง
+- ไม่ใช่ driver ตัวที่สองที่เขียนเอง — engine ที่สองเป็นของภายนอกที่ pin เวอร์ชัน (§4)
 - ไม่แทนการพิสูจน์ผ่าน API — หน้าจอยังเป็นชั้นที่บางที่สุดของความจริง (`cdp-limits.md` §2)
 - ไม่ใช่ agent ที่ท่องเว็บที่ไม่รู้จักได้เอง — ทุก run ต้องมี origin ที่ประกาศไว้
 
