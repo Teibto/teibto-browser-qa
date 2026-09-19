@@ -133,6 +133,13 @@ than pinning a tokenizer-specific absolute count.
 | `el.focus()` on some custom-element hosts leaves `activeElement` on `BODY`; only keyboard Tab focuses the host | measured, version-pinned | `tbt-button`, TBT-DS 1.46.1, 2026-09-08 |
 | `lens focus` reports `focus-stuck`/`unreachable-controls` on `<input type=date>` because Tab walks its date fields | measured, version-pinned | observed 2026-09-08; verify by pressing Tab 4–5 more times |
 
+## NetSuite live-run findings
+
+| Claim | Status | Evidence/limit |
+|---|---|---|
+| After a `click` that navigates to a page loading longer than ~10 s, an expression/`networkidle` `wait` fails with `WS_TIMEOUT` at ~10 s instead of at its own deadline | measured | SB2 `4089685_SB2`, 2026-09-19, driver `71b477a`: `wait.driver_ms=10012`; same page `nav --until=load` = 13,812 ms; fixed-sleep variant of the same flow passed 4/4. Reproduced once, no fixture yet — `gotchas.md` §20, driver issue `Teibto/teibto-dev-standards#396` |
+| The evaluate stalls because the renderer is busy or its execution context is torn down mid-navigation | inferred | not separated; do not cite as cause |
+
 ## Engine policy
 
 | Claim | Status | Evidence/limit |

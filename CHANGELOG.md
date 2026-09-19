@@ -20,6 +20,9 @@
 
 ### Added
 
+- `gotchas.md` §20: `wait` หลัง `click` ไปหน้าที่โหลดเกิน ~10 วิ ล้มด้วย `WS_TIMEOUT` ทั้งที่ click สำเร็จ —
+  พบจาก QA จริงบน NetSuite SB2 (Sales Order view โหลด 13.8 วิ) พร้อมท่าเลี่ยงและข้อจำกัด ·
+  ต้นเหตุฝั่ง driver ติดตามที่ `Teibto/teibto-dev-standards#396` (#93)
 - `flow-runner.py --engine bsk`: adapter `BskSession` ขับ flow YAML เดิมผ่าน BrowserSkill CLI และออก
   `run-log.jsonl`/`qa-report.md`/`shots/` รูปเดียวกับ engine หลัก · read-only ถูกบังคับในโค้ด
   (`ENGINE_RISK_NOT_ALLOWED` ก่อนแตะ browser, `ENGINE_DIALOG_ACCEPTED` ตอนรัน) · pin `bsk` 0.3.0

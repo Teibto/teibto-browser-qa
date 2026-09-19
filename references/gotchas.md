@@ -25,6 +25,7 @@
 17. Chrome cache หน้าเดิม — แก้ไฟล์แล้ว QA ยังวัดโค้ดเก่า ผลที่ได้จึงเป็นของรุ่นก่อนแก้
 18. แท็บ/หน้าต่างไม่อยู่หน้าสุด — `requestAnimationFrame` ไม่รัน และ trusted `click` อาจหายเงียบ
 19. `document.fonts.check()` ตอบ `true` ให้ฟอนต์ที่ไม่มี — วัด presence ด้วยความกว้างเทียบ baseline คนละตระกูล
+20. `wait` หลัง `click` ไปหน้าที่โหลดเกิน ~10 วิ ล้มด้วย `WS_TIMEOUT` ทั้งที่ click สำเร็จ
 
 ---
 
@@ -444,3 +445,38 @@ Consolas เทียบกับมันแล้วได้คำตอบ�
 ที่ "ไม่มีตัวไหนถูก serve" ยังเลือก family ที่เครื่องมีได้ · การถอดชื่อออกเพราะคิดว่าไม่มีผลทำให้ตัวอักษรไทยทั้งหน้า
 เปลี่ยนฟอนต์และ merge ไปแล้วก่อนจะจับได้ (TEIBTO-Bank-Reconcile #105) · **วัดในเบราว์เซอร์ก่อนแตะ font stack
 เสมอ** — เป็นคำถามที่ repo ตอบไม่ได้โดยหลักการ
+
+## 20. `wait` หลัง `click` ไปหน้าที่โหลดเกิน ~10 วิ ล้มด้วย `WS_TIMEOUT` [HIGH — false FAIL บน NetSuite]
+
+step `click` ที่ทำให้เกิด navigation ไปหน้าโหลดช้า แล้วตามด้วย `wait` แบบ expression, selector หรือ
+`networkidle` ล้มด้วย `WS_TIMEOUT` หลัง ~10 วินาที **ไม่ใช่** ที่ deadline 20–30 วินาทีของ `wait` เอง —
+ทั้งที่ click สำเร็จและหน้าปลายทางโหลดครบในอีกไม่กี่วินาที. รายงานจึงออกมาเป็น FAIL ที่ step คลิก
+โดย `failing_phase` คือ `wait` ไม่ใช่ `action`.
+
+วัดจริงบน NetSuite SB2 (2026-09-19, flow read-only: Sales Order list → คลิก View):
+`wait.driver_ms = 10012` แล้ว `WS_TIMEOUT` · หน้า Sales Order view เดียวกันวัดด้วย `nav --until=load` ได้
+**13,812 ms** · เปลี่ยน wait เป็นพักแบบกำหนดเวลาแล้ว flow เดิมผ่าน 4/4. สาเหตุที่ evaluate ไม่ตอบ
+(renderer ไม่ว่าง หรือ execution context ถูกทำลายระหว่าง navigation) **ยังไม่ได้แยก** — ติดตามที่
+`Teibto/teibto-dev-standards#396`.
+
+**อ่านอาการให้ถูกก่อนไล่บั๊ก:** `WS_TIMEOUT` + `failing_phase: wait` + `driver_ms ≈ 10000` หลัง click ที่เปลี่ยนหน้า
+= กับดักนี้ ไม่ใช่ปุ่มกดไม่ติด. เปิด failure screenshot ดู — ถ้าเห็นหน้าปลายทางกำลังขึ้น แปลว่า click ลงแล้ว.
+
+**ท่าเลี่ยงจนกว่า driver จะแก้:**
+
+```yaml
+- action: click
+  target: "tr.uir-list-row-tr a.viewitem"
+  risk: read
+  wait: 17000            # พักแบบกำหนดเวลา: runner sleep เอง ไม่ส่งคำสั่งเข้า driver ระหว่างหน้าโหลด
+  assert: { url_contains: "/salesord.nl?id=" }
+- action: wait           # step ถัดไปพิสูจน์ outcome จริงเมื่อ renderer ว่างแล้ว
+  target: "fn:!!document.querySelector('h1.uir-record-type')"
+  assert: { target: "h1.uir-record-type", contains: "Sales Order" }
+```
+
+- ตั้งเวลาพักจากเวลาโหลดที่ **วัดได้** ของหน้านั้น (`nav --until=load` แล้วจับเวลา) บวกส่วนเผื่อ ไม่ใช่เดา
+- นี่คือ fixed sleep ซึ่งขัดกับแนวทาง "รอ observable outcome": ใช้เฉพาะ step ที่เข้าอาการข้างบน,
+  ใส่ comment อ้างข้อนี้ และห้ามใส่ `perf_budget_ms` ใน step นั้นเพราะตัวเลขจะเป็นเวลาพัก ไม่ใช่เวลาของแอป
+- ถ้าไม่ได้ต้องการพิสูจน์ว่า "ลิงก์กดได้" ให้ใช้ `open` ไป URL ปลายทางแทน — `open` รอ navigation แบบ
+  event-bound และไม่เข้ากับดักนี้
