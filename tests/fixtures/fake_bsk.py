@@ -14,6 +14,8 @@ log = os.environ.get("FAKE_BSK_LOG")
 if log:
     with open(log, "a", encoding="utf-8") as handle:
         handle.write(" ".join(args[:2]) + "\n")
+        if "--browser" in args:
+            handle.write("browser=" + args[args.index("--browser") + 1] + "\n")
 version = os.environ.get("FAKE_BSK_VERSION", "0.3.0")
 command = args[0]
 
@@ -25,7 +27,10 @@ def flag(name: str) -> str:
 if command == "status":
     out = {"daemon_version": version, "pid": 1}
 elif command == "browsers":
-    out = [{"browser_name": "chrome", "browser_version": "152.0.0.0", "extension_version": version}]
+    # FAKE_BSK_BROWSERS=<id>,<id> models several connected browsers.
+    out = [{"instance_id": item, "browser_name": "chrome", "browser_version": "152.0.0.0",
+            "extension_version": version}
+           for item in os.environ.get("FAKE_BSK_BROWSERS", "only-one").split(",")]
 elif command == "session":
     out = {"session_id": "fake-session"} if args[1] == "start" else {}
 elif command == "navigate":

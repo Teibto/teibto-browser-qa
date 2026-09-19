@@ -470,7 +470,8 @@ def enforce_engine_risk(flow: dict[str, Any]) -> None:
 class BskSession:
     """BrowserSkill CLI behind the CDPSession interface the runner already uses."""
 
-    def __init__(self, bsk: list[str], *, request_timeout: float = 45.0):
+    def __init__(self, bsk: list[str], *, browser: str | None = None,
+                 request_timeout: float = 45.0):
         self.bsk = bsk
         self.script = Path(bsk[-1])
         self.request_timeout = request_timeout
@@ -479,9 +480,19 @@ class BskSession:
         self.console_since = 0
         status = self._cli(["status"])
         browsers = self._cli(["browsers"])
-        if not isinstance(browsers, list) or len(browsers) != 1:
-            raise RunnerError("BSK_NOT_READY", "ต้องมี browser ที่เชื่อม extension หนึ่งตัวพอดี",
+        if not isinstance(browsers, list) or not browsers:
+            raise RunnerError("BSK_NOT_READY", "ไม่มี browser ที่เชื่อม extension อยู่",
                               detail={"browsers": browsers})
+        known = ", ".join(f"{item.get('instance_id')} ({item.get('browser_name')} "
+                          f"{item.get('browser_version')})" for item in browsers)
+        if browser:
+            browsers = [item for item in browsers if item.get("instance_id") == browser]
+            if not browsers:
+                raise RunnerError("BSK_NOT_READY", f"ไม่พบ browser {browser}; ที่เชื่อมอยู่: {known}")
+        elif len(browsers) > 1:
+            # Same rule as invariant 1: never guess among shared targets.
+            raise RunnerError("BSK_BROWSER_AMBIGUOUS",
+                              f"มี browser เชื่อมอยู่หลายตัว ระบุ --bsk-browser: {known}")
         versions = {"daemon": status.get("daemon_version"),
                     "extension": browsers[0].get("extension_version")}
         if set(versions.values()) != {BSK_PINNED_VERSION}:
@@ -491,10 +502,13 @@ class BskSession:
                 f"extension={versions['extension']} — ตรวจนโยบาย dialog ใหม่ก่อนขยับ pin (BAS §4.3)",
                 detail=versions,
             )
-        started = self._cli(["session", "start", "--name", "flow-runner", "--no-focus"])
+        instance = str(browsers[0].get("instance_id"))
+        started = self._cli(["session", "start", "--name", "flow-runner", "--no-focus",
+                             "--browser", instance])
         self.session_id = str(started["session_id"])
         self.ready = {"protocol": "bsk-cli", "version": BSK_PINNED_VERSION,
                       "browser": f"{browsers[0].get('browser_name')} {browsers[0].get('browser_version')}",
+                      "browser_instance": instance,
                       "target_id": self.session_id}
 
     def _cli(self, args: list[str], *, timeout: float | None = None) -> Any:
@@ -817,7 +831,8 @@ def flow_meta(flow: dict[str, Any], path: Path, *, full: bool = False) -> dict[s
 def run_flow(flow: dict[str, Any], path: Path, output_dir: Path, variables: dict[str, Any],
              cdp_script: Path, target_id: str, port: str | None, sink: EventSink,
              dialog: str = "safe", allow_destructive: bool = False,
-             engine: str = "cdp", bsk: list[str] | None = None) -> int:
+             engine: str = "cdp", bsk: list[str] | None = None,
+             bsk_browser: str | None = None) -> int:
     run_started = time.perf_counter()
     if engine == "bsk":
         dialog = "bsk-accept-all"   # the engine ignores our policy; say so instead of printing `safe`
@@ -870,8 +885,12 @@ def run_flow(flow: dict[str, Any], path: Path, output_dir: Path, variables: dict
                                          allow_destructive=allow_destructive)
         if engine == "bsk":
             enforce_engine_risk(flow)
-            session = BskSession(bsk or [])
+            session = BskSession(bsk or [], browser=bsk_browser)
             target_id = str(session.ready["target_id"])
+            # The header was written before the session existed; the bsk session id is the pin.
+            report[report.index("**Target ID:** ``")] = (
+                f"**Target ID:** `{target_id}` (bsk session · browser "
+                f"`{session.ready['browser_instance']}`)")
         else:
             session = CDPSession(cdp_script, target_id, port=port, dialog=dialog)
         startup_ms = round((time.perf_counter() - startup_started) * 1000, 3)
@@ -880,7 +899,10 @@ def run_flow(flow: dict[str, Any], path: Path, output_dir: Path, variables: dict
                    "protocol": session.ready.get("protocol"),
                    "version": session.ready.get("version"),
                    "input_settle": session.ready.get("input_settle"),
-                   "port": session.ready.get("port"), "duration_ms": startup_ms})
+                   "port": session.ready.get("port"),
+                   **({"browser_instance": session.ready["browser_instance"]}
+                      if engine == "bsk" else {}),
+                   "duration_ms": startup_ms})
         global_index = 0
         for scenario in flow["scenarios"]:
             scenario_failed = False
@@ -1100,6 +1122,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--engine", choices=ENGINES, default="cdp",
                         help="cdp (default) or bsk, the read-only second engine (BAS §4)")
     parser.add_argument("--bsk", help="path to the bsk CLI (default: TEIBTO_BSK or PATH)")
+    parser.add_argument("--bsk-browser", default=os.environ.get("TEIBTO_BSK_BROWSER"),
+                        help="bsk browser instance id; required when several are connected")
     parser.add_argument("--dialog", choices=DIALOG_POLICIES, default="safe",
                         help="dialog policy handed to cdp.py (default: safe; never inherited from env)")
     parser.add_argument("--stdout", choices=STDOUT_MODES, default="events",
@@ -1138,7 +1162,7 @@ def main(argv: list[str] | None = None) -> int:
         return run_flow(flow, path, output_dir, variables, cdp_script,
                         args.target_id or "", args.cdp_port, sink, dialog=args.dialog,
                         allow_destructive=args.allow_destructive,
-                        engine=args.engine, bsk=bsk)
+                        engine=args.engine, bsk=bsk, bsk_browser=args.bsk_browser)
     except RunnerError as exc:
         payload = {"type": "fatal", "error": {"code": exc.code, "message": str(exc)}}
         if sink:

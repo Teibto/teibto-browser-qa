@@ -18,8 +18,16 @@ cleanup() { [ -n "$SRV_PID" ] && kill "$SRV_PID" 2>/dev/null; rm -rf "$WORK" 2>/
 trap cleanup EXIT
 timeout 15 bsk status --json >"$WORK/status.json" 2>/dev/null || { echo "SKIP: bsk daemon ไม่ตอบ"; exit 0; }
 timeout 15 bsk browsers --json >"$WORK/browsers.json" 2>/dev/null
-[ "$("$PY" -c "import json,sys;print(len(json.load(open(sys.argv[1]))))" "$WORK/browsers.json" 2>/dev/null)" = "1" ] \
-  || { echo "SKIP: ต้องมี browser ที่เชื่อม extension หนึ่งตัวพอดี"; exit 0; }
+jget() { "$PY" -c "import json,sys;d=json.load(open(sys.argv[1],encoding='utf-8'));print($2)" "$1" 2>/dev/null; }
+# เลือก browser: ENGINE2_BROWSER=<instance_id> หรือมีตัวเดียวพอดี — ห้ามเดา เพราะ fixture นี้เปิด dialog จริง
+IDS="$(jget "$WORK/browsers.json" "' '.join(x['instance_id'] for x in d)")"
+BROWSER="${ENGINE2_BROWSER:-}"
+if [ -z "$BROWSER" ]; then
+  [ "$(jget "$WORK/browsers.json" 'len(d)')" = "1" ] \
+    || { echo "SKIP: มี browser เชื่อมอยู่ ${IDS:-0 ตัว} — ตั้ง ENGINE2_BROWSER=<instance_id> ของ profile ทดสอบ"; exit 0; }
+  BROWSER="$IDS"
+fi
+case " $IDS " in *" $BROWSER "*) ;; *) echo "SKIP: ไม่พบ browser $BROWSER (ที่เชื่อมอยู่: $IDS)"; exit 0 ;; esac
 
 (cd "$HERE" && exec "$PY" -m http.server "$PORT" --bind 127.0.0.1 >/dev/null 2>&1) &
 SRV_PID=$!
@@ -28,7 +36,7 @@ for _ in $(seq 20); do curl -sf -o /dev/null "http://127.0.0.1:${PORT}/dialog-pa
 pass=0; fail=0
 # run <flow> <expected-verdict> <expected-exit> <substring that must be in run-log>
 run() {
-  "$PY" "$ROOT/scripts/flow-runner.py" --engine bsk --flow "$HERE/$1" --out "$WORK/out-$1" --stdout summary >"$WORK/$1.json" 2>&1
+  "$PY" "$ROOT/scripts/flow-runner.py" --engine bsk --bsk-browser "$BROWSER" --flow "$HERE/$1" --out "$WORK/out-$1" --stdout summary >"$WORK/$1.json" 2>&1
   local rc=$? verdict
   verdict="$("$PY" -c "import json,sys;print(json.loads(open(sys.argv[1],encoding='utf-8').read().strip().splitlines()[-1]).get('verdict'))" "$WORK/$1.json" 2>/dev/null)"
   if [ "$verdict" = "$2" ] && [ "$rc" = "$3" ] && grep -q "$4" "$WORK/out-$1/run-log.jsonl"; then
