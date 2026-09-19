@@ -339,6 +339,11 @@ coordinator อยู่แล้วให้ใช้ `cdp.py` ต่อ. `lens
   (`request-help`) หรือเข้าทาง stdin ของ runner เท่านั้น.
 - tab ของผู้ใช้ต้องยืมอย่างชัดแจ้ง (`bsk tab borrow` → `bsk tab return`) — เทียบเท่า invariant 1
   (หนึ่ง job หนึ่ง target ที่ปักไว้). ห้ามปิดสวิตช์ยืนยันการยืม tab ใน extension เพื่อให้ run ไม่ต้องมีคนดู.
+- **ห้ามใช้ engine ที่สองกับ step ที่ `risk: write` หรือ `risk: destructive`** และห้ามใช้กับหน้าที่มีฟอร์มค้างอยู่.
+  `bsk` 0.3.0 ตอบ **accept** ให้ dialog ทุกชนิด — `confirm` ยืนยันลบ/บันทึกถูกตอบ "ตกลง" และ `beforeunload`
+  ถูกปล่อยให้ออกจากหน้า — โดยไม่มี setting ให้เปลี่ยน ซึ่งขัดกับนโยบาย `safe` ของ invariant 5 / BAS-4 ข้อ 4.
+  ข้อห้ามนี้ยกเลิกได้เมื่อ upstream มีนโยบาย dismiss และ `self-test/engine2/dialog-test.sh` ถูก pin ค่าใหม่เท่านั้น
+  (verified #89). ใช้ได้กับ step ที่ `risk: read` และการสำรวจที่ไม่เปลี่ยน state.
 - ห้ามเขียน driver ตัวที่สอง **ในสกิลนี้**: เรารับ engine ภายนอกที่ pin เวอร์ชัน ไม่ fork และไม่แก้ core ของมัน.
 
 ### 4.3 ชั้นหลักฐานและด่านที่ต้องมีก่อนยกระดับ
@@ -349,9 +354,11 @@ coordinator อยู่แล้วให้ใช้ `cdp.py` ต่อ. `lens
    ตอบเหตุผลเดิม "สอง transport = สองชุดกับดัก": drift ของ engine ที่สองต้องแดงก่อน merge เหมือนกัน
 2. **adapter ที่ออก event ชุดเดียวกับ `run-log.jsonl`** (`step_done`, `dialog`, typed failure) —
    ตอบเหตุผลเดิม "หลักฐานที่ replay ได้เป็นของเรา": ข้อความตอบรับของ CLI ไม่ใช่หลักฐาน
-3. **เทสด้านลบเรื่อง dialog และ `beforeunload`** — ทีมเลิกใช้ daemon ตัวก่อน (#34) เพราะ `os error 10060`
-   วนซ้ำ, Chrome ตายเงียบ และ `beforeunload` ที่ wedge ถาวร. `bsk` ก็เป็น CLI + daemon + extension;
-   พฤติกรรมสามข้อนี้ **ยังไม่ได้ทดสอบกับ `bsk`** และต้องมี fixture พิสูจน์ก่อนใช้กับหน้าที่บันทึกข้อมูลจริง
+3. **เทสด้านลบเรื่อง dialog และ `beforeunload`** — ✅ มีแล้ว: `self-test/engine2/dialog-test.sh` (#89).
+   ทีมเลิกใช้ daemon ตัวก่อน (#34) เพราะ `os error 10060` วนซ้ำ, Chrome ตายเงียบ และ `beforeunload` ที่ wedge ถาวร.
+   กับ `bsk` 0.3.0 + Chrome 152 บน Windows: 20 รอบติดไม่พบ wedge, คำสั่งหลัง `beforeunload` ตอบทุกครั้ง,
+   daemon pid เดิม และค่า `handled` ที่รายงานตรงกับ DOM ทุกครั้ง — แต่นโยบายที่พบคือ accept ทุกชนิด
+   จึงเกิดข้อห้ามใน §4.2. ด่านนี้ผ่านแปลว่า "รู้แล้วว่ามันทำอะไร" ไม่ได้แปลว่า "ปลอดภัยกับหน้าที่บันทึกข้อมูล"
 4. **แถวใน `docs/CLAIMS-AUDIT.md`** สถานะ `verified, version-pinned` ต่อ claim และไฟล์กับดักของ engine ที่สอง
    แยกจาก `references/gotchas.md` (กับดักที่บันทึกไว้เป็นของ direct CDP ไม่ได้ย้ายตามมาเอง)
 

@@ -20,6 +20,11 @@
 
 ### Added
 
+- `self-test/engine2/dialog-test.sh` + fixture: ด่าน dialog/`beforeunload` ของ engine ที่สอง (BAS §4.3 ข้อ 3) ·
+  เทียบค่า `handled` ที่ `bsk` รายงานกับผลจริงใน DOM, pin นโยบายที่สังเกตได้, ตรวจ liveness หลัง `beforeunload`
+  และ pid ของ daemon หลัง 20 รอบ · ไม่มี `bsk`/daemon/extension = `SKIP` (#89)
+- ผลที่พบกับ `bsk` 0.3.0: ไม่ wedge แบบ daemon ตัวก่อน แต่ **ตอบ accept ให้ dialog ทุกชนิด** —
+  BAS §4.2 และ `SKILL.md` จึงห้ามใช้ engine ที่สองกับ step ที่ `risk: write|destructive` (#89)
 - กฎ BAS ทุกข้อประกาศบรรทัด `Status` เป็น `adopted` / `partial` / `proposed` พร้อมด่านที่พิสูจน์มัน
   (สำหรับ adopted/partial) และ issue ที่ติดตาม (สำหรับ partial/proposed) · `standard_violations()`
   ล้มเมื่อกฎไม่มีสถานะ, ใช้ค่านอกรายการ, ประกาศ `adopted` โดยไม่อ้างด่าน หรือ `proposed` โดยไม่อ้าง issue —
