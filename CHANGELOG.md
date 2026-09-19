@@ -20,6 +20,12 @@
 
 ### Added
 
+- มาตรฐานขับ NetSuite ผ่าน `bsk` (`references/engine2-bsk.md` §6): readiness, คลิก/dropdown, ตรวจ save ด้วย marker,
+  ช่องทางแจ้ง validation, dirty form, หน้า non-classic, flow read-only และตาราง `perf_budget_ms` ต่อชนิดหน้า —
+  สกัดจาก agent 4 ตัวที่ทดสอบ UI จริงบน SB2 พร้อมกัน (#99)
+- `examples/nsbsk.py`: harness ตัวอย่างที่ฝังด่านไว้ (identity gate classic/non-classic, dialog guard, retry เฉพาะ
+  idempotent, `SessionLost`/`EffectUnknown`, save ด้วย nav marker, `record_xml`) (#99)
+- `--engine bsk`: `effect_state: unknown` = `BSK_EFFECT_UNKNOWN` (ไม่สั่งซ้ำ); `no active tab` = `BSK_SESSION_LOST` (#99)
 - `--engine bsk`: retry สูงสุด 2 ครั้งเมื่อ debugger หลุด (`cdp_failed`) เฉพาะคำสั่งที่ทำซ้ำแล้วไม่เกิดผลซ้ำ —
   `click`/`fill`/`pick`/`key`/`eval` ไม่ retry เด็ดขาด · session หาย = `BSK_SESSION_LOST` ที่บอกว่าผลของ action ล่าสุด
   ไม่ทราบ (#97)

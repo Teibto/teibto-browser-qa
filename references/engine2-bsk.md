@@ -62,11 +62,85 @@
 - การ tune ที่ได้ผลจริงคือ **ลดจำนวนรอบที่รอผิดจังหวะ** ไม่ใช่เปลี่ยน engine: baseline เสีย ~24 s ไปกับการ re-fire customer
   ก่อนฟอร์มพร้อม
 
-## 6. สถานะความพร้อมใช้งาน
+## 6. มาตรฐานการขับ NetSuite ผ่าน `bsk`
+
+สกัดจากการทดสอบ UI จริงบน SB2 สี่รูปแบบพร้อมกัน (2026-09-19): O2C หลัง Sales Order · input จริงเทียบ nlapi ·
+flow read-only ผ่าน runner 3 รอบ · edit + validation + dirty form. ทุกข้ออ้างสิ่งที่เห็นจริง; ตัวเลขมีแถวใน
+`docs/CLAIMS-AUDIT.md`. harness ตัวอย่างที่ฝังข้อ 6.1–6.4 ไว้แล้ว: `examples/nsbsk.py`.
+
+### 6.1 ความพร้อมของหน้า
+
+| กฎ | หลักฐาน |
+|---|---|
+| หน้า **ฟอร์ม**: รอ `NS.form.isInited()` ก่อนแตะ field แล้วตั้งค่าครั้งเดียว | ฟอร์ม Sales Order พร้อมหลัง `load` อีก 7–10 s; ตั้งก่อนนั้น sourcing หายเงียบ (baseline เสีย ~24 s) |
+| ก่อน **คลิก** ใด ๆ บนหน้า record (tab, ลิงก์ในฟอร์ม): รอ `NS.form.isInited() && NS.form.isValid()` | anchor ของ tab มี `onclick="if (NS.form.isInited() && NS.form.isValid()) ShowTab(...)"` — ถ้า tab ก่อนหน้ายัง lazy-load อยู่ คลิกถูกทิ้งเงียบและ `bsk` รายงานว่าคลิกสำเร็จ: Relationships 1/3 → 3/3 |
+| หน้า **view**: `navigate --wait-until domcontentloaded` แล้วรอ element ที่ต้องใช้ (`#edit`) | 4,888 → 4,124 ms (−16%) |
+| หลังคลิกที่เปลี่ยนหน้า รอ **ปลายทาง** (`location.href` + heading) ห้ามใช้ `wait` แบบกำหนดเวลา | 17.2 s → 3.7 s (−78%), 3/3 ทั้งสองแบบ |
+
+### 6.2 การคลิกและการกรอก
+
+| กฎ | หลักฐาน |
+|---|---|
+| งานเตรียมข้อมูลใช้ nlapi (`fire=true, sync=true`); input จริงใช้เมื่อ **พฤติกรรมของ widget** คือสิ่งที่ทดสอบ | field phase เท่ากัน (2.2 s ทั้งคู่) แต่ input จริงใช้คำสั่ง 54 ต่อ 24 และมีกับดักค่าผิดเงียบ |
+| ห้าม `bsk fill` ลงช่อง dropdown (`inpt_<field>_N`) และห้าม `bsk select` | `fill` ได้ `{"inpt":"Service","hddn":"","api":""}` — จอถูก ค่าว่าง; ฟอร์ม classic มี `<select>` 0 ตัว |
+| dropdown ด้วย UI จริง = trusted click ที่ `input[id^=inpt_<field>_]` → รอ `div.dropdownDiv` → trusted click แถว `#nlN` | วิธีเดียวที่ commit ค่า; ถ้า list ไม่เปิดใน 1 s ให้คลิกซ้ำ (คลิกระหว่าง sourcing หลัง subsidiary ถูกกลืน) |
+| หลังทุก field: `nlapiGetFieldValue(field)` ต้อง **เท่ากับ internal id ที่ตั้งใจ** — ไม่ใช่แค่ไม่ว่าง | `press "C"` บน dropdown เลื่อนไปตัวถัดไปและ commit: status 13 → 15 เงียบ ๆ |
+| ตรวจ `offsetParent` ของ field และเปิด subtab เจ้าของก่อน | `currency`/`terms` อยู่ใน `financial_div` ที่ซ่อนจนกว่าจะคลิก `#financialtxt` |
+| ห้ามกด Enter ใน field; ห้ามใช้ภาพหน้าจอหรือค่าที่เห็นเป็นหลักฐานของค่าที่เก็บ | Enter = submit; `inpt` กับ `hddn` แยกกันได้ (`{"inpt":"CUSTOMER","hddn":"13"}`) |
+| หาปุ่ม action ด้วย **classic id** (`#edit`, `#approve`, …) + label เท่ากันพอดี + `offsetParent` ไม่ null | จับ substring "actions" ไปโดน "MFG Transactions" → `element_not_visible` |
+| ไม่มีปุ่ม = ถูกบล็อก; ห้ามเลี่ยงด้วย URL `transform=` | SO ที่ยังไม่อนุมัติยังเปิดฟอร์ม Item Fulfillment พร้อม `#submitter` ได้ (HTTP 200) |
+
+### 6.3 Save และการแจ้งปัญหา
+
+| กฎ | หลักฐาน |
+|---|---|
+| ยืนยัน save ด้วย **marker ในหน้า** ที่ต้องหายไป (`window.__navmark`) ไม่ใช่ `id=` ใน URL | URL ของโหมด edit มี `id=` อยู่แล้ว — probe แบบเดิมรายงานสำเร็จโดยยังไม่ได้ save |
+| หลังคลิก Save อ่าน `window.__alerts` คู่กับ marker: marker ยังอยู่ + มี alert = ถูกปฏิเสธในหน้าเดิม | mandatory ว่าง, VAT ยาวเกิน, และ "Another user has updated this record…" มาเป็น `alert` ทั้งหมด; `.uir-alert-box` ไม่ถูกใช้เลยบนฟอร์ม customer |
+| ห้ามเรียก `save_record()` เพื่อวินิจฉัย | เป็นการ submit จริงอีกครั้ง |
+| `bsk fill` ที่ตอบ `fill_value_mismatch` คือ **ผลของ validation** ห้าม retry | field VAT ตัดเหลือ 13 ตัว + alert ระหว่างพิมพ์ |
+| `effect_state: unknown` (`input_cleanup_failed`) = input ถูกส่งแล้ว: สังเกตหน้า ห้ามสั่งซ้ำ | คลิก View ล้มแบบนี้ 1 ใน 4 ทั้งที่ navigation เกิดจริง · runner: `BSK_EFFECT_UNKNOWN` |
+| ปิดท้ายทุกขั้นด้วย `fetch('<record>.nl?id=N&xml=T')` | ไม่ได้รับผลจากฟอร์ม stale ที่เปิดค้าง; NetSuite มี optimistic lock (`version` + `lastmodifieddate`) — save ที่ชนถูกปฏิเสธ ไม่ใช่ last-write-wins บน customer |
+
+### 6.4 Dialog, dirty form และหน้าที่ไม่ใช่ classic
+
+| กฎ | หลักฐาน |
+|---|---|
+| ติดตั้ง guard ระดับหน้าเว็บทุกครั้งที่เปลี่ยนหน้า และ assert `dialogs` ว่างหลังทุก `navigate` | 0 dialog ตลอดทุก loop; เคสควบคุมที่ใส่ handler เองพิสูจน์ว่า `beforeunload` ที่หลุดจะโผล่ใน `dialogs` เป็น `accepted` |
+| ไม่ต้องติดตั้ง guard ซ้ำหลังพิมพ์จริง | `onbeforeunload` ยังเป็น `null` หลัง keystroke จริง 2/2; ตรวจด้วย `=== null` เพราะ `typeof null` คือ `"object"` |
+| ทิ้งฟอร์ม dirty ด้วย `navigate` ได้เลย | ไม่มี prompt และค่าถูกทิ้ง 3/3 (ยืนยันฝั่ง server) · อย่าใช้ `NS.form.isChanged()` — เป็น `true` ตั้งแต่โหลด |
+| หน้าไม่มี `nlapiGetContext` (suitelet/React/Notice): ผ่านด่านได้เมื่ออยู่บน host ของ sandbox **และ** session เดียวกันเคยพิสูจน์ company + SANDBOX บนหน้า classic แล้ว | Batch Approval ของ bundle APC (`scriptlet.nl?script=2024`) เป็น React; host อย่างเดียวไม่พอสำหรับด่านแรก |
+| ห้าม `DOMParser` กับหน้าฟอร์มทั้งหน้า; ใช้ regex บน text หรือ `xml=T` | parse หน้า 2.7 MB ทำ session ตาย; scan `querySelectorAll('*')` 16.7 s เทียบ query เจาะจง 24 ms |
+
+### 6.5 Flow read-only ผ่าน `--engine bsk`
+
+- หนึ่ง pattern ต่อหนึ่ง flow และ scenario ยืนยันตัวตนขึ้นก่อน — scenario ที่ล้มหยุดทั้ง run
+- พิสูจน์การสลับ tab ด้วยการมองเห็น (`#<tab>_div.offsetParent!==null` และ tab ก่อนหน้า `===null`) — `innerText` ของ div ที่ซ่อนยังคืนข้อความ = false pass
+- filter/sort ของ list ใช้ URL parameter แล้ว assert คุณสมบัติของข้อมูล (id เรียงลง, status เดียว) ไม่ใช่แค่ heading
+- negative case (record ไม่มี / Page not found) แยก flow: หน้า Notice ของ NetSuite throw `TypeError … appendChild` เอง console gate จึงทำให้ verdict เป็น FAIL ทั้งที่ assert ผ่าน 3/3
+- 27/27 identity step ผ่าน, 0 dialog, 3 รอบ
+
+### 6.6 `perf_budget_ms` ที่แนะนำ (ค่าสูงสุดที่เห็น × ~2)
+
+| ชนิดหน้า | median ที่วัดได้ | budget |
+|---|---|---|
+| home / context | 2.2 s | 10000 |
+| list มาตรฐาน (≤500 แถว) | 2.3 s | 10000 |
+| transaction list 1000 แถว | 7.7 s | 20000 |
+| saved-search list → results | 4.1 s + 1.6 s | 15000 |
+| record view ผ่าน `open` (SO 5.5 s · item 3.5 s) | — | 20000 (item 15000) |
+| record view ผ่านคลิก + รอปลายทาง | 2.2–3.7 s | 15000 |
+| สลับ tab | 0.4 s | 5000 |
+| หน้า error / Notice | 2.0 s | 10000 |
+| ฟอร์ม edit จนพร้อม | ~18 s (SO) · ~3 s (customer) | วัดต่อฟอร์ม |
+| edit → save → verify (customer) | 8.2 s (7.6–10.8) | — |
+| สร้าง customer + Sales Order | 47.7 s (43.7–51.0) | — |
+
+## 7. สถานะความพร้อมใช้งาน
 
 | ใช้ได้แล้ว | ยังไม่พร้อม |
 |---|---|
 | QA read-only ผ่าน `--engine bsk` บน browser ที่คน login ไว้ (verdict `PASS(inferred)`) | ใช้ตัดสิน release — ชั้นหลักฐานยังเป็น `inferred` (BAS §4.3) |
 | งานเปลี่ยนข้อมูลบน **sandbox** ด้วยสคริปต์ที่มีด่าน §3 ครบ | งานเปลี่ยนข้อมูลผ่าน runner — ยังห้าม (`ENGINE_RISK_NOT_ALLOWED`) |
-| รันมีคนเฝ้า บน browser ของคนนั้นเอง | รันไม่มีคนเฝ้า / หลายเครื่อง — ต้องมี profile เฉพาะงาน + user ของ automation + CI gate ของ `bsk` |
+| รันมีคนเฝ้า บน browser ของคนนั้นเอง — agent 4 ตัวพร้อมกันใน session เดียวทำงานได้ | รันไม่มีคนเฝ้า / หลายเครื่อง — ต้องมี profile เฉพาะงาน + user ของ automation + CI gate ของ `bsk` |
+| | O2C ต่อจาก Sales Order บน SB2 — อนุมัติผ่าน suitelet ของ bundle APC ยังไม่ได้ขับ; item ทดสอบมี Available 0 |
 | | Production ทุกกรณี |

@@ -32,6 +32,12 @@ if once == args[0] and log:
         fail("cdp_failed", "Detached while handling command.")
 if os.environ.get("FAKE_BSK_SESSION_LOST") == args[0]:
     fail("not_found", "session not registered or already stopped")
+if os.environ.get("FAKE_BSK_NO_TAB") == args[0]:
+    fail("not_found", "no active tab in Agent Window 1122955421")
+if os.environ.get("FAKE_BSK_EFFECT_UNKNOWN") == args[0]:
+    print(json.dumps({"code": "cdp_failed", "message": "Input completed but temporary focus emulation could not be disabled",
+                      "data": {"effect_state": "unknown", "reason": "input_cleanup_failed"}, "exit_code": 3}))
+    raise SystemExit(3)
 command = args[0]
 
 

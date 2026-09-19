@@ -530,11 +530,16 @@ class BskSession:
             if done.returncode == 0:
                 break
             text = (done.stderr or done.stdout).strip()
-            if "session not registered" in text:
+            if "session not registered" in text or "no active tab in Agent Window" in text:
                 # Usually a human closed the Agent Window. Whatever ran last may or may not have landed.
                 raise RunnerError("BSK_SESSION_LOST",
                                   f"bsk session หายระหว่าง {args[0]} (Agent Window ถูกปิด?) — ผลของ action ล่าสุด"
                                   "ไม่ทราบ ห้ามรันซ้ำโดยไม่ตรวจกับ backend ก่อน")
+            if '"effect_state":"unknown"' in text.replace(" ", ""):
+                # The input was dispatched but bsk could not confirm it (e.g. input_cleanup_failed while
+                # the page was already navigating). Re-issuing it could act twice.
+                raise RunnerError("BSK_EFFECT_UNKNOWN",
+                                  f"bsk {args[0]} ถูกส่งแล้วแต่ยืนยันผลไม่ได้ — ให้สังเกตหน้าเว็บ ห้ามสั่งซ้ำ: {text[:300]}")
             if idempotent and "cdp_failed" in text and self.attempts <= BSK_RETRY_LIMIT:
                 time.sleep(0.5)
                 continue
