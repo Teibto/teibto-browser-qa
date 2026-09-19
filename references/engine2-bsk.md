@@ -14,6 +14,27 @@
 5. เชื่อมหลาย browser ได้ แต่ต้องเลือกเองเสมอ: `--bsk-browser <instance_id>` / `ENGINE2_BROWSER` — ดู id จาก
    `bsk browsers --json`. แยก **profile ทดสอบ** (ไว้รัน fixture ที่เปิด dialog จริง) ออกจาก **browser ที่คนใช้ทำงาน**
 
+### 1.1 หนึ่ง Agent Window ต่อหนึ่งงาน
+
+ทุก `bsk session start` เปิด Agent Window ใหม่หนึ่งบานบนจอของเจ้าของ browser. สคริปต์ที่ start session ของตัวเอง
+คูณด้วยจำนวน agent = หน้าต่างเด้งหลายสิบบาน และเจ้าของ browser จะปิดมัน (ดู §4 — เกิดแล้ว 2 ครั้ง).
+
+```bash
+export NSBSK_SESSION=$(python examples/nsbsk.py open-shared my-job)   # เปิดครั้งเดียวต่องาน
+# ... ทุกสคริปต์ / ทุก agent ที่มี NSBSK_SESSION: Session() จะ attach และทำงานใน tab ของตัวเอง ...
+python examples/nsbsk.py close-shared "$NSBSK_SESSION"               # ปิดครั้งเดียวตอนจบ
+```
+
+| ข้อเท็จจริงที่วัดได้ | ผลต่อการใช้งาน |
+|---|---|
+| session ของ `bsk` รับ **ทีละคำสั่ง** — คำสั่งที่สองที่เข้ามาพร้อมกันได้ `session_busy` | harness ใส่ lock ข้าม process ต่อ session: agent ผลัดกันส่งคำสั่ง. หน้าต่างเหลือบานเดียว แต่ throughput รวมลดลง (worker ที่สองรอ: 4.0 s เทียบ 7.8 s ในงานเดียวกัน) |
+| tab ที่สร้างโดยไม่ระบุ URL อยู่ที่ `chrome://newtab/` และขับไม่ได้ (`Cannot access a chrome:// URL`) | สร้างด้วย `tab create --no-active --url about:blank` |
+| trusted click ลงใน tab ที่ซ่อนอยู่ (`visibilityState: hidden`) ได้ 9/9 แต่ใช้ 0.4–3.5 s | ใช้ tab พื้นหลังได้; timer/`requestAnimationFrame` ใน tab ที่ซ่อนถูก throttle (`gotchas.md` §18) — wait ช้าลง และหน้าที่ render ด้วย rAF อาจไม่ขึ้น |
+| `bsk` ไม่มีคำสั่งย้ายหรือย่อหน้าต่าง (มีแค่ `window resize`) | ถ้าไม่ต้องการให้อะไรเด้งบนจอของคนเลย ต้องใช้ profile เฉพาะงาน + user ของ automation (§7) |
+
+สคริปต์ต้องปิด session ของตัวเองเสมอ (`with Session(...)`): session ที่ค้างคือหน้าต่างที่ค้างบนจอ — ตรวจด้วย
+`bsk session list --json` ตอนจบงาน.
+
 ## 2. สองทางในการรัน
 
 | ทาง | ใช้เมื่อ | ข้อจำกัด |

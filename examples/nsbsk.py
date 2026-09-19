@@ -16,10 +16,15 @@ Built-in rules (do not bypass them in scenario code):
   * Only idempotent commands are retried on a detached debugger. click/fill/press/select/save never are.
   * A lost session after a mutating action means UNKNOWN effect: never repeat the action, ask the server.
   * BSK_AUTO_START=0, every call has a timeout, nothing is piped.
+  * ONE Agent Window for a whole job: start it once with `python nsbsk.py open-shared`, export
+    NSBSK_SESSION=<id>, and every Session() — in any script, from any agent — attaches to it and works in
+    its OWN background tab instead of opening another window. `python nsbsk.py close-shared <id>` ends it.
+    Trusted clicks land in hidden tabs (measured 9/9); timers are throttled there, so waits run slower.
 """
 import json
 import os
 import subprocess
+import tempfile
 import time
 
 HOST = os.environ.get("NSBSK_HOST", "").rstrip("/")
@@ -43,6 +48,46 @@ class EffectUnknown(RuntimeError):
     """bsk sent the input but could not confirm it. Observe the page; never re-issue the action."""
 
 
+class _SharedLock:
+    """Cross-process mutex for a shared session: a bsk session rejects a second concurrent command
+    with `session_busy`, so every process attached to the same window takes turns."""
+
+    def __init__(self, session_id, stale_after=180.0):
+        self.path = os.path.join(tempfile.gettempdir(), f"nsbsk-{session_id}.lock")
+        self.stale_after = stale_after
+
+    def __enter__(self):
+        deadline = time.monotonic() + 300
+        while True:
+            try:
+                os.mkdir(self.path)          # atomic on every platform
+                return self
+            except FileExistsError:
+                try:
+                    if time.time() - os.path.getmtime(self.path) > self.stale_after:
+                        os.rmdir(self.path)  # owner died mid-command
+                        continue
+                except OSError:
+                    pass
+                if time.monotonic() >= deadline:
+                    raise TimeoutError("shared bsk window stayed busy for 300 s")
+                time.sleep(0.05)
+
+    def __exit__(self, *exc):
+        try:
+            os.rmdir(self.path)
+        except OSError:
+            pass
+
+
+class _NoLock:
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        pass
+
+
 class Laps:
     def __init__(self):
         self.steps, self._mark, self._start = {}, time.perf_counter(), time.perf_counter()
@@ -57,10 +102,22 @@ class Laps:
 
 
 class Session:
-    def __init__(self, name="nsbsk", focus=False):
+    TAB_COMMANDS = {"navigate", "evaluate", "click", "fill", "press", "select", "screenshot", "console",
+                    "snapshot", "observe", "reload", "wait-for-navigation"}
+
+    def __init__(self, name="nsbsk", focus=False, attach=None):
         if not (HOST and COMPANY and BROWSER):
             raise SystemExit("set NSBSK_HOST, NSBSK_COMPANY and NSBSK_BROWSER (see `bsk browsers --json`)")
         self.sid, self.calls, self.retries, self.dialogs = None, 0, 0, []
+        self.tab_id, self.owns_session = None, True
+        attach = attach or os.environ.get("NSBSK_SESSION")
+        if attach:
+            # Shared-window mode: never start or stop the session here; own exactly one tab.
+            self.sid, self.owns_session = attach, False
+            # a tab left on chrome://newtab cannot be driven ("Cannot access a chrome:// URL")
+            created = self.run(["tab", "create", "--no-active", "--url", "about:blank"], idempotent=False)
+            self.tab_id = str(created.get("tab_id") or created.get("id"))
+            return
         args = ["session", "start", "--name", name, "--browser", BROWSER] + ([] if focus else ["--no-focus"])
         self.sid = self.run(args, idempotent=True)["session_id"]
 
@@ -72,10 +129,13 @@ class Session:
 
     def run(self, args, *, idempotent, timeout=120):
         cmd = ["bsk", *args, "--json"] + (["--session", self.sid] if self.sid and args[0] != "session" else [])
+        if self.tab_id and args[0] in self.TAB_COMMANDS:
+            cmd += ["--tab-id", self.tab_id]
         for attempt in (1, 2, 3):
             self.calls += 1
-            done = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace",
-                                  timeout=timeout, env=_ENV)
+            with (_SharedLock(self.sid) if (self.sid and not self.owns_session) else _NoLock()):
+                done = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace",
+                                      timeout=timeout, env=_ENV)
             if done.returncode == 0:
                 result = json.loads(done.stdout) if done.stdout.strip() else {}
                 for item in (result.get("dialogs") or []) if isinstance(result, dict) else []:
@@ -206,6 +266,33 @@ class Session:
         return json.loads(self.ev(js, idempotent=True))
 
     def close(self):
+        if self.sid and not self.owns_session:
+            if self.tab_id:          # shared window: close only our own tab, leave the session to its owner
+                subprocess.run(["bsk", "tab", "close", self.tab_id, "--session", self.sid, "--quiet"],
+                               env=_ENV, capture_output=True, timeout=30)
+            self.sid = self.tab_id = None
+            return
         if self.sid:
             subprocess.run(["bsk", "session", "stop", self.sid, "--quiet"], env=_ENV, capture_output=True, timeout=30)
             self.sid = None
+
+
+def _main(argv):
+    """open-shared [name] -> prints the session id to export as NSBSK_SESSION; close-shared <id>."""
+    if len(argv) >= 1 and argv[0] == "open-shared":
+        args = ["bsk", "session", "start", "--json", "--no-focus", "--browser", BROWSER,
+                "--name", argv[1] if len(argv) > 1 else "nsbsk-shared"]
+        done = subprocess.run(args, env=_ENV, capture_output=True, text=True, encoding="utf-8", timeout=60)
+        if done.returncode != 0:
+            raise SystemExit((done.stderr or done.stdout)[-400:])
+        print(json.loads(done.stdout)["session_id"])
+    elif len(argv) == 2 and argv[0] == "close-shared":
+        subprocess.run(["bsk", "session", "stop", argv[1], "--quiet"], env=_ENV, capture_output=True, timeout=30)
+        print("closed", argv[1])
+    else:
+        raise SystemExit("usage: nsbsk.py open-shared [name] | close-shared <session-id>")
+
+
+if __name__ == "__main__":
+    import sys
+    _main(sys.argv[1:])
