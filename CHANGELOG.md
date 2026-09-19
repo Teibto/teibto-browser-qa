@@ -10,6 +10,10 @@
 
 ## [Unreleased]
 
+## [2.4.0] - 2026-09-20
+
+**Engine ที่สอง (BrowserSkill): จากมติ สู่ adapter แบบ read-only และมาตรฐานขับ NetSuite ที่พิสูจน์ด้วย Order-to-Cash ครบ loop บน sandbox**
+
 ### Fixed
 
 - `release.yml` ส่ง secret ให้ reusable quality gate (`secrets: inherit`) — ไม่มีบรรทัดนี้ `driver-compat` มองไม่เห็น deploy key
@@ -25,6 +29,10 @@
 
 ### Added
 
+- `references/engine2-bsk.md` §6.8: Order-to-Cash ครบ loop ผ่าน UI จริงบน SB2 (SO → Send to Approve → Approve → Fulfill →
+  Invoice → Billed) พร้อมเวลาต่อขั้นและกฎ 7 ข้อ — ปุ่มของ bundle เป็น fire-and-forget, readiness ของหน้า view,
+  `input_cleanup_failed` ต่อปุ่ม, หน้า `Notice`, กลไกอนุมัติซ้อน, precondition ก่อนคลิก, hidden field ไม่ใช่ affordance (#108)
+- `examples/nsbsk.py`: `ns_save()` คืน `rejected` พร้อมข้อความเมื่อ SuiteScript ปฏิเสธการ save ด้วยหน้า `Notice` (#108)
 - `examples/nsbsk.py`: โหมดหน้าต่างร่วม — `open-shared` / `close-shared` + `NSBSK_SESSION`; ทุก `Session()` attach เข้า
   Agent Window เดียวและทำงานใน tab พื้นหลังของตัวเอง พร้อม lock ข้าม process เพราะ session ของ `bsk` รับทีละคำสั่ง ·
   `references/engine2-bsk.md` §1.1 บันทึกข้อจำกัดที่วัดได้ (#104)

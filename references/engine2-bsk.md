@@ -175,6 +175,31 @@ fulfill และ invoice **ยังไม่ได้ขับ**.
 | availability ต่อ location ต้องมาจาก search (`locationquantityavailable`) — `item.nl?xml=T` ไม่มี machine `locations` | item 617: non-lot, non-serial, ไม่มี bin, available 1000 ที่ location 30 |
 | stage ที่ไม่มีทางเดินที่ชอบธรรม: เก็บ (ก) ปุ่มที่มองเห็นบน record (ข) ข้อความของคิว (ค) approver ใน control record แล้ว **หยุด** | ห้ามใช้ URL `transform=` หรือแก้ field สถานะเพื่อสร้างการเปลี่ยนสถานะเอง |
 
+### 6.8 Order-to-Cash ครบ loop (SB2, 2026-09-20)
+
+`SO-TH-260900019` เดินจาก UI จริงจนจบ: สร้าง SO → Send to Approve → Approve → Item Fulfillment `IFS-TH-260900002`
+(Shipped) → Invoice `INT-TH-260900001` (107.00, ภาษี 7.00) → SO เป็น **Billed**. ทุกขั้นยืนยันกับ record XML ฝั่ง server,
+0 dialog, ใช้ Agent Window เดียว. ก่อนจะผ่านได้ต้องแก้บั๊กของ bundle อนุมัติ 5 จุด (`Teibto/TEIBTO-Approval-Control#15`) และตั้ง
+parameter ที่ขาดของกลไกอนุมัติตัวที่สองหนึ่งตัว.
+
+| ขั้น | ขับด้วย | เวลา |
+|---|---|---|
+| สร้าง SO (item มีสต็อก) | nlapi + `ns_save()` | ~37–40 s |
+| Send to Approve | trusted click `#custpage_btn_sendtoapprove` | ผลฝั่ง server ตามมา ~15 s |
+| Approve | trusted click `#custpage_btn_approve` บนหน้า SO | หน้า re-render เอง |
+| Fulfill | `#process` → ฟอร์ม Item Fulfillment → `shipstatus=C` → save | 56.6 s (ฟอร์มพร้อม 15.2 s · save 24.5 s) |
+| Invoice | `#nextbill` → ฟอร์ม Invoice → save | 109.4 s (ฟอร์มพร้อม 37.6 s · save 55.2 s) |
+
+| กฎ | หลักฐาน |
+|---|---|
+| ปุ่มของ bundle (`form.addButton`) เป็น **fire-and-forget**: `onclick` แค่โหลด AMD module; ไม่มี confirm/modal/navigation. ถือว่า commit ทันทีที่คลิก แล้ว poll server ≥30 s — ห้ามคลิกซ้ำ | Send to Approve: ผลมาถึงที่ ~15 s; `typeof window.<fn>` เป็น `undefined` เสมอ จึงใช้เป็นสัญญาณพร้อมไม่ได้ |
+| หน้า **view** พร้อมเมื่อ `#edit` อยู่ + `NS.form.isValid()` — `NS.form.isInited()` ไม่เคยเป็น true บนหน้า view | รอ `isInited()` บนหน้า view = ค้าง 45 s |
+| `input_cleanup_failed` (`EffectUnknown`) เกิดซ้ำได้ **ต่อปุ่ม** ไม่ใช่สุ่ม: จับ exception แล้วรอปลายทาง ห้ามคลิกซ้ำ | `#process` 3/3 และ `#nextbill` 1/1 — navigation เกิดจริงทุกครั้ง |
+| save ที่ SuiteScript ปฏิเสธลงที่หน้า **`Notice`** (ไม่ใช่ `Error`, ไม่มี alert): อ่าน `document.body.innerText` ของหน้านั้น และกลับไปหน้า classic ก่อนเรียก `nlapi*` | `SOA_FULFILL_BLOCKED …`; harness คืน `rejected` ทันทีแทนการรอจนหมดเวลา |
+| record เดียวอาจมี **กลไกอนุมัติมากกว่าหนึ่งตัว** — ก่อนสรุปว่า "อนุมัติแล้ว" อ่านทุก field ที่ชื่อมี `approval` จาก `xml=T` | APC = 3 (Approved) ขณะที่ `custbody_soa_approval_status = Pending Approval` และ script อีกตัวปฏิเสธ fulfillment |
+| สคริปต์ที่เปลี่ยนข้อมูลต้องตรวจ precondition ของตัวเองก่อนคลิก (ปุ่มอยู่ + label ตรง + สถานะฝั่ง server) | รันซ้ำหลังสคริปต์ตายกลางทาง: ด่านปฏิเสธ (`Approve button not clickable`) แทนการอนุมัติซ้ำ; ขั้น invoice ปฏิเสธเมื่อเจอสองปุ่ม (`nextbill`, `billremaining`) จนกว่าจะระบุปุ่ม |
+| field สถานะที่เป็น `input[type=hidden]` และถูกเขียนโดย `beforeSubmit` เท่านั้น **ไม่ใช่ affordance** — เก็บหลักฐานแล้วหยุด; ทางแก้คือ config ที่ script เองบอกว่าขาด | `custscript_soa_thb_currency_id` ไม่ถูกตั้ง → SO ทุกใบถูกพัก; ตั้งเป็น id ของ THB แล้ว SO ใหม่ได้ `Approved` ตอนสร้าง |
+
 ## 7. สถานะความพร้อมใช้งาน
 
 | ใช้ได้แล้ว | ยังไม่พร้อม |
@@ -182,5 +207,5 @@ fulfill และ invoice **ยังไม่ได้ขับ**.
 | QA read-only ผ่าน `--engine bsk` บน browser ที่คน login ไว้ (verdict `PASS(inferred)`) | ใช้ตัดสิน release — ชั้นหลักฐานยังเป็น `inferred` (BAS §4.3) |
 | งานเปลี่ยนข้อมูลบน **sandbox** ด้วยสคริปต์ที่มีด่าน §3 ครบ | งานเปลี่ยนข้อมูลผ่าน runner — ยังห้าม (`ENGINE_RISK_NOT_ALLOWED`) |
 | รันมีคนเฝ้า บน browser ของคนนั้นเอง — agent 4 ตัวพร้อมกันใน session เดียวทำงานได้ | รันไม่มีคนเฝ้า / หลายเครื่อง — ต้องมี profile เฉพาะงาน + user ของ automation + CI gate ของ `bsk` |
-| | O2C ต่อจาก Sales Order บน SB2 — ติดที่ approve: bundle APC ไม่สร้าง control record ให้ SO ที่สร้างใหม่ (สาเหตุยังไม่ได้สืบ); fulfill/invoice ยังไม่ได้ขับ. item ที่ใช้ได้มีแล้ว (617) |
+| Order-to-Cash ครบ loop บน **sandbox** ด้วยสคริปต์ที่มีด่าน §3 ครบ (§6.8) | รัน loop แบบเดียวกันบน Production — ห้าม จนกว่าจะมีมติเรื่อง engine ที่สองกับการเขียนข้อมูล |
 | | Production ทุกกรณี |
