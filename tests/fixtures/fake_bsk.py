@@ -17,6 +17,21 @@ if log:
         if "--browser" in args:
             handle.write("browser=" + args[args.index("--browser") + 1] + "\n")
 version = os.environ.get("FAKE_BSK_VERSION", "0.3.0")
+
+
+def fail(code: str, message: str) -> None:
+    print(json.dumps({"code": code, "message": message, "exit_code": 3}))
+    raise SystemExit(3)
+
+
+# FAKE_BSK_DETACH_ONCE=<command>: the first call of that command fails like a detached debugger.
+once = os.environ.get("FAKE_BSK_DETACH_ONCE")
+if once == args[0] and log:
+    seen = pathlib.Path(log).read_text(encoding="utf-8").splitlines().count(args[0] + " " + (args[1] if len(args) > 1 else ""))
+    if seen == 1:
+        fail("cdp_failed", "Detached while handling command.")
+if os.environ.get("FAKE_BSK_SESSION_LOST") == args[0]:
+    fail("not_found", "session not registered or already stopped")
 command = args[0]
 
 

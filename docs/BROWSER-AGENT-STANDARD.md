@@ -365,7 +365,8 @@ coordinator อยู่แล้วให้ใช้ `cdp.py` ต่อ. `lens
    กับ `bsk` 0.3.0 + Chrome 152 บน Windows: 20 รอบติดไม่พบ wedge, คำสั่งหลัง `beforeunload` ตอบทุกครั้ง,
    daemon pid เดิม และค่า `handled` ที่รายงานตรงกับ DOM ทุกครั้ง — แต่นโยบายที่พบคือ accept ทุกชนิด
    จึงเกิดข้อห้ามใน §4.2. ด่านนี้ผ่านแปลว่า "รู้แล้วว่ามันทำอะไร" ไม่ได้แปลว่า "ปลอดภัยกับหน้าที่บันทึกข้อมูล"
-4. **แถวใน `docs/CLAIMS-AUDIT.md`** สถานะ `verified, version-pinned` ต่อ claim และไฟล์กับดักของ engine ที่สอง
+4. **แถวใน `docs/CLAIMS-AUDIT.md`** — ✅ มีแล้ว พร้อมไฟล์กับดัก `references/engine2-bsk.md` (#97) ·
+   สถานะ `verified, version-pinned` ต่อ claim และไฟล์กับดักของ engine ที่สอง
    แยกจาก `references/gotchas.md` (กับดักที่บันทึกไว้เป็นของ direct CDP ไม่ได้ย้ายตามมาเอง)
 
 ข้อเท็จจริงของ `bsk` ที่มตินี้อิง ตรวจจาก commit `fa953dc` (v0.3.0, 2026-09-16, MIT) และเป็น `version-pinned`:

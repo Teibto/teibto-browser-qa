@@ -164,6 +164,25 @@ class BskEngineTests(unittest.TestCase):
         self.assertEqual(events[-1]["verdict"], "PASS(inferred)")
         self.assertIn("browser=only-one", calls)
 
+    def test_detached_navigate_is_retried_because_it_cannot_act_twice(self):
+        _, _, events, calls = self.run_flow(READ_ONLY, {"FAKE_BSK_DETACH_ONCE": "navigate"})
+        self.assertEqual(events[-1]["verdict"], "PASS(inferred)")
+        self.assertEqual(sum(1 for call in calls if call.startswith("navigate ")), 2)
+
+    def test_detached_click_is_never_retried(self):
+        _, _, events, calls = self.run_flow(READ_ONLY, {"FAKE_BSK_DETACH_ONCE": "click"})
+        failed = next(event for event in events
+                      if event["type"] == "step_done" and event.get("error"))
+        self.assertEqual(failed["error"]["code"], "BSK_COMMAND_FAILED")
+        self.assertEqual(sum(1 for call in calls if call.startswith("click ")), 1)
+
+    def test_lost_session_says_the_effect_is_unknown(self):
+        _, _, events, _ = self.run_flow(READ_ONLY, {"FAKE_BSK_SESSION_LOST": "click"})
+        failed = next(event for event in events
+                      if event["type"] == "step_done" and event.get("error"))
+        self.assertEqual(failed["error"]["code"], "BSK_SESSION_LOST")
+        self.assertIn("backend", failed["error"]["message"])
+
     def test_ref_target_is_unsupported_not_silently_a_selector(self):
         _, _, events, _ = self.run_flow("""
             story: engine2

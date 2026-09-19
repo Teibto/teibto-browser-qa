@@ -59,6 +59,8 @@ BSK_PINNED_VERSION = "0.3.0"
 # bsk auto-accepts every dialog, so any action that can open one must be declared risk: read.
 BSK_DECLARE_RISK_ACTIONS = {"fill", "click", "select", "press", "eval"}
 BSK_MUTATING_DIALOGS = {"confirm", "prompt", "beforeunload"}
+# A detached debugger is transient, but only commands that cannot act twice may be retried.
+BSK_RETRY_LIMIT = 2
 
 
 class RunnerError(RuntimeError):
@@ -511,33 +513,45 @@ class BskSession:
                       "browser_instance": instance,
                       "target_id": self.session_id}
 
-    def _cli(self, args: list[str], *, timeout: float | None = None) -> Any:
+    def _cli(self, args: list[str], *, timeout: float | None = None, idempotent: bool = False) -> Any:
         env = os.environ.copy()
         env["BSK_AUTO_START"] = "0"   # an auto-started daemon inherits our pipes and never lets go
         command = [*self.bsk, *args, "--json"]
         if self.session_id and args[0] != "session":
             command += ["--session", self.session_id]
-        try:
-            done = subprocess.run(command, capture_output=True, text=True, encoding="utf-8",
-                                  errors="replace", env=env, timeout=timeout or self.request_timeout)
-        except subprocess.TimeoutExpired as exc:
-            raise RunnerError("SESSION_TIMEOUT", f"bsk {args[0]} ไม่ตอบภายในเวลาที่กำหนด") from exc
-        if done.returncode != 0:
-            raise RunnerError("BSK_COMMAND_FAILED",
-                              f"bsk {args[0]}: {(done.stderr or done.stdout).strip()[:500]}")
+        self.attempts = 0
+        while True:
+            self.attempts += 1
+            try:
+                done = subprocess.run(command, capture_output=True, text=True, encoding="utf-8",
+                                      errors="replace", env=env, timeout=timeout or self.request_timeout)
+            except subprocess.TimeoutExpired as exc:
+                raise RunnerError("SESSION_TIMEOUT", f"bsk {args[0]} ไม่ตอบภายในเวลาที่กำหนด") from exc
+            if done.returncode == 0:
+                break
+            text = (done.stderr or done.stdout).strip()
+            if "session not registered" in text:
+                # Usually a human closed the Agent Window. Whatever ran last may or may not have landed.
+                raise RunnerError("BSK_SESSION_LOST",
+                                  f"bsk session หายระหว่าง {args[0]} (Agent Window ถูกปิด?) — ผลของ action ล่าสุด"
+                                  "ไม่ทราบ ห้ามรันซ้ำโดยไม่ตรวจกับ backend ก่อน")
+            if idempotent and "cdp_failed" in text and self.attempts <= BSK_RETRY_LIMIT:
+                time.sleep(0.5)
+                continue
+            raise RunnerError("BSK_COMMAND_FAILED", f"bsk {args[0]}: {text[:500]}")
         try:
             return json.loads(done.stdout)
         except ValueError as exc:
             raise RunnerError("INVALID_SESSION_OUTPUT", f"bsk {args[0]} คืนค่าที่ไม่ใช่ JSON") from exc
 
-    def _evaluate(self, expression: str) -> Any:
-        result = self._run(["evaluate", expression])
+    def _evaluate(self, expression: str, *, idempotent: bool = False) -> Any:
+        result = self._run(["evaluate", expression], idempotent=idempotent)
         if result.get("ok") is not True:   # a script exception still exits 0
             raise RunnerError("EVAL_FAILED", str(result.get("error") or result)[:500])
         return result.get("value")
 
-    def _run(self, args: list[str]) -> dict[str, Any]:
-        result = self._cli(args)
+    def _run(self, args: list[str], *, idempotent: bool = False) -> dict[str, Any]:
+        result = self._cli(args, idempotent=idempotent)
         accepted = []
         for item in (result.get("dialogs") or []) if isinstance(result, dict) else []:
             kind, message = str(item.get("type")), str(item.get("message"))
@@ -559,14 +573,15 @@ class BskSession:
 
     def _read(self, prop: str, target: str) -> Any:
         return self._evaluate("(function(){var e=document.querySelector(%s);return e?e.%s:null;})()"
-                              % (json.dumps(self._css(target), ensure_ascii=False), prop))
+                              % (json.dumps(self._css(target), ensure_ascii=False), prop), idempotent=True)
 
     def command(self, command: str, args: list[Any] | None = None) -> dict[str, Any]:
         args = [str(item) for item in (args or [])]
         started = time.perf_counter()
         data: Any = None
         if command == "nav":
-            data = self._run(["navigate", args[0], "--wait-until", "load", "--timeout", "30s"]).get("final_url")
+            data = self._run(["navigate", args[0], "--wait-until", "load", "--timeout", "30s"],
+                             idempotent=True).get("final_url")
         elif command == "click":
             self._run(["click", "--selector", self._css(args[0])])
         elif command == "fill":
@@ -585,21 +600,21 @@ class BskSession:
         elif command == "eval":
             data = self._evaluate(args[0])
         elif command == "url":
-            data = self._evaluate("location.href")
+            data = self._evaluate("location.href", idempotent=True)
         elif command == "get":
             data = self._read({"text": "innerText", "value": "value"}[args[0]], args[1])
         elif command == "wait":
             deadline = time.monotonic() + float(args[1])
-            while not self._evaluate(args[0]):
+            while not self._evaluate(args[0], idempotent=True):
                 if time.monotonic() >= deadline:
                     raise RunnerError("WAIT_TIMEOUT", f"เงื่อนไขไม่เป็นจริงใน {args[1]}s: {args[0][:200]}")
                 time.sleep(float(args[2]))
         elif command == "shot":
-            self._run(["screenshot", "--out", args[0]])
+            self._run(["screenshot", "--out", args[0]], idempotent=True)
             if not Path(args[0]).is_file():
                 raise RunnerError("CAPTURE_FAILED", f"bsk ไม่ได้เขียนไฟล์: {args[0]}")
         elif command == "console":
-            result = self._run(["console", "--since", str(self.console_since)])
+            result = self._run(["console", "--since", str(self.console_since)], idempotent=True)
             self.console_since = int(result.get("next_since") or self.console_since)
             data = [item.get("text") for item in result.get("entries", [])
                     # `log` entries are browser-generated (failed resource loads): that is the
@@ -608,7 +623,7 @@ class BskSession:
                     or (item.get("kind") == "console" and item.get("level") == "error")]
         else:
             raise RunnerError("ENGINE_UNSUPPORTED", f"engine bsk ไม่รองรับคำสั่ง {command}")
-        return {"ok": True, "data": data, "attempts": 1,
+        return {"ok": True, "data": data, "attempts": self.attempts,
                 "duration_ms": round((time.perf_counter() - started) * 1000, 3)}
 
     def drain_dialogs(self) -> list[dict[str, str]]:
