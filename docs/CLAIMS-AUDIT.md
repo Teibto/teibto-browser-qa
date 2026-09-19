@@ -168,6 +168,15 @@ than pinning a tokenizer-specific absolute count.
 | `DOMParser` on a 2.7 MB fetched form page ends the bsk session | measured | observed once; regex on text or `xml=T` avoids it |
 | Sales Order approval on this account has no button on the record: it runs through the APC bundle's Batch Approval suitelet, which has no `nlapiGetContext` | verified | 40-button inventory on two orders, native approve page HTTP 500; O2C beyond the order is NOT yet driven |
 
+## One shared Agent Window (bsk 0.3.0, 2026-09-19)
+
+| Claim | Status | Evidence/limit |
+|---|---|---|
+| A bsk session runs one command at a time; a concurrent second command fails with `session_busy` | verified | two workers in one session, twice, before the lock was added |
+| With a cross-process lock two workers finish concurrently in one Agent Window, each in its own tab, leaving one session | verified | SB2 read-only smoke: 4.0 s and 7.8 s, 0 dialogs, `session list` = 1 |
+| A tab created without `--url` sits on `chrome://newtab/` and cannot be driven | verified | `navigate` → `Cannot access a chrome:// URL`, 3/3 |
+| Trusted clicks land in hidden background tabs | measured | loopback fixture, 3 tabs × 3 rounds = 9/9, 0.4–3.5 s per click, `visibilityState: hidden` |
+
 ## O2C loop through bsk (SB2, 2026-09-19)
 
 | Claim | Status | Evidence/limit |

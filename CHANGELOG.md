@@ -20,6 +20,9 @@
 
 ### Added
 
+- `examples/nsbsk.py`: โหมดหน้าต่างร่วม — `open-shared` / `close-shared` + `NSBSK_SESSION`; ทุก `Session()` attach เข้า
+  Agent Window เดียวและทำงานใน tab พื้นหลังของตัวเอง พร้อม lock ข้าม process เพราะ session ของ `bsk` รับทีละคำสั่ง ·
+  `references/engine2-bsk.md` §1.1 บันทึกข้อจำกัดที่วัดได้ (#104)
 - `references/engine2-bsk.md` §6.7: กฎสำหรับหน้า React/suitelet และ workflow ที่ต่อหลาย record จากรอบ O2C บน SB2 —
   พิสูจน์ control record ก่อนขับ stage, อย่าเชื่อสิ่งที่คิวแสดง, รอ text marker แทน `<tr>`, ระบุแถวด้วยการไต่ DOM ·
   บันทึกตรง ๆ ว่า loop หยุดที่ approve และ fulfill/invoice ยังไม่ได้ขับ (#102)
