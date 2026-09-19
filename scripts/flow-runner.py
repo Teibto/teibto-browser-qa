@@ -54,13 +54,26 @@ ALLOWED_SCHEMES = ("http", "https")
 RISK_LEVELS = ("read", "write", "destructive")
 DEFAULT_RISK = "read"
 ENGINES = ("cdp", "bsk")
-# Second engine (BAS §4): pinned because its dialog policy was verified for this version only.
+# BrowserSkill (BAS §4): pinned because its dialog policy was verified for this version only.
 BSK_PINNED_VERSION = "0.3.0"
-# bsk auto-accepts every dialog, so any action that can open one must be declared risk: read.
-BSK_DECLARE_RISK_ACTIONS = {"fill", "click", "select", "press", "eval"}
 BSK_MUTATING_DIALOGS = {"confirm", "prompt", "beforeunload"}
 # A detached debugger is transient, but only commands that cannot act twice may be retried.
 BSK_RETRY_LIMIT = 2
+# The in-page guard answers page dialogs before the native dialog can block the browser, so a
+# leaked native confirm is evidence the guard did not install; format with json.dumps(policy).
+BSK_GUARD_JS = (
+    "(function(P){if(window.__tbqaGuard===P)return 'kept';"
+    "window.__tbqaGuard=P;window.__tbqaDialogs=window.__tbqaDialogs||[];"
+    "window.alert=function(m){window.__tbqaDialogs.push({type:'alert',message:String(m),answer:'accept'});};"
+    "window.confirm=function(m){var a=P==='accept'?'accept':'dismiss';"
+    "window.__tbqaDialogs.push({type:'confirm',message:String(m),answer:a});return a==='accept';};"
+    "window.prompt=function(m,d){var a=P==='accept'?'accept':'dismiss';"
+    "window.__tbqaDialogs.push({type:'prompt',message:String(m),answer:a});"
+    "return a==='accept'?(d===undefined?'':String(d)):null;};"
+    "window.onbeforeunload=null;return 'installed';})(%s)"
+)
+BSK_DRAIN_JS = ("(function(){var d=window.__tbqaDialogs||[];"
+                "window.__tbqaDialogs=[];return JSON.stringify(d);})()")
 
 
 class RunnerError(RuntimeError):
@@ -447,36 +460,15 @@ def resolve_bsk(explicit: str | None) -> list[str]:
     return [sys.executable, candidate] if candidate.endswith(".py") else [candidate]
 
 
-def enforce_engine_risk(flow: dict[str, Any]) -> None:
-    """Second engine only: refuse anything that could change state before touching the browser.
-
-    DEFAULT_RISK is read, so an undeclared click would otherwise pass for free while bsk
-    auto-accepts the confirm it opens.
-    """
-    blocked: list[str] = []
-    for scenario in flow["scenarios"]:
-        for index, step in enumerate(scenario["steps"], 1):
-            declared = step.get("risk")
-            if (declared not in (None, "read")
-                    or (step["action"] in BSK_DECLARE_RISK_ACTIONS and declared != "read")):
-                blocked.append(f"{scenario['id']}#{index}({step['action']}:{declared or 'undeclared'})")
-    if blocked:
-        raise RunnerError(
-            "ENGINE_RISK_NOT_ALLOWED",
-            "engine bsk ตอบ accept ให้ dialog ทุกชนิด จึงรับเฉพาะ step ที่ประกาศ risk: read: "
-            + ", ".join(blocked),
-            detail={"steps": blocked},
-        )
-
-
 class BskSession:
     """BrowserSkill CLI behind the CDPSession interface the runner already uses."""
 
     def __init__(self, bsk: list[str], *, browser: str | None = None,
-                 request_timeout: float = 45.0):
+                 request_timeout: float = 45.0, dialog: str = "safe"):
         self.bsk = bsk
         self.script = Path(bsk[-1])
         self.request_timeout = request_timeout
+        self.dialog_policy = dialog
         self.dialogs: queue.Queue[dict[str, str]] = queue.Queue()
         self.session_id: str | None = None
         self.console_since = 0
@@ -565,7 +557,7 @@ class BskSession:
                               "line": f"[dialog] {kind}: {message} -> {answer}"})
             if answer == "accept" and kind in BSK_MUTATING_DIALOGS:
                 accepted.append(f"{kind}: {message}")
-        if accepted:
+        if accepted and self.dialog_policy != "accept":
             raise RunnerError("ENGINE_DIALOG_ACCEPTED",
                               "bsk ตอบ accept ให้ dialog ที่อาจเปลี่ยน state: " + "; ".join(accepted))
         return result
@@ -580,6 +572,45 @@ class BskSession:
         return self._evaluate("(function(){var e=document.querySelector(%s);return e?e.%s:null;})()"
                               % (json.dumps(self._css(target), ensure_ascii=False), prop), idempotent=True)
 
+    def _guard(self) -> None:
+        kept = getattr(self, "attempts", 0)   # a step's `attempts` describes its action, not this helper
+        try:
+            self._evaluate(BSK_GUARD_JS % json.dumps(self.dialog_policy), idempotent=True)
+        except RunnerError:
+            # A page mid-navigation cannot take the guard; the native-dialog backstop still applies.
+            pass
+        finally:
+            self.attempts = kept
+
+    def _drain_page_dialogs(self) -> None:
+        kept = getattr(self, "attempts", 0)
+        try:
+            value = self._evaluate(BSK_DRAIN_JS, idempotent=True)
+        except RunnerError:
+            return
+        finally:
+            self.attempts = kept
+        if isinstance(value, str):
+            try:
+                items = json.loads(value)
+            except ValueError:
+                return
+        elif isinstance(value, list):
+            items = value
+        else:
+            return
+        if not isinstance(items, list):
+            return
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            kind, message, answer = item.get("type"), item.get("message"), item.get("answer")
+            if (not isinstance(kind, str) or not isinstance(message, str)
+                    or answer not in ("accept", "dismiss")):
+                continue
+            self.dialogs.put({"kind": kind, "message": message, "answer": answer,
+                              "line": f"[dialog] {kind}: {message} -> {answer}"})
+
     def command(self, command: str, args: list[Any] | None = None) -> dict[str, Any]:
         args = [str(item) for item in (args or [])]
         started = time.perf_counter()
@@ -587,23 +618,44 @@ class BskSession:
         if command == "nav":
             data = self._run(["navigate", args[0], "--wait-until", "load", "--timeout", "30s"],
                              idempotent=True).get("final_url")
+            self._guard()
         elif command == "click":
-            self._run(["click", "--selector", self._css(args[0])])
+            self._guard()
+            try:
+                self._run(["click", "--selector", self._css(args[0])])
+            finally:
+                self._drain_page_dialogs()
         elif command == "fill":
-            self._run(["fill", "--selector", self._css(args[0]), "--value", args[1]])
+            self._guard()
+            try:
+                self._run(["fill", "--selector", self._css(args[0]), "--value", args[1]])
+            finally:
+                self._drain_page_dialogs()
         elif command == "pick":   # cdp.py picks by visible text; bsk selects by the option's value
-            value = self._evaluate(
-                "(function(){var s=document.querySelector(%s);if(!s)return null;"
-                "for(var i=0;i<s.options.length;i++){if(s.options[i].text.trim()===%s)return s.options[i].value;}"
-                "return null;})()" % (json.dumps(self._css(args[0]), ensure_ascii=False),
-                                      json.dumps(args[1], ensure_ascii=False)))
-            if value is None:
-                raise RunnerError("ELEMENT_MISSING", f"ไม่พบ option \"{args[1]}\" ใน {args[0]}")
-            self._run(["select", "--selector", args[0], "--value", str(value)])
+            self._guard()
+            try:
+                value = self._evaluate(
+                    "(function(){var s=document.querySelector(%s);if(!s)return null;"
+                    "for(var i=0;i<s.options.length;i++){if(s.options[i].text.trim()===%s)return s.options[i].value;}"
+                    "return null;})()" % (json.dumps(self._css(args[0]), ensure_ascii=False),
+                                          json.dumps(args[1], ensure_ascii=False)))
+                if value is None:
+                    raise RunnerError("ELEMENT_MISSING", f"ไม่พบ option \"{args[1]}\" ใน {args[0]}")
+                self._run(["select", "--selector", args[0], "--value", str(value)])
+            finally:
+                self._drain_page_dialogs()
         elif command == "key":
-            self._run(["press", args[0]])
+            self._guard()
+            try:
+                self._run(["press", args[0]])
+            finally:
+                self._drain_page_dialogs()
         elif command == "eval":
-            data = self._evaluate(args[0])
+            self._guard()
+            try:
+                data = self._evaluate(args[0])
+            finally:
+                self._drain_page_dialogs()
         elif command == "url":
             data = self._evaluate("location.href", idempotent=True)
         elif command == "get":
@@ -854,8 +906,6 @@ def run_flow(flow: dict[str, Any], path: Path, output_dir: Path, variables: dict
              engine: str = "cdp", bsk: list[str] | None = None,
              bsk_browser: str | None = None) -> int:
     run_started = time.perf_counter()
-    if engine == "bsk":
-        dialog = "bsk-accept-all"   # the engine ignores our policy; say so instead of printing `safe`
     output_dir.mkdir(parents=True, exist_ok=True)
     shots = output_dir / "shots"
     shots.mkdir()
@@ -863,7 +913,9 @@ def run_flow(flow: dict[str, Any], path: Path, output_dir: Path, variables: dict
     report = [f"# QA Report — {flow['story']}", "", f"**Title:** {flow['title']}",
               f"**Target ID:** `{target_id}`", ""]
     if engine == "bsk":
-        report.insert(3, f"**Engine:** bsk {BSK_PINNED_VERSION} (second engine — evidence class `inferred`, BAS §4.3)")
+        report.insert(3, f"**Engine:** bsk {BSK_PINNED_VERSION} (dialog policy `{dialog}` enforced by "
+                         "an in-page guard; a native dialog that leaks past it is accepted by the "
+                         "engine and fails the step)")
     assertions = sum(1 for scenario in flow["scenarios"] for step in scenario["steps"]
                      if step.get("assert"))
     passed = failures = unverified = dialogs = 0
@@ -891,6 +943,7 @@ def run_flow(flow: dict[str, Any], path: Path, output_dir: Path, variables: dict
                                  "input_settle": INPUT_SETTLE_POLICY,
                                  "dialog": dialog,
                                  "dialog_evidence": "structured-per-command",
+                                 "dialog_enforcement": "in-page-guard" if engine == "bsk" else "driver",
                                  "navigation": "event-bound-load"},
                "run_policy": {"allowed_origins": policy["allowed_origins"],
                               "origin_gate": "enforced" if policy["allowed_origins"] else "not-declared",
@@ -904,8 +957,7 @@ def run_flow(flow: dict[str, Any], path: Path, output_dir: Path, variables: dict
         allowed_origins = enforce_policy(policy, flow, variables,
                                          allow_destructive=allow_destructive)
         if engine == "bsk":
-            enforce_engine_risk(flow)
-            session = BskSession(bsk or [], browser=bsk_browser)
+            session = BskSession(bsk or [], browser=bsk_browser, dialog=dialog)
             target_id = str(session.ready["target_id"])
             # The header was written before the session existed; the bsk session id is the pin.
             report[report.index("**Target ID:** ``")] = (
@@ -1085,8 +1137,6 @@ def run_flow(flow: dict[str, Any], path: Path, output_dir: Path, variables: dict
             session.close()
 
     verdict = "FAIL" if failures else ("UNVERIFIED" if unverified else "PASS")
-    if verdict == "PASS" and engine == "bsk":
-        verdict = "PASS(inferred)"   # BAS-8: inferred evidence never yields a bare PASS
     summary = [f"**Verdict:** {verdict}", f"**Assertions:** {passed}/{assertions} passed",
                f"**Unverified state changes:** {unverified}",
                f"**Auto-answered dialogs:** {dialogs} (policy: {dialog})", ""]
@@ -1139,8 +1189,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--target-id", default=os.environ.get("TGT_ID"))
     parser.add_argument("--cdp-port", default=os.environ.get("CDP_PORT"))
     parser.add_argument("--cdp-script")
-    parser.add_argument("--engine", choices=ENGINES, default="cdp",
-                        help="cdp (default) or bsk, the read-only second engine (BAS §4)")
+    parser.add_argument("--engine", choices=ENGINES, default=os.environ.get("TEIBTO_QA_ENGINE", "bsk"),
+                        help="bsk (default, the primary engine) or cdp for the lens/netlog/stub/diff "
+                             "lanes, CI and the ns-qa coordinator lane")
     parser.add_argument("--bsk", help="path to the bsk CLI (default: TEIBTO_BSK or PATH)")
     parser.add_argument("--bsk-browser", default=os.environ.get("TEIBTO_BSK_BROWSER"),
                         help="bsk browser instance id; required when several are connected")

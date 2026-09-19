@@ -1,4 +1,4 @@
-# Engine ที่สอง — BrowserSkill (`bsk`): วิธีใช้จริง ตัวเลข และกับดัก
+# Engine หลัก — BrowserSkill (`bsk`): วิธีใช้จริง ตัวเลข และกับดัก
 
 ไฟล์นี้เป็นของ `bsk` เท่านั้น. เงื่อนไขว่า **ใช้ได้เมื่อใด** อยู่ที่ `docs/BROWSER-AGENT-STANDARD.md` §4;
 กับดักใน [`gotchas.md`](gotchas.md) เป็นของ direct CDP และไม่ได้ย้ายตามมาเอง. ทุกตัวเลขข้างล่างวัดกับ
@@ -39,7 +39,7 @@ python examples/nsbsk.py close-shared "$NSBSK_SESSION"               # ปิด
 
 | ทาง | ใช้เมื่อ | ข้อจำกัด |
 |---|---|---|
-| `flow-runner.py --engine bsk` | QA แบบ read-only ที่ต้องได้ `run-log.jsonl` / `qa-report.md` / `shots/` | step ต้องประกาศ `risk: read`; verdict สูงสุด `PASS(inferred)` + exit 1; CSS selector เท่านั้น |
+| `flow-runner.py` (ค่าตั้งต้นคือ `bsk`) | QA และงานเปลี่ยนข้อมูลที่ต้องได้ `run-log.jsonl` / `qa-report.md` / `shots/` | นโยบาย `--dialog` ถูกบังคับด้วยด่านในหน้าเว็บ; `destructive` ต้อง `--allow-destructive`; CSS selector เท่านั้น; ไม่มี `lens`/`netlog`/`stub`/`diff` |
 | เรียก `bsk` CLI ตรงจากสคริปต์ของงาน | งานที่เจ้าของระบบสั่งให้เปลี่ยนข้อมูลบน **sandbox** | อยู่นอกด่านของ runner ทั้งหมด — สคริปต์ต้องมีด่านของตัวเองครบตาม §3 |
 
 ## 3. ด่านขั้นต่ำของสคริปต์ที่เปลี่ยนข้อมูลผ่าน `bsk`
@@ -204,8 +204,8 @@ parameter ที่ขาดของกลไกอนุมัติตัว�
 
 | ใช้ได้แล้ว | ยังไม่พร้อม |
 |---|---|
-| QA read-only ผ่าน `--engine bsk` บน browser ที่คน login ไว้ (verdict `PASS(inferred)`) | ใช้ตัดสิน release — ชั้นหลักฐานยังเป็น `inferred` (BAS §4.3) |
-| งานเปลี่ยนข้อมูลบน **sandbox** ด้วยสคริปต์ที่มีด่าน §3 ครบ | งานเปลี่ยนข้อมูลผ่าน runner — ยังห้าม (`ENGINE_RISK_NOT_ALLOWED`) |
+| QA และงานเปลี่ยนข้อมูลผ่าน `flow-runner.py` (engine ตั้งต้น) บน browser ที่คน login ไว้ — verdict `PASS` ได้ | CI gate ของ `bsk` — drift ตรวจได้เฉพาะบนเครื่อง dev (`self-test/engine2/*.sh`) |
+| งานเปลี่ยนข้อมูลบน **sandbox** ด้วยสคริปต์ที่มีด่าน §3 ครบ | งานเปลี่ยนข้อมูลบน **Production** — ต้องได้คำสั่งตรงจากเจ้าของระบบทุกครั้ง |
 | รันมีคนเฝ้า บน browser ของคนนั้นเอง — agent 4 ตัวพร้อมกันใน session เดียวทำงานได้ | รันไม่มีคนเฝ้า / หลายเครื่อง — ต้องมี profile เฉพาะงาน + user ของ automation + CI gate ของ `bsk` |
 | Order-to-Cash ครบ loop บน **sandbox** ด้วยสคริปต์ที่มีด่าน §3 ครบ (§6.8) | รัน loop แบบเดียวกันบน Production — ห้าม จนกว่าจะมีมติเรื่อง engine ที่สองกับการเขียนข้อมูล |
 | | Production ทุกกรณี |

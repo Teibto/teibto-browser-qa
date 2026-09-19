@@ -65,8 +65,8 @@ never starts the daemon itself and never pipes `bsk` output. Re-run it on every 
 Chrome bump: a changed dialog policy turns it red on purpose so BAS §4.2 is re-decided, not inherited.
 
 `bash self-test/engine2/runner-test.sh` drives the same fixture through `flow-runner.py --engine bsk`:
-`flow-read.yaml` must end `PASS(inferred)` with exit 1, and `flow-confirm.yaml` must fail with
-`ENGINE_DIALOG_ACCEPTED`. Same `SKIP` conditions as above, plus PyYAML/jsonschema.
+`flow-read.yaml` must end `PASS` with exit 0, and `flow-confirm.yaml` must end `PASS` with a `confirm -> dismiss`
+dialog event: the in-page guard answered NO and the fixture shows `false`. Same `SKIP` conditions as above, plus PyYAML/jsonschema.
 
 Run the browser harness after any Chrome or `cdp.py` bump and before changing `commands.md`,
 `gotchas.md`, the PDF templates, or their behavioral claims. Current provenance is maintained in

@@ -8,9 +8,9 @@ Orientation for an agent or developer working **on this repository**. Consumers 
 This repository packages browser-QA guidance, a strict YAML runner, an optional loopback-only UI,
 and documentation templates around the external canonical `cdp.py` driver. It does not vendor or
 fork the driver. Driver behavior changes belong in `Teibto/teibto-dev-standards` and must be verified
-here through the live compatibility tests. A second engine, Tencent BrowserSkill, is admitted by policy
-in `docs/BROWSER-AGENT-STANDARD.md` §4 under the same no-vendor, no-fork boundary; that section is the
-single place that records what is and is not implemented for it.
+here through the live compatibility tests. The runner's default engine is Tencent BrowserSkill (`bsk`), adopted in
+`docs/BROWSER-AGENT-STANDARD.md` §4 under the same no-vendor, no-fork boundary; that section is the single
+place that records which engine owns which work.
 
 The shipped `.skill` bundle contains the runtime entrypoint, references, templates, examples, schema,
 runner scripts, and local UI. Repository-only architecture, claim provenance, tests, and contribution
@@ -38,7 +38,7 @@ docs/CLAIMS-AUDIT.md current claim provenance and withdrawn-claim record
 |---|---|
 | `SKILL.md` | Skill selection, mandatory invariants, progressive routing |
 | `references/` | On-demand commands, safety, layers, flow, reliability, and PDF procedures |
-| `scripts/flow-runner.py` | Validated flow execution through a bounded CDP JSONL session, or read-only through `--engine bsk` |
+| `scripts/flow-runner.py` | Validated flow execution through BrowserSkill (default) or a bounded CDP JSONL session (`--engine cdp`) |
 | `schemas/flow.schema.json` | Authoritative executable-flow fields; fail closed on extras |
 | `app/` | Optional loopback UI that delegates to the same runner |
 | `assets/` | User-guide/bug-report templates and evidence markers |

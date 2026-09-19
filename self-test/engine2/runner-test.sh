@@ -3,8 +3,8 @@
 #
 #   bash self-test/engine2/runner-test.sh
 #
-# พิสูจน์: flow read-only ได้ PASS(inferred) + exit 1, และ confirm ที่ bsk ตอบ accept ทำให้ step ล้มด้วย
-# ENGINE_DIALOG_ACCEPTED. ไม่มี bsk / daemon / extension = SKIP (exit 0) ไม่ใช่ PASS
+# พิสูจน์: flow read-only ได้ PASS + exit 0, และ confirm ถูก in-page guard ตอบ NO (dismiss) จึงไม่ล้ม
+# ไม่มี bsk / daemon / extension = SKIP (exit 0) ไม่ใช่ PASS
 set -u
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$HERE/../.." && pwd)"
@@ -45,7 +45,7 @@ run() {
     fail=$((fail+1)); echo "  FAIL $1: verdict=$verdict exit=$rc expected=$2/$3 marker=$4"; tail -c 400 "$WORK/$1.json"
   fi
 }
-run flow-read.yaml    "PASS(inferred)" 1 '"engine":"bsk"'
-run flow-confirm.yaml "FAIL"           1 'ENGINE_DIALOG_ACCEPTED'
+run flow-read.yaml    "PASS" 0 '"engine":"bsk"'
+run flow-confirm.yaml "PASS" 0 '"answer":"dismiss"'
 echo "pass=$pass fail=$fail"
 [ "$fail" -eq 0 ]

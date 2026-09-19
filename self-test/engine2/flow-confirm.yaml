@@ -1,7 +1,7 @@
 story: engine2-confirm
-title: Engine2 confirm must fail
+title: Engine2 confirm is answered NO by the in-page guard
 scenarios:
   - id: confirm
     steps:
       - {action: open, target: "http://127.0.0.1:8931/dialog-page.html", capture: false}
-      - {action: click, target: "#btn-confirm", risk: read, assert: {target: "#r-confirm", contains: "true"}, capture: false}
+      - {action: click, target: "#btn-confirm", risk: read, assert: {target: "#r-confirm", contains: "false"}, capture: false}

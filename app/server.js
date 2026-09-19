@@ -35,7 +35,8 @@ function safeId(value, label = "id") {
 
 function childJson(args, stdin) {
   return new Promise((resolve, reject) => {
-    const child = spawn(PYTHON, [RUNNER, ...args], {cwd: ROOT, windowsHide: true, stdio: ["pipe", "pipe", "pipe"]});
+    // The local UI drives the cdp.py lane (it collects a CDP target id).
+    const child = spawn(PYTHON, [RUNNER, "--engine", "cdp", ...args], {cwd: ROOT, windowsHide: true, stdio: ["pipe", "pipe", "pipe"]});
     let out = "", err = "";
     child.stdout.on("data", chunk => { if (out.length < MAX_BODY) out += chunk; });
     child.stderr.on("data", chunk => { if (err.length < MAX_BODY) err += chunk; });
@@ -106,7 +107,8 @@ async function startRun(body) {
   const args = ["--flow", await flowPath(flow), "--out", path.join(RUNS, runId), "--vars-json", "-", "--target-id", targetId];
   if (process.env.TEIBTO_CDP_SCRIPT) args.push("--cdp-script", process.env.TEIBTO_CDP_SCRIPT);
   if (process.env.CDP_PORT) args.push("--cdp-port", process.env.CDP_PORT);
-  const child = spawn(PYTHON, [RUNNER, ...args], {cwd: ROOT, windowsHide: true, stdio: ["pipe", "pipe", "pipe"]});
+  // The local UI drives the cdp.py lane (it collects a CDP target id).
+  const child = spawn(PYTHON, [RUNNER, "--engine", "cdp", ...args], {cwd: ROOT, windowsHide: true, stdio: ["pipe", "pipe", "pipe"]});
   const run = {id: runId, child, clients: new Set(), events: [], buffer: "", stderr: "", closed: false};
   runs.set(runId, run);
   child.stdout.setEncoding("utf8");

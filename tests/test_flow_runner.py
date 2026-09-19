@@ -51,7 +51,7 @@ class RunnerHarness:
         process = subprocess.run(
             [sys.executable, str(RUNNER), "--flow", str(flow), "--out", str(out),
              "--vars-json", "-", "--target-id", "target-123", "--cdp-script", str(FAKE_CDP),
-             *(extra_args or [])],
+             "--engine", "cdp", *(extra_args or [])],
             input=json.dumps(variables or {}), capture_output=True, text=True, encoding="utf-8", env=env,
         )
         return process, out, counter
@@ -245,7 +245,7 @@ class FlowRunnerTests(RunnerHarness, unittest.TestCase):
         process = subprocess.run(
             [sys.executable, str(RUNNER), "--flow", str(ROOT / "examples" / "saucedemo.yaml"),
              "--out", str(TEST_TMP / "never-created-runner-test"),
-             "--cdp-script", str(FAKE_CDP)],
+             "--cdp-script", str(FAKE_CDP), "--engine", "cdp"],
             capture_output=True, text=True, encoding="utf-8", env={k: v for k, v in os.environ.items() if k != "TGT_ID"},
         )
         self.assertEqual(2, process.returncode)
@@ -255,7 +255,7 @@ class FlowRunnerTests(RunnerHarness, unittest.TestCase):
         process = subprocess.run(
             [sys.executable, str(RUNNER), "--flow", str(ROOT / "tests" / "fixtures" / "live-flow.yaml"),
              "--out", str(TEST_TMP / "never-created-secret-argv"), "--target-id", "target-123",
-             "--cdp-script", str(FAKE_CDP), "--vars-json", '{"tester":"unsafe"}'],
+             "--cdp-script", str(FAKE_CDP), "--engine", "cdp", "--vars-json", '{"tester":"unsafe"}'],
             capture_output=True, text=True, encoding="utf-8",
         )
         self.assertEqual(2, process.returncode)
