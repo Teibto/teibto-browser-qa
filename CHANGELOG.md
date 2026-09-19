@@ -20,6 +20,9 @@
 
 ### Added
 
+- `references/engine2-bsk.md` §6.7: กฎสำหรับหน้า React/suitelet และ workflow ที่ต่อหลาย record จากรอบ O2C บน SB2 —
+  พิสูจน์ control record ก่อนขับ stage, อย่าเชื่อสิ่งที่คิวแสดง, รอ text marker แทน `<tr>`, ระบุแถวด้วยการไต่ DOM ·
+  บันทึกตรง ๆ ว่า loop หยุดที่ approve และ fulfill/invoice ยังไม่ได้ขับ (#102)
 - มาตรฐานขับ NetSuite ผ่าน `bsk` (`references/engine2-bsk.md` §6): readiness, คลิก/dropdown, ตรวจ save ด้วย marker,
   ช่องทางแจ้ง validation, dirty form, หน้า non-classic, flow read-only และตาราง `perf_budget_ms` ต่อชนิดหน้า —
   สกัดจาก agent 4 ตัวที่ทดสอบ UI จริงบน SB2 พร้อมกัน (#99)
