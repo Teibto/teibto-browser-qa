@@ -8,7 +8,9 @@ Orientation for an agent or developer working **on this repository**. Consumers 
 This repository packages browser-QA guidance, a strict YAML runner, an optional loopback-only UI,
 and documentation templates around the external canonical `cdp.py` driver. It does not vendor or
 fork the driver. Driver behavior changes belong in `Teibto/teibto-dev-standards` and must be verified
-here through the live compatibility tests.
+here through the live compatibility tests. A second engine, Tencent BrowserSkill, is admitted by policy
+in `docs/BROWSER-AGENT-STANDARD.md` §4 under the same no-vendor, no-fork boundary; that section is the
+single place that records what is and is not implemented for it.
 
 The shipped `.skill` bundle contains the runtime entrypoint, references, templates, examples, schema,
 runner scripts, and local UI. Repository-only architecture, claim provenance, tests, and contribution

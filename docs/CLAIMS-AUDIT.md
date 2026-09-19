@@ -133,6 +133,15 @@ than pinning a tokenizer-specific absolute count.
 | `el.focus()` on some custom-element hosts leaves `activeElement` on `BODY`; only keyboard Tab focuses the host | measured, version-pinned | `tbt-button`, TBT-DS 1.46.1, 2026-09-08 |
 | `lens focus` reports `focus-stuck`/`unreachable-controls` on `<input type=date>` because Tab walks its date fields | measured, version-pinned | observed 2026-09-08; verify by pressing Tab 4–5 more times |
 
+## Engine policy
+
+| Claim | Status | Evidence/limit |
+|---|---|---|
+| `cdp.py` is the primary engine; BrowserSkill (`bsk`) is admitted as a second engine only for sessions `cdp.py` cannot attach to | principle | owner decision 2026-09-19, issue #87; conditions in `docs/BROWSER-AGENT-STANDARD.md` §4 |
+| Results obtained through the second engine are `inferred` until it has a version pin, a live compatibility gate, a run-log adapter, and negative dialog/`beforeunload` tests | principle | `docs/BROWSER-AGENT-STANDARD.md` §4.3; none of the four gates exists yet |
+| BrowserSkill is a CLI + daemon + MV3 extension that drives tabs over CDP and offers `observe` refs, `tab borrow`/`tab return`, `request-help`, read-only `console`/`network`, remote pairing, operation audit, and Windows x64 builds | version-pinned, inferred | read from the upstream docs and changelog at `Tencent/BrowserSkill` `fa953dc` (v0.3.0, 2026-09-16); **not executed here** — recheck on every pin bump |
+| BrowserSkill survives native dialogs and `beforeunload` without the wedge that retired the previous daemon (#34) | inferred — untested | no fixture exists; must not be assumed for pages that save data |
+
 ## Executable-flow authority
 
 `schemas/flow.schema.json` is authoritative and rejects unknown fields. `fixtures`, `teardown`,
@@ -148,6 +157,8 @@ This rule closed contradictory documentation found in `test-data.md`, `a11y-laye
 
 ## Withdrawn claims
 
+- "Transport is direct CDP only, with no second driver" was an unconditional team rule until issue #87.
+  It is replaced by the engine policy above; the ban on *writing* a second driver in this skill stands.
 - Operational instructions for the retired transport, session files, daemon recovery, recording, and
   old command shapes are historical and must not appear in current runbooks.
 - Old-version claims that below-fold click does not auto-scroll were superseded by the canonical

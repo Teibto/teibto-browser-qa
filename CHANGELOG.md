@@ -10,6 +10,14 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **มติ transport เปลี่ยน:** `cdp.py` เป็น engine หลัก และรับ Tencent BrowserSkill (`bsk`) เป็น engine ที่สอง
+  เฉพาะ session ที่ `cdp.py` เข้าไม่ถึง (profile default ของ Chrome 136+, browser ระยะไกล, ขั้นตอนที่ต้องให้คนทำ MFA) ·
+  เป็นการเปลี่ยนนโยบายอย่างเดียว — runner/schema ยังขับ `cdp.py` เท่านั้น และผลจาก engine ที่สองอยู่ชั้น `inferred`
+  จนกว่าจะมี version pin, live compat gate, adapter ที่ออก `run-log.jsonl` และเทสด้านลบเรื่อง dialog/`beforeunload` ·
+  เงื่อนไขเต็มอยู่ที่ `docs/BROWSER-AGENT-STANDARD.md` §4 (#87)
+
 ### Added
 
 - กฎ BAS ทุกข้อประกาศบรรทัด `Status` เป็น `adopted` / `partial` / `proposed` พร้อมด่านที่พิสูจน์มัน
