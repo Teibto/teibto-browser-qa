@@ -20,6 +20,10 @@
 
 ### Added
 
+- `flow-runner.py --engine bsk`: adapter `BskSession` ขับ flow YAML เดิมผ่าน BrowserSkill CLI และออก
+  `run-log.jsonl`/`qa-report.md`/`shots/` รูปเดียวกับ engine หลัก · read-only ถูกบังคับในโค้ด
+  (`ENGINE_RISK_NOT_ALLOWED` ก่อนแตะ browser, `ENGINE_DIALOG_ACCEPTED` ตอนรัน) · pin `bsk` 0.3.0
+  (`DRIVER_INCOMPATIBLE`) · verdict สูงสุด `PASS(inferred)` + exit 1 · `self-test/engine2/runner-test.sh` (#91)
 - `self-test/engine2/dialog-test.sh` + fixture: ด่าน dialog/`beforeunload` ของ engine ที่สอง (BAS §4.3 ข้อ 3) ·
   เทียบค่า `handled` ที่ `bsk` รายงานกับผลจริงใน DOM, pin นโยบายที่สังเกตได้, ตรวจ liveness หลัง `beforeunload`
   และ pid ของ daemon หลัง 20 รอบ · ไม่มี `bsk`/daemon/extension = `SKIP` (#89)

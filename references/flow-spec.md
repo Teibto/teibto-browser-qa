@@ -32,6 +32,23 @@ $env:TEIBTO_CDP_SCRIPT = 'D:\path\to\teibto-dev-standards\scripts\cdp.py'
 - `risk: read|write|destructive` ระดับ step; `destructive` ต้องสั่ง `--allow-destructive` ไม่งั้น
   runner ปฏิเสธ flow ตั้งแต่ก่อนเริ่ม (`DESTRUCTIVE_NOT_ALLOWED`)
 
+Engine ที่สอง (`--engine bsk`, BrowserSkill — เงื่อนไขการใช้อยู่ที่ `docs/BROWSER-AGENT-STANDARD.md` §4):
+
+```powershell
+py scripts/flow-runner.py --engine bsk --flow qa/<feature>/flow.yaml --out runs/bsk --stdout summary
+```
+
+- flow ไฟล์เดิมใช้ได้ทั้งสอง engine; ไม่ต้องมี `TGT_ID` เพราะ session ของ `bsk` คือ target ที่ปักไว้
+- read-only เท่านั้น: step ที่ `risk` ไม่ใช่ `read` หรือ `fill`/`click`/`select`/`press`/`eval` ที่ไม่ประกาศ
+  `risk: read` ชัดแจ้ง = `ENGINE_RISK_NOT_ALLOWED` ก่อนแตะ browser (ค่าตั้งต้นของ `risk` คือ `read`
+  จึงต้องประกาศเอง ไม่งั้น `click` ที่ไม่บอกอะไรจะผ่านฟรี)
+- `bsk` ตอบ accept ให้ dialog ทุกชนิด: `confirm`/`prompt`/`beforeunload` ที่ถูก accept = step ล้มด้วย
+  `ENGINE_DIALOG_ACCEPTED` และยังถูกบันทึกเป็น event `dialog`; `alert` บันทึกแต่ไม่ล้ม
+- daemon/extension ต้องเป็นรุ่นที่ runner pin ไว้ ไม่ตรง = `DRIVER_INCOMPATIBLE`; runner ไม่ start daemon เอง
+- verdict สูงสุดคือ `PASS(inferred)` และ exit 1; รับเฉพาะ CSS selector (`@ref` = `ENGINE_UNSUPPORTED`)
+- console check นับเฉพาะ `console.error` และ uncaught exception; resource ที่โหลดไม่ได้เป็นงานของ `lens netlog`
+  ซึ่ง engine นี้ไม่มี
+
 Local UI (ไม่จำเป็นต่อ CI):
 
 ```powershell
