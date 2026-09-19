@@ -140,6 +140,18 @@ than pinning a tokenizer-specific absolute count.
 | After a `click` that navigates to a page loading longer than ~10 s, an expression/`networkidle` `wait` fails with `WS_TIMEOUT` at ~10 s instead of at its own deadline | measured | SB2 `4089685_SB2`, 2026-09-19, driver `71b477a`: `wait.driver_ms=10012`; same page `nav --until=load` = 13,812 ms; fixed-sleep variant of the same flow passed 4/4. Reproduced once, no fixture yet — `gotchas.md` §20, driver issue `Teibto/teibto-dev-standards#396` |
 | The evaluate stalls because the renderer is busy or its execution context is torn down mid-navigation | inferred | not separated; do not cite as cause |
 
+## Second-engine live-run findings
+
+| Claim | Status | Evidence/limit |
+|---|---|---|
+| A tuned customer + Sales Order create loop through `bsk` takes a median 47.7 s per pair (min 43.7, max 51.0), 20–28 CLI calls, no retries and no dialogs | measured | NetSuite SB2, bsk 0.3.0 + Chrome 152, 2026-09-19, n=6, 6/6 verified against the server-side record XML; harness lives under git-ignored `qa/` |
+| The untuned script took 68.1 s through `bsk` and 64.6 s through one-process-per-command `cdp.py` (53 calls each); the gain came from waiting for `NS.form.isInited()` instead of re-firing the customer, not from the engine | measured | same day, n=1 per engine — direction only, not a benchmark of the engines; the runner's JSONL session was not part of the comparison |
+| Per-command transport cost is about 33–58 ms for `bsk` and about 205 ms for one-process-per-command `cdp.py` | measured | ten trivial evaluates, three `bsk` samples and one `cdp.py` sample |
+| A focused Agent Window is not faster than `--no-focus` for this loop | measured | 47.2 s vs 48.1 s mean, n=3 each |
+| A person closing the Agent Window ends the session mid-run, and a save already clicked can still have landed | verified | daemon log `session removed: user closed Agent Window` twice in 12 runs; one orphaned Sales Order confirmed by server-side lookup. Runner maps it to `BSK_SESSION_LOST` |
+| `--engine bsk` retries a detached-debugger failure only for commands that cannot act twice; `click`/`fill`/`pick`/`key`/`eval` are never retried | verified | `tests/test_bsk_engine.py` navigate-retried, click-not-retried and session-lost cases; removing the idempotent condition turns the click case red |
+| Pre-filling the customer through the Sales Order URL saves about 3 s but breaks the item line | measured — rejected | 1 of 2 runs failed with `checkvalid` undefined although `NS.form.isInited()` was true |
+
 ## Engine policy
 
 | Claim | Status | Evidence/limit |

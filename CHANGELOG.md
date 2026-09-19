@@ -20,6 +20,11 @@
 
 ### Added
 
+- `--engine bsk`: retry สูงสุด 2 ครั้งเมื่อ debugger หลุด (`cdp_failed`) เฉพาะคำสั่งที่ทำซ้ำแล้วไม่เกิดผลซ้ำ —
+  `click`/`fill`/`pick`/`key`/`eval` ไม่ retry เด็ดขาด · session หาย = `BSK_SESSION_LOST` ที่บอกว่าผลของ action ล่าสุด
+  ไม่ทราบ (#97)
+- `references/engine2-bsk.md`: วิธีตั้งเครื่อง ด่านขั้นต่ำของสคริปต์ที่เปลี่ยนข้อมูล กับดัก และตัวเลขจาก loop งานจริงบน
+  NetSuite SB2 (median 47.7 s ต่อคู่ customer + Sales Order, 6/6) พร้อมตารางสถานะความพร้อมใช้งาน (#97)
 - `flow-runner.py --bsk-browser <instance_id>` (`TEIBTO_BSK_BROWSER`): เลือก browser เมื่อ `bsk` เชื่อมอยู่หลายตัว ·
   ไม่ระบุ = `BSK_BROWSER_AMBIGUOUS` (ไม่เดา) · self-test ของ engine ที่สองรับ `ENGINE2_BROWSER` (#95)
 - `gotchas.md` §20: `wait` หลัง `click` ไปหน้าที่โหลดเกิน ~10 วิ ล้มด้วย `WS_TIMEOUT` ทั้งที่ click สำเร็จ —

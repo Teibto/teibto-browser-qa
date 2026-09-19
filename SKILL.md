@@ -83,6 +83,7 @@ The full standard — pain inventory, the nine rules, coverage matrix, and adopt
 | Accessibility or performance | [`references/a11y-layer.md`](references/a11y-layer.md) or [`references/perf-layer.md`](references/perf-layer.md) |
 | Responsive/theme/focus/network UX | [`references/ux-lens.md`](references/ux-lens.md) |
 | User-guide or bug-report PDF | [`references/pdf-reports.md`](references/pdf-reports.md) |
+| Drive a logged-in browser `cdp.py` cannot attach to | [`references/engine2-bsk.md`](references/engine2-bsk.md) and `flow-runner.py --engine bsk` |
 | Change real settings through a UI | [`references/configure.md`](references/configure.md); keep it separate from QA |
 
 ## Live action loop
