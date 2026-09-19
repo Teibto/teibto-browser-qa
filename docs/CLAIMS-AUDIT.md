@@ -186,7 +186,10 @@ than pinning a tokenizer-specific absolute count.
 | Why APC did not route the new order | inferred — not investigated | reading the bundle's configuration was outside the run's stop condition |
 | The queue shows two documents as awaiting approval that are already billed / approved server-side | verified | `record_xml` on both rows |
 | The React approval page has no `<table>`, `<tr>` or checkbox; a data text marker is the working readiness signal | verified | element counts read from the page; `tr` wait timed out at 45 s |
-| Fulfilment and invoicing through bsk | not exercised | blocked upstream at approval; nothing was forced |
+| A full Order-to-Cash loop runs from the real UI through bsk: order → Send to Approve → Approve → Item Fulfillment → Invoice → order Billed | verified | SB2 2026-09-20: SO-TH-260900019, IFS-TH-260900002, INT-TH-260900001 (107.00), each stage checked against server-side record XML, 0 dialogs, one Agent Window. n=1; needed five fixes in the approval bundle (`Teibto/TEIBTO-Approval-Control#15`) and one missing SOA deployment parameter |
+| Stage timings of that loop: fulfil 56.6 s, invoice 109.4 s, Send to Approve effect after about 15 s | measured | n=1, hidden background tab of a shared window — expect throttling to inflate form-ready times |
+| `input_cleanup_failed` is reproducible per button, and the navigation still happens | measured | `#process` 3/3, `#nextbill` 1/1 |
+| A SuiteScript rejection lands on a `Notice` page that the save probe could not see | verified | `SOA_FULFILL_BLOCKED` run burned the full save limit; the harness now returns `rejected` with the page text |
 
 ## Engine policy
 

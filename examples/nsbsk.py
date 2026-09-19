@@ -247,6 +247,11 @@ class Session:
                 state = {"id": None, "alerts": [], "title": ""}          # mid-navigation
             if state.get("id") or state.get("alerts") or state.get("title") == "Error":
                 return state
+            if state.get("swapped") and str(state.get("title", "")).startswith("Notice"):
+                # A SuiteScript rejection (beforeSubmit throw) renders a Notice page: no id, no alert.
+                state["rejected"] = self.ev("String((document.body.innerText||'').split(String.fromCharCode(10)).join(' ').slice(0,600))",
+                                            idempotent=True)
+                return state
             if time.monotonic() >= deadline:
                 # Do NOT call save_record() to diagnose: it is a second real submit. Report and stop.
                 state["timeout"] = True
