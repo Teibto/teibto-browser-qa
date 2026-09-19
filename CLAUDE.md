@@ -38,7 +38,7 @@ docs/CLAIMS-AUDIT.md current claim provenance and withdrawn-claim record
 |---|---|
 | `SKILL.md` | Skill selection, mandatory invariants, progressive routing |
 | `references/` | On-demand commands, safety, layers, flow, reliability, and PDF procedures |
-| `scripts/flow-runner.py` | Validated flow execution through a bounded CDP JSONL session |
+| `scripts/flow-runner.py` | Validated flow execution through a bounded CDP JSONL session, or read-only through `--engine bsk` |
 | `schemas/flow.schema.json` | Authoritative executable-flow fields; fail closed on extras |
 | `app/` | Optional loopback UI that delegates to the same runner |
 | `assets/` | User-guide/bug-report templates and evidence markers |

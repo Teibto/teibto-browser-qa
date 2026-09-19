@@ -1,0 +1,8 @@
+story: engine2-read
+title: Engine2 read-only
+allowed_origins: ["http://127.0.0.1:8931"]
+scenarios:
+  - id: read
+    steps:
+      - {action: open, target: "http://127.0.0.1:8931/dialog-page.html", assert: {target: "#r-alert", contains: "idle"}, capture: true}
+      - {action: click, target: "#btn-alert", risk: read, assert: {target: "#r-alert", contains: "returned"}, capture: false}

@@ -16,10 +16,11 @@ Use the team-owned `cdp.py` from
 directly over CDP. The driver supplies actions and evidence; the agent derives tests, judges results,
 and writes the report. A happy-path run should yield both a smoke verdict and documentation material.
 
-`cdp.py` is the primary engine and the only one the runner drives. Tencent BrowserSkill (`bsk`) is an
+`cdp.py` is the primary engine and the runner's default. Tencent BrowserSkill (`bsk`) is an
 admitted second engine only for sessions `cdp.py` cannot attach to — a default Chrome profile, a remote
 browser, or a human-in-the-loop MFA step. Every invariant below still applies, and its results stay in
-the `inferred` class until the gates in `docs/BROWSER-AGENT-STANDARD.md` §4 exist. **`bsk` accepts every
+the `inferred` class (`flow-runner.py --engine bsk` tops out at `PASS(inferred)`) until the gates in
+`docs/BROWSER-AGENT-STANDARD.md` §4 exist. **`bsk` accepts every
 dialog, including delete/save confirmations and `beforeunload`, so never use it for a `write` or
 `destructive` step or on a page holding an unsaved form.**
 

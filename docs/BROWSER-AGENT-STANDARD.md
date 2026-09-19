@@ -310,9 +310,10 @@ trusted input และคือรัศมีระเบิดของ injec
 ที่ `cdp.py` เข้าไม่ถึง. มติเดิม "`cdp.py` ตัวเดียว" ถูกแทนที่ด้วยข้อนี้; เหตุผลสามข้อของมติเดิมยังจริง
 และถูกแปลงเป็นเงื่อนไข §4.2–§4.3 แทนการลบทิ้ง.
 
-> **สถานะของมตินี้:** เป็นนโยบายที่อนุญาตแล้ว แต่ **ยังไม่มีโค้ดใน repo นี้ที่ขับ `bsk`** —
-> `scripts/flow-runner.py` และ `schemas/flow.schema.json` ยังรับ `cdp.py` อย่างเดียว. ห้ามเขียนในรายงาน QA
-> ว่า run ผ่าน engine ที่สอง "ตามมาตรฐาน" จนกว่าด่านใน §4.3 จะครบ.
+> **สถานะของมตินี้:** `scripts/flow-runner.py --engine bsk` ขับ `bsk` ได้แบบ **read-only** (#91):
+> flow YAML และ schema ไม่เปลี่ยนและไม่ผูกกับ engine. run ผ่าน engine ที่สองได้ verdict สูงสุด `PASS(inferred)`
+> และ exit code ไม่เป็น 0 — ใช้ตัดสิน release ไม่ได้ (BAS-8) จนกว่าจะมีมติยกชั้นหลักฐานหลังด่าน §4.3 ครบ.
+> ยังไม่รองรับ: `tab borrow`, `request-help`, remote pairing, `@ref` และ local UI.
 
 ### 4.1 ใช้ engine ที่สองได้เมื่อใด
 
@@ -350,9 +351,14 @@ coordinator อยู่แล้วให้ใช้ `cdp.py` ต่อ. `lens
 
 ผลจาก engine ที่สองเข้ารายงานในชั้น **`inferred`** (ห้ามให้ `PASS` ลำพัง — BAS-8) จนกว่าจะมีครบ:
 
-1. **version pin** ของ `bsk` ใน CI คู่กับ live compat test แบบเดียวกับ job `driver-compat` —
-   ตอบเหตุผลเดิม "สอง transport = สองชุดกับดัก": drift ของ engine ที่สองต้องแดงก่อน merge เหมือนกัน
-2. **adapter ที่ออก event ชุดเดียวกับ `run-log.jsonl`** (`step_done`, `dialog`, typed failure) —
+1. **version pin** ของ `bsk` คู่กับ live compat test — 🟡 บางส่วน: runner pin `BSK_PINNED_VERSION` และปฏิเสธ
+   daemon/extension รุ่นอื่นด้วย `DRIVER_INCOMPATIBLE` (#91); live test คือ `self-test/engine2/*.sh`.
+   **ยังไม่มี CI job** เพราะ runner ไม่มี extension — บน CI เทสเหล่านี้ `SKIP` จึงยังไม่กัน drift ก่อน merge
+   แบบ job `driver-compat`. ตอบเหตุผลเดิม "สอง transport = สองชุดกับดัก" ได้ครึ่งเดียว
+2. **adapter ที่ออก event ชุดเดียวกับ `run-log.jsonl`** (`step_done`, `dialog`, typed failure) — ✅ มีแล้ว:
+   `BskSession` ใน `scripts/flow-runner.py` (#91). ข้อห้ามของ §4.2 ถูกบังคับในโค้ด: step ที่ `risk` ไม่ใช่ `read`
+   หรือ action ที่เปิด dialog ได้โดยไม่ประกาศ `risk: read` = `ENGINE_RISK_NOT_ALLOWED` ก่อนแตะ browser, และ
+   `confirm`/`prompt`/`beforeunload` ที่ถูก accept ระหว่าง run = `ENGINE_DIALOG_ACCEPTED`.
    ตอบเหตุผลเดิม "หลักฐานที่ replay ได้เป็นของเรา": ข้อความตอบรับของ CLI ไม่ใช่หลักฐาน
 3. **เทสด้านลบเรื่อง dialog และ `beforeunload`** — ✅ มีแล้ว: `self-test/engine2/dialog-test.sh` (#89).
    ทีมเลิกใช้ daemon ตัวก่อน (#34) เพราะ `os error 10060` วนซ้ำ, Chrome ตายเงียบ และ `beforeunload` ที่ wedge ถาวร.

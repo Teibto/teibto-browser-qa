@@ -18,6 +18,7 @@ import json
 import os
 import queue
 import re
+import shutil
 import subprocess
 import sys
 import threading
@@ -52,6 +53,12 @@ SUMMARY_EVENT_TYPES = {"fatal", "run_done"}
 ALLOWED_SCHEMES = ("http", "https")
 RISK_LEVELS = ("read", "write", "destructive")
 DEFAULT_RISK = "read"
+ENGINES = ("cdp", "bsk")
+# Second engine (BAS §4): pinned because its dialog policy was verified for this version only.
+BSK_PINNED_VERSION = "0.3.0"
+# bsk auto-accepts every dialog, so any action that can open one must be declared risk: read.
+BSK_DECLARE_RISK_ACTIONS = {"fill", "click", "select", "press", "eval"}
+BSK_MUTATING_DIALOGS = {"confirm", "prompt", "beforeunload"}
 
 
 class RunnerError(RuntimeError):
@@ -430,6 +437,183 @@ class CDPSession:
             self._stderr_thread.join(timeout=3)
 
 
+def resolve_bsk(explicit: str | None) -> list[str]:
+    candidate = explicit or os.environ.get("TEIBTO_BSK") or shutil.which("bsk")
+    if not candidate or not (Path(candidate).is_file() or shutil.which(candidate)):
+        raise RunnerError("BSK_MISSING", "ไม่พบ bsk: ระบุ --bsk หรือ TEIBTO_BSK หรือเพิ่มใน PATH")
+    # A .py path is a test double; the real CLI is a native executable.
+    return [sys.executable, candidate] if candidate.endswith(".py") else [candidate]
+
+
+def enforce_engine_risk(flow: dict[str, Any]) -> None:
+    """Second engine only: refuse anything that could change state before touching the browser.
+
+    DEFAULT_RISK is read, so an undeclared click would otherwise pass for free while bsk
+    auto-accepts the confirm it opens.
+    """
+    blocked: list[str] = []
+    for scenario in flow["scenarios"]:
+        for index, step in enumerate(scenario["steps"], 1):
+            declared = step.get("risk")
+            if (declared not in (None, "read")
+                    or (step["action"] in BSK_DECLARE_RISK_ACTIONS and declared != "read")):
+                blocked.append(f"{scenario['id']}#{index}({step['action']}:{declared or 'undeclared'})")
+    if blocked:
+        raise RunnerError(
+            "ENGINE_RISK_NOT_ALLOWED",
+            "engine bsk ตอบ accept ให้ dialog ทุกชนิด จึงรับเฉพาะ step ที่ประกาศ risk: read: "
+            + ", ".join(blocked),
+            detail={"steps": blocked},
+        )
+
+
+class BskSession:
+    """BrowserSkill CLI behind the CDPSession interface the runner already uses."""
+
+    def __init__(self, bsk: list[str], *, request_timeout: float = 45.0):
+        self.bsk = bsk
+        self.script = Path(bsk[-1])
+        self.request_timeout = request_timeout
+        self.dialogs: queue.Queue[dict[str, str]] = queue.Queue()
+        self.session_id: str | None = None
+        self.console_since = 0
+        status = self._cli(["status"])
+        browsers = self._cli(["browsers"])
+        if not isinstance(browsers, list) or len(browsers) != 1:
+            raise RunnerError("BSK_NOT_READY", "ต้องมี browser ที่เชื่อม extension หนึ่งตัวพอดี",
+                              detail={"browsers": browsers})
+        versions = {"daemon": status.get("daemon_version"),
+                    "extension": browsers[0].get("extension_version")}
+        if set(versions.values()) != {BSK_PINNED_VERSION}:
+            raise RunnerError(
+                "DRIVER_INCOMPATIBLE",
+                f"runner pin bsk {BSK_PINNED_VERSION}: พบ daemon={versions['daemon']} "
+                f"extension={versions['extension']} — ตรวจนโยบาย dialog ใหม่ก่อนขยับ pin (BAS §4.3)",
+                detail=versions,
+            )
+        started = self._cli(["session", "start", "--name", "flow-runner", "--no-focus"])
+        self.session_id = str(started["session_id"])
+        self.ready = {"protocol": "bsk-cli", "version": BSK_PINNED_VERSION,
+                      "browser": f"{browsers[0].get('browser_name')} {browsers[0].get('browser_version')}",
+                      "target_id": self.session_id}
+
+    def _cli(self, args: list[str], *, timeout: float | None = None) -> Any:
+        env = os.environ.copy()
+        env["BSK_AUTO_START"] = "0"   # an auto-started daemon inherits our pipes and never lets go
+        command = [*self.bsk, *args, "--json"]
+        if self.session_id and args[0] != "session":
+            command += ["--session", self.session_id]
+        try:
+            done = subprocess.run(command, capture_output=True, text=True, encoding="utf-8",
+                                  errors="replace", env=env, timeout=timeout or self.request_timeout)
+        except subprocess.TimeoutExpired as exc:
+            raise RunnerError("SESSION_TIMEOUT", f"bsk {args[0]} ไม่ตอบภายในเวลาที่กำหนด") from exc
+        if done.returncode != 0:
+            raise RunnerError("BSK_COMMAND_FAILED",
+                              f"bsk {args[0]}: {(done.stderr or done.stdout).strip()[:500]}")
+        try:
+            return json.loads(done.stdout)
+        except ValueError as exc:
+            raise RunnerError("INVALID_SESSION_OUTPUT", f"bsk {args[0]} คืนค่าที่ไม่ใช่ JSON") from exc
+
+    def _evaluate(self, expression: str) -> Any:
+        result = self._run(["evaluate", expression])
+        if result.get("ok") is not True:   # a script exception still exits 0
+            raise RunnerError("EVAL_FAILED", str(result.get("error") or result)[:500])
+        return result.get("value")
+
+    def _run(self, args: list[str]) -> dict[str, Any]:
+        result = self._cli(args)
+        accepted = []
+        for item in (result.get("dialogs") or []) if isinstance(result, dict) else []:
+            kind, message = str(item.get("type")), str(item.get("message"))
+            answer = "accept" if item.get("handled") == "accepted" else "dismiss"
+            self.dialogs.put({"kind": kind, "message": message, "answer": answer,
+                              "line": f"[dialog] {kind}: {message} -> {answer}"})
+            if answer == "accept" and kind in BSK_MUTATING_DIALOGS:
+                accepted.append(f"{kind}: {message}")
+        if accepted:
+            raise RunnerError("ENGINE_DIALOG_ACCEPTED",
+                              "bsk ตอบ accept ให้ dialog ที่อาจเปลี่ยน state: " + "; ".join(accepted))
+        return result
+
+    @staticmethod
+    def _css(target: str) -> str:
+        if target.startswith("@"):
+            raise RunnerError("ENGINE_UNSUPPORTED", f"engine bsk รับเฉพาะ CSS selector: {target}")
+        return target
+
+    def _read(self, prop: str, target: str) -> Any:
+        return self._evaluate("(function(){var e=document.querySelector(%s);return e?e.%s:null;})()"
+                              % (json.dumps(self._css(target), ensure_ascii=False), prop))
+
+    def command(self, command: str, args: list[Any] | None = None) -> dict[str, Any]:
+        args = [str(item) for item in (args or [])]
+        started = time.perf_counter()
+        data: Any = None
+        if command == "nav":
+            data = self._run(["navigate", args[0], "--wait-until", "load", "--timeout", "30s"]).get("final_url")
+        elif command == "click":
+            self._run(["click", "--selector", self._css(args[0])])
+        elif command == "fill":
+            self._run(["fill", "--selector", self._css(args[0]), "--value", args[1]])
+        elif command == "pick":   # cdp.py picks by visible text; bsk selects by the option's value
+            value = self._evaluate(
+                "(function(){var s=document.querySelector(%s);if(!s)return null;"
+                "for(var i=0;i<s.options.length;i++){if(s.options[i].text.trim()===%s)return s.options[i].value;}"
+                "return null;})()" % (json.dumps(self._css(args[0]), ensure_ascii=False),
+                                      json.dumps(args[1], ensure_ascii=False)))
+            if value is None:
+                raise RunnerError("ELEMENT_MISSING", f"ไม่พบ option \"{args[1]}\" ใน {args[0]}")
+            self._run(["select", "--selector", args[0], "--value", str(value)])
+        elif command == "key":
+            self._run(["press", args[0]])
+        elif command == "eval":
+            data = self._evaluate(args[0])
+        elif command == "url":
+            data = self._evaluate("location.href")
+        elif command == "get":
+            data = self._read({"text": "innerText", "value": "value"}[args[0]], args[1])
+        elif command == "wait":
+            deadline = time.monotonic() + float(args[1])
+            while not self._evaluate(args[0]):
+                if time.monotonic() >= deadline:
+                    raise RunnerError("WAIT_TIMEOUT", f"เงื่อนไขไม่เป็นจริงใน {args[1]}s: {args[0][:200]}")
+                time.sleep(float(args[2]))
+        elif command == "shot":
+            self._run(["screenshot", "--out", args[0]])
+            if not Path(args[0]).is_file():
+                raise RunnerError("CAPTURE_FAILED", f"bsk ไม่ได้เขียนไฟล์: {args[0]}")
+        elif command == "console":
+            result = self._run(["console", "--since", str(self.console_since)])
+            self.console_since = int(result.get("next_since") or self.console_since)
+            data = [item.get("text") for item in result.get("entries", [])
+                    # `log` entries are browser-generated (failed resource loads): that is the
+                    # netlog layer's job, and cdp.py's page collector does not report them either.
+                    if item.get("kind") == "exception"
+                    or (item.get("kind") == "console" and item.get("level") == "error")]
+        else:
+            raise RunnerError("ENGINE_UNSUPPORTED", f"engine bsk ไม่รองรับคำสั่ง {command}")
+        return {"ok": True, "data": data, "attempts": 1,
+                "duration_ms": round((time.perf_counter() - started) * 1000, 3)}
+
+    def drain_dialogs(self) -> list[dict[str, str]]:
+        items: list[dict[str, str]] = []
+        while True:
+            try:
+                items.append(self.dialogs.get_nowait())
+            except queue.Empty:
+                return items
+
+    def close(self, *, force: bool = False) -> None:
+        if self.session_id:
+            try:
+                self._cli(["session", "stop", self.session_id], timeout=20)
+            except RunnerError:
+                pass
+            self.session_id = None
+
+
 class StepTimings:
     """Runner wall time + authoritative driver timings, split by observable phase."""
 
@@ -632,14 +816,19 @@ def flow_meta(flow: dict[str, Any], path: Path, *, full: bool = False) -> dict[s
 
 def run_flow(flow: dict[str, Any], path: Path, output_dir: Path, variables: dict[str, Any],
              cdp_script: Path, target_id: str, port: str | None, sink: EventSink,
-             dialog: str = "safe", allow_destructive: bool = False) -> int:
+             dialog: str = "safe", allow_destructive: bool = False,
+             engine: str = "cdp", bsk: list[str] | None = None) -> int:
     run_started = time.perf_counter()
+    if engine == "bsk":
+        dialog = "bsk-accept-all"   # the engine ignores our policy; say so instead of printing `safe`
     output_dir.mkdir(parents=True, exist_ok=True)
     shots = output_dir / "shots"
     shots.mkdir()
     report_path = output_dir / "qa-report.md"
     report = [f"# QA Report — {flow['story']}", "", f"**Title:** {flow['title']}",
               f"**Target ID:** `{target_id}`", ""]
+    if engine == "bsk":
+        report.insert(3, f"**Engine:** bsk {BSK_PINNED_VERSION} (second engine — evidence class `inferred`, BAS §4.3)")
     assertions = sum(1 for scenario in flow["scenarios"] for step in scenario["steps"]
                      if step.get("assert"))
     passed = failures = unverified = dialogs = 0
@@ -649,7 +838,7 @@ def run_flow(flow: dict[str, Any], path: Path, output_dir: Path, variables: dict
     policy = flow_policy(flow)
     allowed_origins: list[str] = []
     origin_checks = 0
-    session: CDPSession | None = None
+    session: CDPSession | BskSession | None = None
 
     def flush_dialogs(scenario_id: str, index: int | None, global_index: int | None) -> None:
         # Every auto-answered dialog is a (possible) mutation: it goes into run-log and report,
@@ -661,6 +850,7 @@ def run_flow(flow: dict[str, Any], path: Path, output_dir: Path, variables: dict
                        "global_index": global_index, **item})
             report.append(f"- ⚠️ dialog {item['kind']}: \"{item['message']}\" -> {item['answer']}")
     sink.emit({"type": "run_start", "story": flow["story"], "title": flow["title"],
+               "engine": engine,
                "driver_policy": {"protocol": SESSION_PROTOCOL,
                                  "min_version": MIN_SESSION_VERSION,
                                  "input_settle": INPUT_SETTLE_POLICY,
@@ -678,9 +868,14 @@ def run_flow(flow: dict[str, Any], path: Path, output_dir: Path, variables: dict
     try:
         allowed_origins = enforce_policy(policy, flow, variables,
                                          allow_destructive=allow_destructive)
-        session = CDPSession(cdp_script, target_id, port=port, dialog=dialog)
+        if engine == "bsk":
+            enforce_engine_risk(flow)
+            session = BskSession(bsk or [])
+            target_id = str(session.ready["target_id"])
+        else:
+            session = CDPSession(cdp_script, target_id, port=port, dialog=dialog)
         startup_ms = round((time.perf_counter() - startup_started) * 1000, 3)
-        sink.emit({"type": "session_ready", "target_id": target_id,
+        sink.emit({"type": "session_ready", "target_id": target_id, "engine": engine,
                    "cdp_script": str(session.script),
                    "protocol": session.ready.get("protocol"),
                    "version": session.ready.get("version"),
@@ -848,6 +1043,8 @@ def run_flow(flow: dict[str, Any], path: Path, output_dir: Path, variables: dict
             session.close()
 
     verdict = "FAIL" if failures else ("UNVERIFIED" if unverified else "PASS")
+    if verdict == "PASS" and engine == "bsk":
+        verdict = "PASS(inferred)"   # BAS-8: inferred evidence never yields a bare PASS
     summary = [f"**Verdict:** {verdict}", f"**Assertions:** {passed}/{assertions} passed",
                f"**Unverified state changes:** {unverified}",
                f"**Auto-answered dialogs:** {dialogs} (policy: {dialog})", ""]
@@ -900,6 +1097,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--target-id", default=os.environ.get("TGT_ID"))
     parser.add_argument("--cdp-port", default=os.environ.get("CDP_PORT"))
     parser.add_argument("--cdp-script")
+    parser.add_argument("--engine", choices=ENGINES, default="cdp",
+                        help="cdp (default) or bsk, the read-only second engine (BAS §4)")
+    parser.add_argument("--bsk", help="path to the bsk CLI (default: TEIBTO_BSK or PATH)")
     parser.add_argument("--dialog", choices=DIALOG_POLICIES, default="safe",
                         help="dialog policy handed to cdp.py (default: safe; never inherited from env)")
     parser.add_argument("--stdout", choices=STDOUT_MODES, default="events",
@@ -918,9 +1118,10 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if not args.out:
             raise RunnerError("INVALID_ARGS", "ต้องระบุ --out เมื่อสั่ง run")
-        if not args.target_id:
+        bsk = resolve_bsk(args.bsk) if args.engine == "bsk" else None
+        if args.engine == "cdp" and not args.target_id:
             raise RunnerError("UNPINNED_TARGET", "ต้องระบุ --target-id หรือ TGT_ID")
-        cdp_script = resolve_cdp_script(args.cdp_script)
+        cdp_script = resolve_cdp_script(args.cdp_script) if args.engine == "cdp" else Path(bsk[-1])
         supplied = read_vars(args.vars_json)
         exposed = secret_names(flow).intersection(supplied)
         if exposed and args.vars_json != "-":
@@ -936,7 +1137,8 @@ def main(argv: list[str] | None = None) -> int:
                          stdout_mode=args.stdout)
         return run_flow(flow, path, output_dir, variables, cdp_script,
                         args.target_id or "", args.cdp_port, sink, dialog=args.dialog,
-                        allow_destructive=args.allow_destructive)
+                        allow_destructive=args.allow_destructive,
+                        engine=args.engine, bsk=bsk)
     except RunnerError as exc:
         payload = {"type": "fatal", "error": {"code": exc.code, "message": str(exc)}}
         if sink:
