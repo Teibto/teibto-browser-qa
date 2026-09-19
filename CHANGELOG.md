@@ -10,6 +10,11 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- `release.yml` ส่ง secret ให้ reusable quality gate (`secrets: inherit`) — ไม่มีบรรทัดนี้ `driver-compat` มองไม่เห็น deploy key
+  ล้มทุก tag และ **ไม่มี release ใดออกได้ตั้งแต่ v2.3.0** (#106)
+
 ### Changed
 
 - **มติ transport เปลี่ยน:** `cdp.py` เป็น engine หลัก และรับ Tencent BrowserSkill (`bsk`) เป็น engine ที่สอง
