@@ -64,8 +64,19 @@ elif command == "click":
         out["dialogs"] = [{"type": kind, "message": message, "handled": "accepted", "sequence": 1}]
 elif command == "evaluate":
     expression = args[1]
-    value = "https://example.test/done" if expression == "location.href" else "saved successfully"
-    out = {"ok": True, "value": value}
+    if "__tbqaGuard" in expression:
+        out = {"ok": True, "value": "installed"}
+    elif "__tbqaDialogs=[]" in expression:   # the in-page drain
+        spec = os.environ.get("FAKE_BSK_PAGE_DIALOG")   # <kind>:<message>:<answer>
+        if spec:
+            kind, message, answer = spec.split(":", 2)
+            items = [{"type": kind, "message": message, "answer": answer}]
+        else:
+            items = []
+        out = {"ok": True, "value": json.dumps(items)}
+    else:
+        value = "https://example.test/done" if expression == "location.href" else "saved successfully"
+        out = {"ok": True, "value": value}
 elif command == "screenshot":
     pathlib.Path(flag("--out")).write_bytes(b"png")
     out = {}

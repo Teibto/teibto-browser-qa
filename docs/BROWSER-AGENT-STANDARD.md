@@ -20,7 +20,7 @@
 
 ขอบเขต: ใช้กับทุก skill ของทีมที่ขับเบราว์เซอร์จริง — `teibto-browser-qa`, `netsuite-ui-qa-testing`,
 `netsuite-qa-browser`, QA run ของ `apex-page-as-code` และงานที่สั่งผ่าน TeibTalk.
-Engine หลักคือ `cdp.py`; BrowserSkill (`bsk`) เป็น engine ที่สองที่รับเข้ามาแบบมีเงื่อนไข (§4).
+Engine หลักคือ BrowserSkill (`bsk`); `cdp.py` ใช้กับงานเฉพาะที่ระบุใน §4.
 
 ---
 
@@ -303,76 +303,50 @@ trusted input และคือรัศมีระเบิดของ injec
 
 ---
 
-## 4. มติเรื่อง transport — engine หลักหนึ่งตัว + engine ที่สองแบบมีเงื่อนไข
+## 4. มติเรื่อง engine — `bsk` เป็นหลัก, `cdp.py` เป็นทางเฉพาะงาน
 
-**มติ (2026-09-19 · #87):** `cdp.py` ยังเป็น **engine หลัก** และเป็นค่าตั้งต้นของทุก run. ทีมรับ
-[Tencent BrowserSkill](https://github.com/Tencent/BrowserSkill) (`bsk`) เป็น **engine ที่สอง** สำหรับ session
-ที่ `cdp.py` เข้าไม่ถึง. มติเดิม "`cdp.py` ตัวเดียว" ถูกแทนที่ด้วยข้อนี้; เหตุผลสามข้อของมติเดิมยังจริง
-และถูกแปลงเป็นเงื่อนไข §4.2–§4.3 แทนการลบทิ้ง.
+**มติ (2026-09-20 · #110, แทนที่มติ #87):** BrowserSkill (`bsk`) เป็น **engine หลัก** และเป็นค่าตั้งต้นของ
+`flow-runner.py`. `cdp.py` ยังอยู่ครบและเลือกด้วย `--engine cdp` (หรือ `TEIBTO_QA_ENGINE=cdp`).
 
-> **สถานะของมตินี้:** `scripts/flow-runner.py --engine bsk` ขับ `bsk` ได้แบบ **read-only** (#91):
-> flow YAML และ schema ไม่เปลี่ยนและไม่ผูกกับ engine. run ผ่าน engine ที่สองได้ verdict สูงสุด `PASS(inferred)`
-> และ exit code ไม่เป็น 0 — ใช้ตัดสิน release ไม่ได้ (BAS-8) จนกว่าจะมีมติยกชั้นหลักฐานหลังด่าน §4.3 ครบ.
-> ยังไม่รองรับ: `tab borrow`, `request-help`, remote pairing, `@ref` และ local UI.
+> **สถานะ:** บังคับในโค้ดแล้ว — ค่าตั้งต้น, ด่าน dialog ในหน้าเว็บ, typed failure ทั้งชุด และ version pin
+> อยู่ใน `scripts/flow-runner.py` พร้อม `tests/test_bsk_engine.py`. ยังไม่มี CI job ที่รัน `bsk` จริง (§4.3).
 
-### 4.1 ใช้ engine ที่สองได้เมื่อใด
+### 4.1 ใช้ engine ไหนเมื่อใด
 
-ใช้ได้เมื่อ **session ที่ต้องทดสอบเปิด CDP port ให้เราไม่ได้**:
-
-| กรณี | ทำไม `cdp.py` เข้าไม่ถึง |
+| งาน | engine |
 |---|---|
-| profile หลักของผู้ใช้/ลูกค้าที่ login ค้างอยู่ | Chrome 136+ ไม่เปิด `--remote-debugging-port` ให้ user-data-dir ตัว default |
-| browser บนเครื่องอื่นที่ agent รันอยู่คนละที่ | ไม่มี loopback port ให้ต่อ; `bsk` จับคู่ระยะไกลด้วย pairing link |
-| ขั้นตอนที่ต้องให้คนทำเองกลาง run (MFA, CAPTCHA, ยืนยันที่อ่อนไหว) | `cdp.py` ไม่มีสถานะ "รอคน"; `bsk request-help` มี |
+| QA ทั่วไป, งานบน browser ที่คน login ไว้, งานที่ต้องให้คนทำ MFA กลาง run | `bsk` (ค่าตั้งต้น) |
+| `lens` / `netlog` / `stub` / `steady` / `diff`, PDF pipeline | `--engine cdp` — `bsk` ไม่มีความสามารถเหล่านี้ |
+| CI (`driver-compat`) และ local UI | `--engine cdp` — runner ของ CI ไม่มี extension |
+| NetSuite บนเครื่องที่ใช้ ns-qa coordinator (หลาย agent แชร์ session เดียว) | `--engine cdp` ผ่าน coordinator |
 
-**ห้ามใช้ engine ที่สองเพื่อเลี่ยงข้อจำกัดของ `cdp.py`** — ความสามารถที่ `cdp.py` ควรมีแต่ยังไม่มี ยังต้องเปิด issue ที่
-`Teibto/teibto-dev-standards` ตาม `references/cdp-limits.md` §4. NetSuite SB1/SB2 บนเครื่องที่มี shared session
-coordinator อยู่แล้วให้ใช้ `cdp.py` ต่อ. `lens` / `stub` / `steady` / `netlog` / `diff` และ `flow-runner.py`
-เป็นของ `cdp.py` เท่านั้น: run ผ่าน engine ที่สองอ้าง layer เหล่านี้ไม่ได้.
+ความสามารถที่ `cdp.py` ขาดยังเปิด issue ที่ `Teibto/teibto-dev-standards`; ความสามารถที่ `bsk` ขาดบันทึกใน
+`references/engine2-bsk.md` และเปิด issue ที่ upstream เมื่อเจ้าของ repo สั่ง.
 
 ### 4.2 กฎที่ใช้กับทุก engine
 
-- invariant ของ `SKILL.md` และกฎ BAS-1…BAS-9 ไม่ขึ้นกับ engine. หลักฐานที่ engine ให้ไม่ได้ = `UNVERIFIED`
-  ไม่ใช่ข้อยกเว้นของกฎ.
-- หนึ่ง run ใช้หนึ่ง engine และรายงานต้องระบุ engine + เวอร์ชันบนหัวเอกสาร. ห้ามสลับ engine กลาง scenario
-  แล้วรวมผลเป็น verdict เดียว.
-- agent ไม่ได้รับ password, OTP seed, cookie หรือ token ไม่ว่า engine ใด. ขั้นตอนที่ต้องใช้ความลับเป็นของคน
-  (`request-help`) หรือเข้าทาง stdin ของ runner เท่านั้น.
-- tab ของผู้ใช้ต้องยืมอย่างชัดแจ้ง (`bsk tab borrow` → `bsk tab return`) — เทียบเท่า invariant 1
-  (หนึ่ง job หนึ่ง target ที่ปักไว้). ห้ามปิดสวิตช์ยืนยันการยืม tab ใน extension เพื่อให้ run ไม่ต้องมีคนดู.
-- **ห้ามใช้ engine ที่สองกับ step ที่ `risk: write` หรือ `risk: destructive`** และห้ามใช้กับหน้าที่มีฟอร์มค้างอยู่.
-  `bsk` 0.3.0 ตอบ **accept** ให้ dialog ทุกชนิด — `confirm` ยืนยันลบ/บันทึกถูกตอบ "ตกลง" และ `beforeunload`
-  ถูกปล่อยให้ออกจากหน้า — โดยไม่มี setting ให้เปลี่ยน ซึ่งขัดกับนโยบาย `safe` ของ invariant 5 / BAS-4 ข้อ 4.
-  ข้อห้ามนี้ยกเลิกได้เมื่อ upstream มีนโยบาย dismiss และ `self-test/engine2/dialog-test.sh` ถูก pin ค่าใหม่เท่านั้น
-  (verified #89). ใช้ได้กับ step ที่ `risk: read` และการสำรวจที่ไม่เปลี่ยน state.
-- ห้ามเขียน driver ตัวที่สอง **ในสกิลนี้**: เรารับ engine ภายนอกที่ pin เวอร์ชัน ไม่ fork และไม่แก้ core ของมัน.
+- invariant ของ `SKILL.md` และกฎ BAS-1…BAS-9 ไม่ขึ้นกับ engine. หลักฐานที่ engine ให้ไม่ได้ = `UNVERIFIED`.
+- หนึ่ง run ใช้หนึ่ง engine และรายงานระบุ engine + เวอร์ชันบนหัวเอกสาร.
+- agent ไม่ได้รับ password, OTP seed, cookie หรือ token ไม่ว่า engine ใด.
+- **นโยบาย dialog เป็นของ runner ไม่ใช่ของ engine.** `bsk` ตอบ accept ให้ dialog native ทุกชนิดและปิดไม่ได้ runner จึงติดตั้งด่าน
+  ในหน้าเว็บหลังทุก navigation และก่อนทุก action: `alert` = accept, `confirm`/`prompt` ตาม `--dialog`
+  (`safe`/`dismiss` = ตอบปฏิเสธ), `onbeforeunload = null`; สิ่งที่ด่านตอบออกเป็น event `dialog` พร้อม answer จริง.
+  dialog native ที่ยังหลุดด่าน (เกิดระหว่างโหลดหน้า, `beforeunload` แบบ listener) จะถูก engine accept และ **ทำให้ step ล้ม**
+  ด้วย `ENGINE_DIALOG_ACCEPTED` — ไม่มีวันถูกนับเป็นผ่านเงียบ ๆ.
+- ห้าม retry คำสั่งที่ทำซ้ำแล้วเกิดผลซ้ำ; `BSK_EFFECT_UNKNOWN` และ `BSK_SESSION_LOST` แปลว่าผลไม่ทราบ ให้ถาม backend.
+- ห้ามเขียน driver ตัวที่สอง **ในสกิลนี้**: `bsk` เป็นของภายนอกที่ pin เวอร์ชัน ไม่ fork และไม่แก้ core.
 
-### 4.3 ชั้นหลักฐานและด่านที่ต้องมีก่อนยกระดับ
+### 4.3 สิ่งที่มติเดิมกังวล และสถานะวันนี้
 
-ผลจาก engine ที่สองเข้ารายงานในชั้น **`inferred`** (ห้ามให้ `PASS` ลำพัง — BAS-8) จนกว่าจะมีครบ:
+| ข้อกังวลเดิม | สถานะ |
+|---|---|
+| หลักฐานที่ replay ได้ต้องเป็นของเรา | ✅ adapter ออก `run-log.jsonl` / `qa-report.md` / `shots/` ชุดเดียวกัน (#91) |
+| dialog และ `beforeunload` (เหตุที่เลิก daemon ตัวก่อน #34) | ✅ ไม่ wedge 20/20 (#89); นโยบายถูกบังคับด้วยด่านในหน้าเว็บ + backstop (#110) |
+| สอง engine = สองชุดกับดัก | ✅ ไฟล์กับดักแยก `references/engine2-bsk.md`; 🟡 version pin บังคับใน runner แต่ **ยังไม่มี CI job** ที่รัน `bsk` จริง — เจ้าของ repo ยอมรับความเสี่ยงนี้ในมติ #110; drift ตรวจด้วย `self-test/engine2/*.sh` บนเครื่อง dev |
+| ความเสถียร | 🟡 session หายเมื่อคนปิด Agent Window, `input_cleanup_failed` ต่อปุ่ม — มี typed failure และกฎรับมือ (`engine2-bsk.md` §4, §6) |
 
-1. **version pin** ของ `bsk` คู่กับ live compat test — 🟡 บางส่วน: runner pin `BSK_PINNED_VERSION` และปฏิเสธ
-   daemon/extension รุ่นอื่นด้วย `DRIVER_INCOMPATIBLE` (#91); live test คือ `self-test/engine2/*.sh`.
-   **ยังไม่มี CI job** เพราะ runner ไม่มี extension — บน CI เทสเหล่านี้ `SKIP` จึงยังไม่กัน drift ก่อน merge
-   แบบ job `driver-compat`. ตอบเหตุผลเดิม "สอง transport = สองชุดกับดัก" ได้ครึ่งเดียว
-2. **adapter ที่ออก event ชุดเดียวกับ `run-log.jsonl`** (`step_done`, `dialog`, typed failure) — ✅ มีแล้ว:
-   `BskSession` ใน `scripts/flow-runner.py` (#91). ข้อห้ามของ §4.2 ถูกบังคับในโค้ด: step ที่ `risk` ไม่ใช่ `read`
-   หรือ action ที่เปิด dialog ได้โดยไม่ประกาศ `risk: read` = `ENGINE_RISK_NOT_ALLOWED` ก่อนแตะ browser, และ
-   `confirm`/`prompt`/`beforeunload` ที่ถูก accept ระหว่าง run = `ENGINE_DIALOG_ACCEPTED`.
-   ตอบเหตุผลเดิม "หลักฐานที่ replay ได้เป็นของเรา": ข้อความตอบรับของ CLI ไม่ใช่หลักฐาน
-3. **เทสด้านลบเรื่อง dialog และ `beforeunload`** — ✅ มีแล้ว: `self-test/engine2/dialog-test.sh` (#89).
-   ทีมเลิกใช้ daemon ตัวก่อน (#34) เพราะ `os error 10060` วนซ้ำ, Chrome ตายเงียบ และ `beforeunload` ที่ wedge ถาวร.
-   กับ `bsk` 0.3.0 + Chrome 152 บน Windows: 20 รอบติดไม่พบ wedge, คำสั่งหลัง `beforeunload` ตอบทุกครั้ง,
-   daemon pid เดิม และค่า `handled` ที่รายงานตรงกับ DOM ทุกครั้ง — แต่นโยบายที่พบคือ accept ทุกชนิด
-   จึงเกิดข้อห้ามใน §4.2. ด่านนี้ผ่านแปลว่า "รู้แล้วว่ามันทำอะไร" ไม่ได้แปลว่า "ปลอดภัยกับหน้าที่บันทึกข้อมูล"
-4. **แถวใน `docs/CLAIMS-AUDIT.md`** — ✅ มีแล้ว พร้อมไฟล์กับดัก `references/engine2-bsk.md` (#97) ·
-   สถานะ `verified, version-pinned` ต่อ claim และไฟล์กับดักของ engine ที่สอง
-   แยกจาก `references/gotchas.md` (กับดักที่บันทึกไว้เป็นของ direct CDP ไม่ได้ย้ายตามมาเอง)
-
-ข้อเท็จจริงของ `bsk` ที่มตินี้อิง ตรวจจาก commit `fa953dc` (v0.3.0, 2026-09-16, MIT) และเป็น `version-pinned`:
-CLI + daemon + extension MV3 ที่ extension ขับ tab ผ่าน CDP · `observe` คืน ref `@eN` · `tab borrow`/`tab return` ·
-`request-help` · `screenshot` · `console`/`network` แบบอ่านอย่างเดียว · remote connection · operation audit ·
-Windows x64. โครงการออกรุ่นถี่ (0.2.1 → 0.3.0 ใน 7 วัน) จึงต้องตรวจซ้ำทุกครั้งที่ขยับ pin.
+ข้อเท็จจริงของ `bsk` ตรวจกับ v0.3.0 (`fa953dc`, MIT) และเป็น `version-pinned`; โครงการออกรุ่นถี่ ต้องรัน
+`self-test/engine2/dialog-test.sh` และ `runner-test.sh` ทุกครั้งที่ขยับ pin.
 
 ### 4.4 เส้นทางอื่นที่ยังเป็นข้อยกเว้น
 

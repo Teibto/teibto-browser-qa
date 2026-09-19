@@ -18,9 +18,9 @@ Workflow diagrams for every flow. GitHub renders mermaid natively. A short summa
 
 Walk the happy path once, then split it into two outputs: a QA verdict and documentation material.
 Claude is the brain and `cdp.py` is the hands and eyes, talking **straight to Chrome over CDP** —
-no daemon in between. Use short-output commands to avoid context overflow. BrowserSkill is an admitted
-second engine for sessions `cdp.py` cannot reach ([`BROWSER-AGENT-STANDARD.md`](BROWSER-AGENT-STANDARD.md)
-§4, which also records its implementation status). Every diagram below is the `cdp.py` path.
+no daemon in between. Use short-output commands to avoid context overflow. The runner's default engine is BrowserSkill (`bsk`), reached through the same runner interface
+([`BROWSER-AGENT-STANDARD.md`](BROWSER-AGENT-STANDARD.md) §4); every diagram below shows the `cdp.py` path
+(`--engine cdp`), which CI, the local UI and the lens/PDF pipeline still use.
 
 ```mermaid
 sequenceDiagram

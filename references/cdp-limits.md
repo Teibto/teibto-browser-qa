@@ -1,9 +1,9 @@
 # CDP ทำอะไรไม่ได้ — และต้องทำอะไรแทน
 
-**Engine หลักคือ CDP ตรงผ่าน `cdp.py`** (ไม่มี Playwright/Puppeteer และไม่เขียน driver ตัวที่สองเอง) ·
-engine ที่สองคือ BrowserSkill ซึ่งใช้ได้เฉพาะ session ที่ `cdp.py` เข้าไม่ถึง ตามเงื่อนไขใน
-`docs/BROWSER-AGENT-STANDARD.md` §4 ·
-ไฟล์นี้พูดถึง `cdp.py` เท่านั้น · กฎ engine หลักจะกลายเป็นด่านที่ fail open ทันทีถ้าไม่เขียนไว้ว่ามันแตะอะไรไม่ได้ —
+ไฟล์นี้พูดถึง **`cdp.py` (`--engine cdp`) เท่านั้น** — engine หลักของ runner คือ BrowserSkill ตาม
+`docs/BROWSER-AGENT-STANDARD.md` §4 และข้อจำกัดของมันอยู่ที่ [`engine2-bsk.md`](engine2-bsk.md) ·
+`cdp.py` ยังเป็นทางเดียวของ `lens`/`netlog`/`stub`/`diff`, CI และ lane ของ ns-qa coordinator ·
+กฎ engine หลักจะกลายเป็นด่านที่ fail open ทันทีถ้าไม่เขียนไว้ว่ามันแตะอะไรไม่ได้ —
 เพราะคนจะรายงานว่า "ถ่ายภาพไว้แล้ว" ทั้งที่ภาพนั้นถ่ายไม่ติดโดยธรรมชาติ
 
 > **กฎ:** สิ่งที่อยู่ในตารางนี้ **ห้ามคืน `PASS`** · ถ้าจำเป็นต้องรายงาน ให้เป็น `UNVERIFIED`

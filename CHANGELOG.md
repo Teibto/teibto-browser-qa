@@ -10,6 +10,19 @@
 
 ## [Unreleased]
 
+## [3.0.0] - 2026-09-20
+
+**BrowserSkill (`bsk`) เป็น engine หลักของ runner — นโยบาย dialog ถูกบังคับด้วยด่านในหน้าเว็บ; `cdp.py` ใช้ผ่าน `--engine cdp`**
+
+### Changed
+
+- **BREAKING — BrowserSkill (`bsk`) เป็น engine หลัก:** `flow-runner.py` ที่ไม่ระบุ `--engine` ขับผ่าน `bsk`
+  (`TEIBTO_QA_ENGINE=cdp` หรือ `--engine cdp` เพื่อใช้ `cdp.py`) · นโยบาย `--dialog` ถูกบังคับด้วยด่านในหน้าเว็บ
+  (`safe`: `confirm`/`prompt` ตอบปฏิเสธ) และออกเป็น event `dialog`; dialog native ที่หลุดด่านยังทำให้ step ล้มด้วย
+  `ENGINE_DIALOG_ACCEPTED` · เลิก `ENGINE_RISK_NOT_ALLOWED` และเพดาน `PASS(inferred)` — run ผ่าน `bsk` ได้ `PASS` + exit 0 ·
+  CI live test, เทสที่ใช้ fake `cdp.py` และ local UI ระบุ `--engine cdp` ชัดแจ้ง · มติและความเสี่ยงที่ยอมรับ
+  (ยังไม่มี CI job ของ `bsk`) อยู่ที่ `docs/BROWSER-AGENT-STANDARD.md` §4 (#110)
+
 ## [2.4.0] - 2026-09-20
 
 **Engine ที่สอง (BrowserSkill): จากมติ สู่ adapter แบบ read-only และมาตรฐานขับ NetSuite ที่พิสูจน์ด้วย Order-to-Cash ครบ loop บน sandbox**

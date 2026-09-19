@@ -68,6 +68,7 @@ for run in $(seq 1 "${LIVE_RUNS}"); do
   # Print terminal output and the full artifact on failure: cleanup removes ${WORK}, so a silent
   # exit would hide the cause (for example DRIVER_INCOMPATIBLE from a stale cdp.py).
   printf '%s' "${VARS}" | "${PY}" "${ROOT}/scripts/flow-runner.py" \
+    --engine cdp \
     --flow "${ROOT}/tests/fixtures/live-flow.yaml" --out "${WORK}/out-${run}" --vars-json - \
     --target-id "${TARGET_ID}" --cdp-script "${CDP}" --stdout summary \
     >"${WORK}/runner-${run}.jsonl" || {

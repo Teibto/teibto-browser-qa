@@ -34,22 +34,24 @@ $env:TEIBTO_CDP_SCRIPT = 'D:\path\to\teibto-dev-standards\scripts\cdp.py'
 - `risk: read|write|destructive` ระดับ step; `destructive` ต้องสั่ง `--allow-destructive` ไม่งั้น
   runner ปฏิเสธ flow ตั้งแต่ก่อนเริ่ม (`DESTRUCTIVE_NOT_ALLOWED`)
 
-Engine ที่สอง (`--engine bsk`, BrowserSkill — เงื่อนไขการใช้อยู่ที่ `docs/BROWSER-AGENT-STANDARD.md` §4):
+Engine (ค่าตั้งต้น `bsk`; `--engine cdp` หรือ `TEIBTO_QA_ENGINE=cdp` เพื่อใช้ `cdp.py` — มติอยู่ที่ `docs/BROWSER-AGENT-STANDARD.md` §4):
 
 ```powershell
-py scripts/flow-runner.py --engine bsk --flow qa/<feature>/flow.yaml --out runs/bsk --stdout summary
+py scripts/flow-runner.py --flow qa/<feature>/flow.yaml --out runs/manual --stdout summary          # bsk
+py scripts/flow-runner.py --engine cdp --target-id <id> --flow ... --out ...                        # cdp.py
 ```
 
-- flow ไฟล์เดิมใช้ได้ทั้งสอง engine; ไม่ต้องมี `TGT_ID` เพราะ session ของ `bsk` คือ target ที่ปักไว้
-- read-only เท่านั้น: step ที่ `risk` ไม่ใช่ `read` หรือ `fill`/`click`/`select`/`press`/`eval` ที่ไม่ประกาศ
-  `risk: read` ชัดแจ้ง = `ENGINE_RISK_NOT_ALLOWED` ก่อนแตะ browser (ค่าตั้งต้นของ `risk` คือ `read`
-  จึงต้องประกาศเอง ไม่งั้น `click` ที่ไม่บอกอะไรจะผ่านฟรี)
-- `bsk` ตอบ accept ให้ dialog ทุกชนิด: `confirm`/`prompt`/`beforeunload` ที่ถูก accept = step ล้มด้วย
-  `ENGINE_DIALOG_ACCEPTED` และยังถูกบันทึกเป็น event `dialog`; `alert` บันทึกแต่ไม่ล้ม
+- flow ไฟล์เดิมใช้ได้ทั้งสอง engine; `bsk` ไม่ต้องมี `TGT_ID` เพราะ session ของมันคือ target ที่ปักไว้
+- นโยบาย `--dialog` ของ `bsk` ถูกบังคับด้วย **ด่านในหน้าเว็บ** ที่ runner ติดตั้งหลังทุก navigation และก่อนทุก action
+  (`safe`: `alert` = accept, `confirm`/`prompt` = ปฏิเสธ); สิ่งที่ด่านตอบออกเป็น event `dialog` พร้อม answer จริง และ
+  `run_start.driver_policy.dialog_enforcement` เป็น `in-page-guard`
+- dialog native ที่หลุดด่านถูก `bsk` accept เสมอ: `confirm`/`prompt`/`beforeunload` แบบนั้น = step ล้มด้วย
+  `ENGINE_DIALOG_ACCEPTED` (เว้นแต่ `--dialog accept`); `alert` บันทึกแต่ไม่ล้ม
+- step ที่ `risk: destructive` ยังต้อง `--allow-destructive` เหมือน `cdp`
 - มี browser เชื่อม `bsk` หลายตัว ต้องระบุ `--bsk-browser <instance_id>` (หรือ `TEIBTO_BSK_BROWSER`; ดู id จาก
   `bsk browsers --json`) — ไม่ระบุ = `BSK_BROWSER_AMBIGUOUS`, runner ไม่เดา; id ถูกบันทึกใน `session_ready`
 - daemon/extension ต้องเป็นรุ่นที่ runner pin ไว้ ไม่ตรง = `DRIVER_INCOMPATIBLE`; runner ไม่ start daemon เอง
-- verdict สูงสุดคือ `PASS(inferred)` และ exit 1; รับเฉพาะ CSS selector (`@ref` = `ENGINE_UNSUPPORTED`)
+- รับเฉพาะ CSS selector (`@ref` = `ENGINE_UNSUPPORTED`)
 - console check นับเฉพาะ `console.error` และ uncaught exception; resource ที่โหลดไม่ได้เป็นงานของ `lens netlog`
   ซึ่ง engine นี้ไม่มี
 
