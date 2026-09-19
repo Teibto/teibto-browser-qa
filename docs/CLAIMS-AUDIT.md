@@ -152,6 +152,22 @@ than pinning a tokenizer-specific absolute count.
 | `--engine bsk` retries a detached-debugger failure only for commands that cannot act twice; `click`/`fill`/`pick`/`key`/`eval` are never retried | verified | `tests/test_bsk_engine.py` navigate-retried, click-not-retried and session-lost cases; removing the idempotent condition turns the click case red |
 | Pre-filling the customer through the Sales Order URL saves about 3 s but breaks the item line | measured — rejected | 1 of 2 runs failed with `checkvalid` undefined although `NS.form.isInited()` was true |
 
+## NetSuite-through-bsk standard (four parallel real-UI agents, SB2, 2026-09-19)
+
+| Claim | Status | Evidence/limit |
+|---|---|---|
+| A click on a NetSuite record form is silently dropped while `NS.form.isInited() && NS.form.isValid()` is false, and `bsk` still reports the click as done | verified | tab anchor `onclick` guard read from the page; Relationships tab 1/3 → 3/3 after waiting on the guard, 3 rounds |
+| Waiting on the destination after a navigating click replaces the fixed 17 s wait: 17.2 s → 3.7 s, same pass rate | measured | `waits-ab` flow, 3 rounds each |
+| `bsk fill` on a NetSuite dropdown input commits nothing, a single key press commits the NEXT match, and classic forms contain no `<select>` | verified | per-step read-back of `inpt`/`hddn`/`nlapiGetFieldValue`; entitystatus 13 → 15 |
+| Real-UI and nlapi field entry cost the same (2.2 s) but real-UI needs 54 vs 24 commands; three saved customers matched the server on every field | measured | customers 19952–19954 |
+| An `id=` URL match cannot confirm a save on an edit form; a page marker that must disappear can, and distinguishes a rejection in place | verified | harness v2 live: saved → `swapped:true`; cleared mandatory → `id:null` + captured alert, server unchanged |
+| On the customer form every validation and the concurrency rejection arrive as `alert`; `.uir-alert-box` is never used; a stale save is rejected, not last-write-wins | verified | edit agent p4/p7 results; optimistic-lock inputs `version` + `lastmodifieddate` |
+| Real typing does not re-arm `onbeforeunload`, and abandoning a dirty form by navigation is silent and discards the change | verified | 3/3 server-side; control case with an own handler surfaced in `dialogs` as `accepted` |
+| Edit → save → verify on a customer takes a median 8.2 s (7.6–10.8) | measured | n=3, 55 commands, 0 retries, 0 dialogs |
+| Read-only flows through `--engine bsk`: 27/27 identity steps, 0 dialogs, per-page medians as listed in `references/engine2-bsk.md` §6.6 | measured | 3 rounds, 8 patterns; one navigating click failed with `effect_state: unknown` (1 of 4) and one run lost its Agent Window tab |
+| `DOMParser` on a 2.7 MB fetched form page ends the bsk session | measured | observed once; regex on text or `xml=T` avoids it |
+| Sales Order approval on this account has no button on the record: it runs through the APC bundle's Batch Approval suitelet, which has no `nlapiGetContext` | verified | 40-button inventory on two orders, native approve page HTTP 500; O2C beyond the order is NOT yet driven |
+
 ## Engine policy
 
 | Claim | Status | Evidence/limit |

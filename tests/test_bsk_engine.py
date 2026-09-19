@@ -183,6 +183,19 @@ class BskEngineTests(unittest.TestCase):
         self.assertEqual(failed["error"]["code"], "BSK_SESSION_LOST")
         self.assertIn("backend", failed["error"]["message"])
 
+    def test_unconfirmed_click_is_effect_unknown_and_never_reissued(self):
+        _, _, events, calls = self.run_flow(READ_ONLY, {"FAKE_BSK_EFFECT_UNKNOWN": "click"})
+        failed = next(event for event in events
+                      if event["type"] == "step_done" and event.get("error"))
+        self.assertEqual(failed["error"]["code"], "BSK_EFFECT_UNKNOWN")
+        self.assertEqual(sum(1 for call in calls if call.startswith("click ")), 1)
+
+    def test_lost_agent_window_tab_is_session_lost(self):
+        _, _, events, _ = self.run_flow(READ_ONLY, {"FAKE_BSK_NO_TAB": "click"})
+        failed = next(event for event in events
+                      if event["type"] == "step_done" and event.get("error"))
+        self.assertEqual(failed["error"]["code"], "BSK_SESSION_LOST")
+
     def test_ref_target_is_unsupported_not_silently_a_selector(self):
         _, _, events, _ = self.run_flow("""
             story: engine2

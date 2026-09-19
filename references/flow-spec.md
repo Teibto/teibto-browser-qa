@@ -20,7 +20,9 @@ $env:TEIBTO_CDP_SCRIPT = 'D:\path\to\teibto-dev-standards\scripts\cdp.py'
   runner ขอ `--input-settle=none` และ verify policy จาก ready handshake แบบ fail closed
 - `open` รอ main-frame commit/load event จริง; ไม่ใช้ zero-drain + `readyState` ที่อาจอ่านหน้าเก่า
 - `click` ใช้ native input เท่านั้น; ไม่มี JS fallback เงียบ
-- action/wait/assert/screenshot/console ล้ม = หยุด scenario และ verdict `FAIL`
+- action/wait/assert/screenshot/console ล้ม = verdict `FAIL` และ **หยุดทั้ง run** — scenario ที่เหลือไม่ถูกรัน
+  (flow รวม 8 scenario ที่ล้มใน scenario ที่ 2 รันไปแค่ 2 จาก 19 step). เคสที่คาดว่าจะไม่เสถียรหรือ negative case
+  ให้แยกเป็น flow ของตัวเอง โดยมี scenario ยืนยันตัวตนขึ้นก่อนเสมอ
 - dialog ที่ driver ตอบอัตโนมัติทุกรายการถูกบันทึกเป็น event `dialog` ใน run-log และบรรทัด ⚠️ ใน report;
   policy เป็น `safe` เสมอ (ไม่ inherit `DIALOG` จาก shell) เว้นแต่สั่ง `--dialog accept|dismiss`
 - action ที่เปลี่ยน state แต่ไม่มี explicit assertion = verdict `UNVERIFIED`, ไม่ใช่ `PASS`
