@@ -19,7 +19,9 @@ and writes the report. A happy-path run should yield both a smoke verdict and do
 `cdp.py` is the primary engine and the only one the runner drives. Tencent BrowserSkill (`bsk`) is an
 admitted second engine only for sessions `cdp.py` cannot attach to — a default Chrome profile, a remote
 browser, or a human-in-the-loop MFA step. Every invariant below still applies, and its results stay in
-the `inferred` class until the gates in `docs/BROWSER-AGENT-STANDARD.md` §4 exist.
+the `inferred` class until the gates in `docs/BROWSER-AGENT-STANDARD.md` §4 exist. **`bsk` accepts every
+dialog, including delete/save confirmations and `beforeunload`, so never use it for a `write` or
+`destructive` step or on a page holding an unsaved form.**
 
 ## Invariants
 

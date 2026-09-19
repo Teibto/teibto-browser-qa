@@ -48,6 +48,21 @@ This renders controlled documents through `cdp.py pdf` and inspects page counts 
 checks the paged.js double-pagination fixes and keeps non-reproduction of the known bad fixture
 inconclusive rather than turning absence of a reproduction into a false pass.
 
+## Second-engine dialog gate
+
+```bash
+bash self-test/engine2/dialog-test.sh
+```
+
+Drives `engine2/dialog-page.html` through BrowserSkill (`bsk`) and fails when the `handled` value it
+reports for `alert`/`confirm`/`prompt`/`beforeunload` disagrees with the DOM, when the observed policy
+differs from the pinned `ENGINE2_EXPECT_*` values, when the first command after `beforeunload` does not
+answer within `ENGINE2_LIVENESS_S`, or when the daemon pid changes across `ENGINE2_ROUNDS` (default 20).
+It needs `bsk` on `PATH`, a daemon already started by the host (`bsk daemon start --foreground`), and
+exactly one browser with the extension connected; anything missing is an explicit `SKIP`. The script
+never starts the daemon itself and never pipes `bsk` output. Re-run it on every `bsk`, extension, or
+Chrome bump: a changed dialog policy turns it red on purpose so BAS §4.2 is re-decided, not inherited.
+
 Run the browser harness after any Chrome or `cdp.py` bump and before changing `commands.md`,
 `gotchas.md`, the PDF templates, or their behavioral claims. Current provenance is maintained in
 [`docs/CLAIMS-AUDIT.md`](../docs/CLAIMS-AUDIT.md).
