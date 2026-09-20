@@ -12,6 +12,12 @@
 
 ### Fixed
 
+- **capture ไม่ล้มทั้ง run เพราะ peer แย่ง active tab หนึ่งจังหวะ:** runner retry คู่ `tab select` + `screenshot`
+  สามครั้ง (capture ไม่เปลี่ยน state จึงส่งซ้ำได้) แล้วถ้ายังไม่ได้จะล้มด้วย `CAPTURE_TAB_CONTENDED` ที่บอกทางออก
+  (ให้ run นั้นใช้หน้าต่างของตัวเอง) แทน `BSK_COMMAND_FAILED` ดิบ ๆ (#120)
+- **หน้าต่างที่ถูกปิดกลางคันไม่ถูกรายงานว่า "RPC timeout":** คำสั่งที่ล้มด้วย timeout จะถูกตรวจกับ `bsk status`
+  ก่อน ถ้า session หายไปแล้วจะรายงานเป็น `BSK_SESSION_LOST` (ผลของ action ล่าสุดไม่ทราบ ห้ามสั่งซ้ำ) (#120)
+
 - **screenshot ล้มทุกครั้งหลัง #113:** `bsk` ถ่ายได้เฉพาะ tab ที่ active แต่ run pin tab ของตัวเองแบบ `--no-active`
   ผลคือ flow ที่มี `capture: true` ล้มด้วย `tab … is not active` และ `shots/` ว่างทั้งโหมด session ของตัวเองและ
   shared session · ตอนนี้ runner `tab select` tab ของตัวเองแล้วถ่ายภายใน **lease เดียวกัน** (peer จึงแทรกกลาง
