@@ -109,6 +109,49 @@ def error_codes(out: Path) -> list[str]:
     return codes
 
 
+def events_of(out: Path) -> list[dict]:
+    log = out / "run-log.jsonl"
+    if not log.exists():
+        return []
+    return [json.loads(line) for line in log.read_text(encoding="utf-8").splitlines() if line.strip()]
+
+
+def inject(args: list[str], *, limit: float = 15.0) -> dict:
+    """Land a fault on a session a run is driving.
+
+    A session takes one command at a time, so a fault aimed at a busy run is simply refused with
+    `session_busy` and never happens — which is how S10 reported a pass while the tab it thought it
+    had closed was still open (#128). Keep trying until it is accepted.
+    """
+    deadline = time.monotonic() + limit
+    while True:
+        result = bsk(args)
+        busy = '"reason":"session_busy"' in json.dumps(result.get("out") or {}).replace(" ", "")
+        if result["rc"] == 0 or not busy or time.monotonic() >= deadline:
+            return result
+        time.sleep(0.2)
+
+
+def wait_until_working(out: Path, *, limit: float = 60.0) -> bool:
+    """Block until the run is provably mid-flight: its session is up and its first step is done.
+
+    Sleeping a guessed number of seconds and hoping the run is still busy is what made S05/S10
+    report a pass when the fault landed after the run had finished (#128).
+    """
+    deadline = time.monotonic() + limit
+    while time.monotonic() < deadline:
+        events = events_of(out)
+        done = any(event.get("type") == "run_done" for event in events)
+        ready = any(event.get("type") == "session_ready" for event in events)
+        stepped = any(event.get("type") == "step_done" for event in events)
+        if done:
+            return False                      # too late: nothing left to interrupt
+        if ready and stepped:
+            return True
+        time.sleep(0.1)
+    return False
+
+
 def own_tab(out: Path) -> str | None:
     log = out / "run-log.jsonl"
     if not log.exists():
@@ -198,7 +241,7 @@ def s03_peer_opens_a_focused_tab(work: Path) -> None:
     worker = threading.Thread(
         target=lambda: box.__setitem__("result", run_flow("A", work / "s03-A", "--bsk-session", sid)))
     worker.start()
-    time.sleep(1.2)
+    wait_until_working(work / "s03-A", limit=20)
     peer = bsk(["tab", "create", "--session", sid, "--url", f"{BASE_URL}/page.html?w=B"])
     worker.join()
     _, final = box["result"]
@@ -245,13 +288,14 @@ def s05_window_stopped_mid_run(work: Path) -> None:
         target=lambda: box.__setitem__("result", run_flow(
             "A", work / "s05-A", "--bsk-session", sid, flow=FLOW_SLOW)))
     worker.start()
-    time.sleep(4.0)                       # the fixture is only ready after 8 s
-    bsk(["session", "stop", sid, "--quiet"])
+    caught = wait_until_working(work / "s05-A")
+    stopped = inject(["session", "stop", sid, "--quiet"]) if caught else {"rc": None}
     worker.join()
     _, final = box["result"]
     codes = error_codes(work / "s05-A")
-    record("S05 window stopped mid-run", "BSK_SESSION_LOST" in codes,
-           f"verdict={final.get('verdict')} codes={codes}")
+    record("S05 window stopped mid-run",
+           caught and stopped["rc"] == 0 and "BSK_SESSION_LOST" in codes,
+           f"interrupted={caught} stop_rc={stopped['rc']} verdict={final.get('verdict')} codes={codes}")
 
 
 def s06_registry_points_at_a_dead_session(work: Path) -> None:
@@ -310,15 +354,16 @@ def s10_own_tab_closed(work: Path) -> None:
         target=lambda: box.__setitem__("result", run_flow(
             "A", work / "s10-A", "--bsk-session", sid, flow=FLOW_SLOW)))
     worker.start()
-    time.sleep(4.0)
-    tab = own_tab(work / "s10-A")
-    if tab:
-        bsk(["tab", "close", tab, "--session", sid, "--quiet"])
+    caught = wait_until_working(work / "s10-A")
+    tab = own_tab(work / "s10-A") if caught else None
+    closed = inject(["tab", "close", tab, "--session", sid, "--quiet"]) if tab else {"rc": None}
     worker.join()
     _, final = box["result"]
     codes = error_codes(work / "s10-A")
-    record("S10 our own tab closed mid-run", bool(tab) and "BSK_TAB_LOST" in codes,
-           f"verdict={final.get('verdict')} closed={tab} codes={codes}")
+    record("S10 our own tab closed mid-run",
+           bool(tab) and closed["rc"] == 0 and "BSK_TAB_LOST" in codes,
+           f"interrupted={caught} close_rc={closed['rc']} verdict={final.get('verdict')} "
+           f"closed={tab} codes={codes}")
 
 
 SCENARIOS = {
