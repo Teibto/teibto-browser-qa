@@ -297,6 +297,15 @@ class BskSessionSharingTests(unittest.TestCase):
         self.assertEqual(fatal["error"]["code"], "INVALID_ARGS")
         self.assertEqual(process.returncode, 2)
 
+    def test_a_capture_selects_the_runs_own_tab_first(self):
+        """#118: bsk captures the visible tab, so a pinned background tab must be brought forward."""
+        _, out, events, calls = self.run_flow(READ_ONLY)
+        self.assertEqual(events[-1]["verdict"], "PASS")
+        self.assertTrue((out / "shots" / "read-01.png").is_file())
+        order = [call for call in calls if call in ("tab select", "screenshot --out")]
+        self.assertEqual(["tab select", "screenshot --out"], order[:2])
+        self.assertIn("tab-target=4242", calls)
+
     def test_a_peer_holding_the_session_is_waited_out_not_reported_as_a_failure(self):
         process, _, events, calls = self.run_flow(READ_ONLY, {"FAKE_BSK_BUSY_ONCE": "click"})
         self.assertEqual(events[-1]["verdict"], "PASS")

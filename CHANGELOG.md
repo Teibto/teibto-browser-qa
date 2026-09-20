@@ -12,6 +12,12 @@
 
 ### Fixed
 
+- **screenshot ล้มทุกครั้งหลัง #113:** `bsk` ถ่ายได้เฉพาะ tab ที่ active แต่ run pin tab ของตัวเองแบบ `--no-active`
+  ผลคือ flow ที่มี `capture: true` ล้มด้วย `tab … is not active` และ `shots/` ว่างทั้งโหมด session ของตัวเองและ
+  shared session · ตอนนี้ runner `tab select` tab ของตัวเองแล้วถ่ายภายใน **lease เดียวกัน** (peer จึงแทรกกลาง
+  ระหว่าง select กับ capture ไม่ได้) · test double ปฏิเสธ screenshot บน tab ที่ไม่ active แล้ว ด่านนี้จึงแดงจริง
+  ถ้าพลาดซ้ำ (#118)
+
 - **หลาย agent ขับ browser เดียวกันแล้วแย่ง tab/session กัน:** `flow-runner.py --engine bsk` สร้าง tab ของตัวเอง
   (`tab create --no-active --url about:blank`) และส่ง `--tab-id` กับทุกคำสั่งที่เป็น tab-scoped — คำสั่งที่ไม่ pin
   จะยิงไปที่ active tab ซึ่ง peer เปลี่ยนได้ด้วย `tab create`/`tab select` · ทุกคำสั่งบน session เดียวกันผ่าน lease
