@@ -623,7 +623,11 @@ class BskSession:
                         self._run(["tab", "select", self.tab_id], idempotent=True)
                     self._run(["screenshot", "--out", path], idempotent=True)
             except RunnerError as exc:
-                if exc.code != "BSK_COMMAND_FAILED" or "not active" not in str(exc):
+                # A contended active tab shows up two ways: the engine says the tab is not active,
+                # or the capture waits for a paint that never comes and the RPC times out. A lost
+                # session or tab has already been classified by _cli and must not be retried here.
+                contended = "not active" in str(exc) or '"code":"timeout"' in str(exc).replace(" ", "")
+                if exc.code != "BSK_COMMAND_FAILED" or not contended:
                     raise
                 last = str(exc)
                 if attempt == BSK_CAPTURE_ATTEMPTS:

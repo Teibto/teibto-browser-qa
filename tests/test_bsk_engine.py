@@ -315,6 +315,24 @@ class BskSessionSharingTests(unittest.TestCase):
         self.assertEqual(2, sum(1 for call in calls if call == "screenshot --out"))
         self.assertEqual(2, sum(1 for call in calls if call == "tab select"))
 
+    def test_a_capture_that_times_out_once_is_taken_again(self):
+        """#124: a contended capture can hang until the RPC times out instead of saying `not active`."""
+        process, out, events, calls = self.run_flow(
+            READ_ONLY, {"FAKE_BSK_RPC_TIMEOUT": "screenshot:once",
+                        "FAKE_BSK_SESSIONS": "fake-session:only-one"})
+        self.assertEqual(events[-1]["verdict"], "PASS")
+        self.assertEqual(process.returncode, 0)
+        self.assertTrue((out / "shots" / "read-01.png").is_file())
+        self.assertEqual(2, sum(1 for call in calls if call == "screenshot --out"))
+
+    def test_a_capture_that_keeps_timing_out_is_reported_as_a_contended_tab(self):
+        _, _, events, _ = self.run_flow(
+            READ_ONLY, {"FAKE_BSK_RPC_TIMEOUT": "screenshot",
+                        "FAKE_BSK_SESSIONS": "fake-session:only-one"})
+        failed = next(event for event in events
+                      if event["type"] == "step_done" and event.get("error"))
+        self.assertEqual(failed["error"]["code"], "CAPTURE_TAB_CONTENDED")
+
     def test_a_peer_that_never_yields_fails_with_a_contended_tab_not_a_raw_error(self):
         _, _, events, calls = self.run_flow(READ_ONLY, {"FAKE_BSK_STEAL_FOCUS": "always"})
         failed = next(event for event in events

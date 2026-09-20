@@ -12,6 +12,11 @@
 
 ### Fixed
 
+- **capture ที่ถูกแย่ง active tab แล้วค้างจน RPC timeout ก็ถูก retry เหมือนกัน:** ตอน peer เปิด tab แบบ focus
+  หรือสลับ tab ถี่ ๆ คำสั่ง `screenshot` ไม่ได้ตอบ `not active` เสมอไป บางครั้งค้างครบ 30 วินาทีแล้ว timeout —
+  ตอนนี้ถือเป็นอาการเดียวกัน (ถ่ายซ้ำได้ปลอดภัย) และครบงบแล้วยังไม่ได้จึงเป็น `CAPTURE_TAB_CONTENDED` ·
+  คำสั่งที่ไม่ใช่ capture ยังไม่ retry เมื่อ timeout เพราะอาจมี side effect (#124)
+
 - **บอกให้ตรงว่าหน้าต่างหรือแท็บหายไป:** `session is stopping` (มีคนสั่ง `session stop` ขณะ run ทำงาน) =
   `BSK_SESSION_LOST` และ `No tab with id …` (มีคนปิด tab ของ run เอง) = `BSK_TAB_LOST` แทนที่จะโผล่เป็น
   `BSK_COMMAND_FAILED` ดิบ ๆ · lease กู้คืนจากเจ้าของที่ตายเร็วขึ้น (heartbeat 3 s / stale 12 s จากเดิม 5 s / 20 s
