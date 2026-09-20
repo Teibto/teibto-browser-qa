@@ -68,6 +68,22 @@ Chrome bump: a changed dialog policy turns it red on purpose so BAS §4.2 is re-
 `flow-read.yaml` must end `PASS` with exit 0, and `flow-confirm.yaml` must end `PASS` with a `confirm -> dismiss`
 dialog event: the in-page guard answered NO and the fixture shows `false`. Same `SKIP` conditions as above, plus PyYAML/jsonschema.
 
+`python self-test/engine2/contention-matrix.py` replays what several agents do to one browser and
+fails when sharing stops holding. Ten scenarios drive `flow-runner.py` through `bsk` for real: two and
+six runs in one Agent Window, a peer opening a focused tab, a peer re-activating its tab every 150 ms,
+a window stopped mid-run, a registry pointing at a reaped session, a corrupt registry, a stale
+`TEIBTO_BSK_SESSION`, a lease holder killed mid-command, and the run's own tab closed under it. Each
+fixture page is one flat colour, so the harness also checks **which page is in the screenshot** — a run
+that quietly photographs a colleague's tab passes every exit-code check and is exactly the defect this
+gate exists for (it caught #118, #120, #122 and #124).
+
+It redirects the session registry and the lease directory into a temporary folder, opens only its own
+Agent Windows, closes every one of them on the way out, and serves its fixtures on a free loopback
+port. Missing `bsk`/daemon/browser is a `SKIP`; several connected browsers need `ENGINE2_BROWSER`.
+Without Pillow the colour checks report as skipped rather than passing silently. Expect roughly two
+minutes and one Agent Window at a time. Re-run it on every `bsk`, extension or Chrome bump, and after
+any change to the lease, the tab pinning or the capture path.
+
 Run the browser harness after any Chrome or `cdp.py` bump and before changing `commands.md`,
 `gotchas.md`, the PDF templates, or their behavioral claims. Current provenance is maintained in
 [`docs/CLAIMS-AUDIT.md`](../docs/CLAIMS-AUDIT.md).

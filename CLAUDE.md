@@ -47,6 +47,7 @@ docs/CLAIMS-AUDIT.md current claim provenance and withdrawn-claim record
 | `docs/ARCHITECTURE.md` | Current component and data-flow boundaries |
 | `docs/TEAM-PROCESS.md` | Team traceability and release-gate ownership |
 | `docs/CLAIMS-AUDIT.md` | Current verified, measured, inferred, and version-pinned claims |
+| `self-test/engine2/contention-matrix.py` | Live multi-agent contention gate for the `bsk` lane (ten replayed situations) |
 | `self-test/` and `tests/` | Live driver drift checks plus deterministic unit/package checks |
 
 ## Conventions

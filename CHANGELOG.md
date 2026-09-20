@@ -10,6 +10,15 @@
 
 ## [Unreleased]
 
+### Added
+
+- **`self-test/engine2/contention-matrix.py`:** ด่านจำลองสถานการณ์หลาย agent บน browser จริงสิบแบบ
+  (สอง/หก run ใน window เดียว · peer เปิด tab แบบ focus · peer สลับ tab ทุก 150 ms · หน้าต่างถูกปิดกลางคัน ·
+  registry ชี้ session ที่ถูกเก็บ · registry พัง · env ค้าง · lease holder ถูก kill · tab ตัวเองถูกปิด) และ
+  ตรวจด้วยว่า **ภาพที่ถ่ายได้เป็นหน้าของ run นั้นจริง** โดยดูจากสีพื้นของหน้า — บั๊ก #118/#120/#122/#124
+  ผ่าน unit test ทั้งหมดแต่ถูกด่านนี้จับได้ · ใช้ registry/lease แยกใน temp, เปิดเฉพาะหน้าต่างของตัวเองและ
+  ปิดทุกบานตอนจบ, ไม่มี `bsk`/daemon/browser = `SKIP` (#126)
+
 ### Fixed
 
 - **capture ที่ถูกแย่ง active tab แล้วค้างจน RPC timeout ก็ถูก retry เหมือนกัน:** ตอน peer เปิด tab แบบ focus
