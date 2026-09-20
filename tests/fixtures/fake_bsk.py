@@ -17,6 +17,8 @@ if log:
         handle.write(" ".join(args[:2]) + "\n")
         if "--browser" in args:
             handle.write("browser=" + args[args.index("--browser") + 1] + "\n")
+        if args[0] == "tab" and len(args) > 2 and not args[2].startswith("--"):
+            handle.write("tab-target=" + args[2] + "\n")   # `tab select 42` / `tab close 42`
         # Which tab a command was pinned to — `unpinned` is the failure the runner must never show.
         if args[0] not in ("status", "browsers", "session", "tab", "window"):
             handle.write("tab=" + (args[args.index("--tab-id") + 1] if "--tab-id" in args
@@ -123,6 +125,20 @@ elif command == "evaluate":
         value = "https://example.test/done" if expression == "location.href" else "saved successfully"
         out = {"ok": True, "value": value}
 elif command == "screenshot":
+    # The real engine captures the visible tab only: a pinned background tab is refused until the
+    # caller selects it. Keeping that rule here is what makes #118 a red test instead of an empty
+    # shots/ directory nobody notices.
+    if log and "--tab-id" in args:
+        lines = pathlib.Path(log).read_text(encoding="utf-8").splitlines()
+        selected = None
+        for index, line in enumerate(lines):
+            if line == "tab select" and index + 1 < len(lines) and lines[index + 1].startswith("tab-target="):
+                selected = lines[index + 1].split("=", 1)[1]
+        if selected != args[args.index("--tab-id") + 1]:
+            print(json.dumps({"code": "invalid_params", "exit_code": 1,
+                              "message": f"tab {args[args.index('--tab-id') + 1]} is not active; "
+                                         "screenshot can only capture the visible tab"}))
+            raise SystemExit(1)
     pathlib.Path(flag("--out")).write_bytes(b"png")
     out = {}
 elif command == "console":

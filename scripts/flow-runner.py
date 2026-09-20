@@ -14,6 +14,7 @@ placed in argv or artifacts. Exit 0=PASS, 1=FAIL/UNVERIFIED, 2=setup/input error
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import os
 import queue
@@ -485,6 +486,7 @@ class BskSession:
         self.session_id: str | None = None
         self.tab_id: str | None = None
         self.owns_session = session is None
+        self.held_lease: SessionLease | None = None
         self.lease_wait_ms = 0.0
         self.busy_waits = 0
         self.console_since = 0
@@ -600,11 +602,25 @@ class BskSession:
             return subprocess.run(command, capture_output=True, text=True, encoding="utf-8",
                                   errors="replace", env=env, timeout=timeout)
 
-        if not self.session_id:
-            return run()                       # status/browsers/session start: no session to share yet
+        if not self.session_id or self.held_lease is not None:
+            return run()     # nothing to share yet, or a _critical() block already holds the lease
         with SessionLease(self.session_id) as lease:
             self.lease_wait_ms = round(self.lease_wait_ms + lease.waited_ms, 3)
             return run()
+
+    @contextlib.contextmanager
+    def _critical(self):
+        """Hold the lease across commands that only make sense as one uninterrupted pair."""
+        if not self.session_id or self.held_lease is not None:
+            yield
+            return
+        with SessionLease(self.session_id) as lease:
+            self.lease_wait_ms = round(self.lease_wait_ms + lease.waited_ms, 3)
+            self.held_lease = lease
+            try:
+                yield
+            finally:
+                self.held_lease = None
 
     def _evaluate(self, expression: str, *, idempotent: bool = False) -> Any:
         result = self._run(["evaluate", expression], idempotent=idempotent)
@@ -732,7 +748,13 @@ class BskSession:
                     raise RunnerError("WAIT_TIMEOUT", f"เงื่อนไขไม่เป็นจริงใน {args[1]}s: {args[0][:200]}")
                 time.sleep(float(args[2]))
         elif command == "shot":
-            self._run(["screenshot", "--out", args[0]], idempotent=True)
+            # bsk captures the visible tab only, so the run's own tab has to be brought to the
+            # front first. Both calls happen under one lease: a peer that activates its own tab
+            # between the select and the capture would otherwise hand us its page.
+            with self._critical():
+                if self.tab_id:
+                    self._run(["tab", "select", self.tab_id], idempotent=True)
+                self._run(["screenshot", "--out", args[0]], idempotent=True)
             if not Path(args[0]).is_file():
                 raise RunnerError("CAPTURE_FAILED", f"bsk ไม่ได้เขียนไฟล์: {args[0]}")
         elif command == "console":
