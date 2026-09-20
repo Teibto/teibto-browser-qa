@@ -80,7 +80,7 @@ gate exists for (it caught #118, #120, #122 and #124).
 It redirects the session registry and the lease directory into a temporary folder, opens only its own
 Agent Windows, closes every one of them on the way out, and serves its fixtures on a free loopback
 port. Missing `bsk`/daemon/browser is a `SKIP`; several connected browsers need `ENGINE2_BROWSER`.
-Without Pillow the colour checks report as skipped rather than passing silently. Expect roughly two
+Faults are injected only once the run's own `run-log.jsonl` proves it is mid-flight, and a fault that the session refuses while the run holds it (`session_busy`) is re-sent until it lands — a scenario that could not interrupt anything reports FAIL instead of a quiet pass. Without Pillow the colour checks report as skipped rather than passing silently. Expect roughly two
 minutes and one Agent Window at a time. Re-run it on every `bsk`, extension or Chrome bump, and after
 any change to the lease, the tab pinning or the capture path.
 
