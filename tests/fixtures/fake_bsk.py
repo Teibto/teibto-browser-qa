@@ -7,6 +7,7 @@ can prove which commands ran (or that none did).
 import json
 import os
 import pathlib
+import uuid
 import sys
 
 args = [item for item in sys.argv[1:] if item != "--json"]
@@ -59,10 +60,22 @@ def flag(name: str) -> str:
     return args[args.index(name) + 1]
 
 
+# FAKE_BSK_SESSION_FILE=<path> makes the double remember the sessions it started, so a test can
+# watch several processes agree on one shared window.
+store = pathlib.Path(os.environ["FAKE_BSK_SESSION_FILE"]) if os.environ.get("FAKE_BSK_SESSION_FILE") else None
+
+
+def stored() -> list[str]:
+    if store is None or not store.exists():
+        return []
+    return [line for line in store.read_text(encoding="utf-8").splitlines() if line.strip()]
+
+
 if command == "status":
     # FAKE_BSK_SESSIONS=<session-id>:<instance-id>,... models sessions another agent already started.
+    items = [item for item in os.environ.get("FAKE_BSK_SESSIONS", "").split(",") if item] + stored()
     sessions = [dict(zip(("session_id", "browser_instance_id"), item.split(":")))
-                for item in os.environ.get("FAKE_BSK_SESSIONS", "").split(",") if item]
+                for item in items]
     out = {"daemon_version": version, "pid": 1, "sessions": sessions}
 elif command == "browsers":
     # FAKE_BSK_BROWSERS=<id>,<id> models several connected browsers.
@@ -70,7 +83,20 @@ elif command == "browsers":
             "extension_version": version}
            for item in os.environ.get("FAKE_BSK_BROWSERS", "only-one").split(",")]
 elif command == "session":
-    out = {"session_id": "fake-session"} if args[1] == "start" else {}
+    if args[1] == "start":
+        session_id = os.environ.get("FAKE_BSK_SESSION_ID", "fake-session")
+        if store is not None:
+            # A fresh id per start, so a test can tell a reused window from a replaced one.
+            session_id = session_id + "-" + uuid.uuid4().hex[:4]
+            instance = args[args.index("--browser") + 1] if "--browser" in args else "only-one"
+            with open(store, "a", encoding="utf-8") as handle:
+                handle.write(session_id + ":" + instance + "\n")
+        out = {"session_id": session_id}
+    else:
+        if store is not None and len(args) > 2:
+            keep = [line for line in stored() if not line.startswith(args[2] + ":")]
+            store.write_text("".join(line + "\n" for line in keep), encoding="utf-8")
+        out = {}
 elif command == "tab":
     out = {"tab_id": os.environ.get("FAKE_BSK_TAB_ID", "4242")} if args[1] == "create" else {}
 elif command == "navigate":

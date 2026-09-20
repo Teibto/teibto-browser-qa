@@ -23,6 +23,11 @@
 
 ### Added
 
+- **`scripts/bsk-shared.py`:** coordinator ที่ตอบว่า Agent Window ที่ใช้ร่วมกันของเครื่องนี้คือ session ไหน —
+  `ensure` (reuse ถ้ายังอยู่ใน `bsk status`, ไม่มีก็เปิดครั้งเดียวโดยยึด lease ต่อ browser instance),
+  `status`, `release` · registry อยู่ที่ `~/.teibto/bsk-sessions/<instance>.json`
+  (override ด้วย `TEIBTO_BSK_SESSION_ROOT`) เก็บแค่ id/เจ้าของ/เวลา · มี browser หลายตัวโดยไม่ระบุ
+  `--browser` = `BSK_BROWSER_AMBIGUOUS` ไม่เดา (#116)
 - **`--bsk-session` / `TEIBTO_BSK_SESSION`:** ให้ run attach Agent Window ที่เปิดไว้แล้วแทนการเปิดหน้าต่างใหม่
   ต่อ agent หนึ่งตัว; run ปิดเฉพาะ tab ของตัวเองและไม่ `session stop` ให้ใคร · session ที่ไม่มีอยู่จริง =
   `BSK_SESSION_MISSING`, ใช้กับ `--engine cdp` = `INVALID_ARGS` (#112)
