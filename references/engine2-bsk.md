@@ -74,7 +74,9 @@ python scripts/bsk-shared.py release                  # เจ้าของง
    ตรวจ `dialogs` ในผลของทุกคำสั่ง — ถ้าไม่ว่างแปลว่าด่านนี้รั่ว
 3. **ห้าม retry คำสั่งที่ทำซ้ำแล้วเกิดผลซ้ำ** (save, เพิ่ม line, submit). retry ได้เฉพาะ `navigate`, การอ่านค่า, screenshot
 4. **session หายหลังกด save = ผลไม่ทราบ** — ห้ามกด save ซ้ำ ให้ถาม backend ว่า record เกิดหรือยัง แล้วค่อยตัดสิน.
-   runner รายงานกรณีนี้เป็น `BSK_SESSION_LOST`
+   runner รายงานกรณีนี้เป็น `BSK_SESSION_LOST` — ครอบคลุมทั้ง `session not registered`, `session is stopping`
+   และ RPC timeout ที่ตรวจแล้วว่า session หายจาก `bsk status` จริง; ถ้า **tab ของ run เอง** ถูกปิดจะเป็น
+   `BSK_TAB_LOST` (ความหมายเดียวกัน: ผลของ action ล่าสุดไม่ทราบ ห้ามสั่งซ้ำ)
 5. ยืนยันผลจากช่องทางที่ไม่ใช่ DOM เดิม (NetSuite: `fetch('<record>.nl?id=N&xml=T')`)
 
 ## 4. กับดักที่เจอจริง

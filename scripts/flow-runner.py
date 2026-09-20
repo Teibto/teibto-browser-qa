@@ -579,7 +579,13 @@ class BskSession:
                                       f"{BSK_BUSY_RETRY_SECONDS:.0f}s — มี agent อื่นขับ session เดียวกันอยู่")
                 time.sleep(0.25)
                 continue
+            if "No tab with id" in text:
+                # Our own tab was closed under us. Whatever ran last may or may not have landed.
+                raise RunnerError("BSK_TAB_LOST",
+                                  f"tab ที่ run นี้เป็นเจ้าของถูกปิดระหว่าง {args[0]} — ผลของ action ล่าสุดไม่ทราบ "
+                                  "ห้ามรันซ้ำโดยไม่ตรวจกับ backend ก่อน")
             if ("session not registered" in text or "no active tab in Agent Window" in text
+                    or "session is stopping" in text
                     or ('"code":"timeout"' in text.replace(" ", "") and self._session_gone())):
                 # Usually a human closed the Agent Window. Whatever ran last may or may not have
                 # landed. A closed window also shows up as an RPC timeout, so a timeout is checked
