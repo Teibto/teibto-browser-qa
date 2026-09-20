@@ -26,6 +26,7 @@
 18. แท็บ/หน้าต่างไม่อยู่หน้าสุด — `requestAnimationFrame` ไม่รัน และ trusted `click` อาจหายเงียบ
 19. `document.fonts.check()` ตอบ `true` ให้ฟอนต์ที่ไม่มี — วัด presence ด้วยความกว้างเทียบ baseline คนละตระกูล
 20. `wait` หลัง `click` ไปหน้าที่โหลดเกิน ~10 วิ ล้มด้วย `WS_TIMEOUT` ทั้งที่ click สำเร็จ
+21. `fill` จบด้วยการกด Tab — โฟกัสไปอยู่ที่ `BODY` แล้ว `key Enter` ต่อจากนั้นจึงไม่ส่งฟอร์ม/แชต
 
 ---
 
