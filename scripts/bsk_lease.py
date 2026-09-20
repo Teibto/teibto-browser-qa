@@ -29,9 +29,10 @@ import uuid
 from pathlib import Path
 
 DEFAULT_ROOT = Path(tempfile.gettempdir()) / "teibto-bsk-lease"
-HEARTBEAT_SECONDS = 5.0
-# Three missed heartbeats before a waiter even looks at whether the owner is alive.
-STALE_AFTER_SECONDS = 20.0
+HEARTBEAT_SECONDS = 3.0
+# Four missed heartbeats before a waiter even looks at whether the owner is alive. Measured: a run
+# whose holder was killed mid-command waited 21.8 s to recover at 5 s/20 s (#122).
+STALE_AFTER_SECONDS = 12.0
 DEFAULT_WAIT_SECONDS = 300.0
 
 

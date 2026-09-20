@@ -42,6 +42,14 @@ if once == args[0] and log:
 if os.environ.get("FAKE_BSK_RPC_TIMEOUT") == args[0]:
     print(json.dumps({"code": "timeout", "message": "tool RPC timed out after 30s", "exit_code": 1}))
     raise SystemExit(1)
+# FAKE_BSK_STOPPING=<command>: the daemon is tearing the session down under us.
+if os.environ.get("FAKE_BSK_STOPPING") == args[0]:
+    print(json.dumps({"code": "timeout", "message": "session is stopping", "exit_code": 4}))
+    raise SystemExit(4)
+# FAKE_BSK_TAB_GONE=<command>: somebody closed the tab this run owns.
+if os.environ.get("FAKE_BSK_TAB_GONE") == args[0]:
+    print(json.dumps({"code": "not_found", "message": "No tab with id: 4242.", "exit_code": 1}))
+    raise SystemExit(1)
 if os.environ.get("FAKE_BSK_SESSION_LOST") == args[0]:
     fail("not_found", "session not registered or already stopped")
 if os.environ.get("FAKE_BSK_NO_TAB") == args[0]:

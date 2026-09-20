@@ -12,6 +12,11 @@
 
 ### Fixed
 
+- **บอกให้ตรงว่าหน้าต่างหรือแท็บหายไป:** `session is stopping` (มีคนสั่ง `session stop` ขณะ run ทำงาน) =
+  `BSK_SESSION_LOST` และ `No tab with id …` (มีคนปิด tab ของ run เอง) = `BSK_TAB_LOST` แทนที่จะโผล่เป็น
+  `BSK_COMMAND_FAILED` ดิบ ๆ · lease กู้คืนจากเจ้าของที่ตายเร็วขึ้น (heartbeat 3 s / stale 12 s จากเดิม 5 s / 20 s
+  ซึ่งวัดได้ว่าใช้เวลา 21.8 วินาที) (#122)
+
 - **capture ไม่ล้มทั้ง run เพราะ peer แย่ง active tab หนึ่งจังหวะ:** runner retry คู่ `tab select` + `screenshot`
   สามครั้ง (capture ไม่เปลี่ยน state จึงส่งซ้ำได้) แล้วถ้ายังไม่ได้จะล้มด้วย `CAPTURE_TAB_CONTENDED` ที่บอกทางออก
   (ให้ run นั้นใช้หน้าต่างของตัวเอง) แทน `BSK_COMMAND_FAILED` ดิบ ๆ (#120)

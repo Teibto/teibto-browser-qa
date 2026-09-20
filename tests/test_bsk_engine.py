@@ -324,6 +324,20 @@ class BskSessionSharingTests(unittest.TestCase):
         # Three attempts for the step's own capture, three more for the failure evidence shot.
         self.assertEqual(6, sum(1 for call in calls if call == "screenshot --out"))
 
+    def test_a_session_being_stopped_reads_as_a_lost_session(self):
+        """#122: `session stop` from another process answers `session is stopping`, not `timeout`."""
+        _, _, events, _ = self.run_flow(READ_ONLY, {"FAKE_BSK_STOPPING": "click"})
+        failed = next(event for event in events
+                      if event["type"] == "step_done" and event.get("error"))
+        self.assertEqual(failed["error"]["code"], "BSK_SESSION_LOST")
+
+    def test_our_own_tab_being_closed_reads_as_a_lost_tab(self):
+        _, _, events, _ = self.run_flow(READ_ONLY, {"FAKE_BSK_TAB_GONE": "click"})
+        failed = next(event for event in events
+                      if event["type"] == "step_done" and event.get("error"))
+        self.assertEqual(failed["error"]["code"], "BSK_TAB_LOST")
+        self.assertIn("ห้ามรันซ้ำ", failed["error"]["message"])
+
     def test_an_rpc_timeout_on_a_window_that_is_gone_reads_as_a_lost_session(self):
         """A closed Agent Window reaches the CLI as a timeout; blaming a slow browser hides it."""
         _, _, events, _ = self.run_flow(READ_ONLY, {"FAKE_BSK_RPC_TIMEOUT": "click"})
