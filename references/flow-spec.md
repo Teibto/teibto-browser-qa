@@ -50,6 +50,8 @@ py scripts/flow-runner.py --engine cdp --target-id <id> --flow ... --out ...    
 - step ที่ `risk: destructive` ยังต้อง `--allow-destructive` เหมือน `cdp`
 - มี browser เชื่อม `bsk` หลายตัว ต้องระบุ `--bsk-browser <instance_id>` (หรือ `TEIBTO_BSK_BROWSER`; ดู id จาก
   `bsk browsers --json`) — ไม่ระบุ = `BSK_BROWSER_AMBIGUOUS`, runner ไม่เดา; id ถูกบันทึกใน `session_ready`
+- id ของ Agent Window ที่ใช้ร่วมกันมาจาก `python scripts/bsk-shared.py ensure` (สร้างครั้งเดียวต่อ browser
+  instance แล้ว reuse; `status`/`release` ดูและปิด)
 - หลาย run บน browser เดียวกัน: `--bsk-session <id>` (หรือ `TEIBTO_BSK_SESSION`) ให้ run attach Agent Window
   ที่เปิดไว้แล้วแทนการเปิดใหม่ — run สร้าง tab ของตัวเองและ pin ทุกคำสั่งไว้กับ tab นั้น, ปิดเฉพาะ tab ของตัวเอง
   และไม่เคย `session stop` ให้ใคร; session ที่ไม่มีอยู่จริง = `BSK_SESSION_MISSING`. ทุกคำสั่งผ่าน lease ต่อ session

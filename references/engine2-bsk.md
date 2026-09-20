@@ -20,15 +20,20 @@
 คูณด้วยจำนวน agent = หน้าต่างเด้งหลายสิบบาน และเจ้าของ browser จะปิดมัน (ดู §4 — เกิดแล้ว 2 ครั้ง).
 
 ```bash
-# runner: เปิดหน้าต่างเดียวต่องาน แล้วให้ทุก agent attach
-SID=$(bsk session start --json --no-focus --browser <instance> --name qa | python -c "import json,sys;print(json.load(sys.stdin)['session_id'])")
+# ขอ Agent Window ที่ใช้ร่วมกันของเครื่องนี้ — มีอยู่แล้วก็ได้ตัวเดิม ไม่มีก็เปิดให้ครั้งเดียว
+SID=$(python scripts/bsk-shared.py ensure)            # --browser <instance> เมื่อเชื่อมหลายตัว
 python scripts/flow-runner.py --flow f.yaml --out runs/a --bsk-session "$SID"   # หรือ TEIBTO_BSK_SESSION=$SID
-bsk session stop "$SID"        # ปิดครั้งเดียวตอนจบงาน; runner ไม่เคยปิด session ที่ตัวเองไม่ได้เปิด
+export NSBSK_SESSION="$SID"                           # harness ตัวอย่าง examples/nsbsk.py ใช้ตัวแปรนี้
 
-# harness ตัวอย่าง (examples/nsbsk.py) ใช้ตัวแปรเดียวกัน
-export NSBSK_SESSION=$(python examples/nsbsk.py open-shared my-job)
-python examples/nsbsk.py close-shared "$NSBSK_SESSION"
+python scripts/bsk-shared.py status                   # registry ชี้ session ไหน ยังอยู่ไหม
+python scripts/bsk-shared.py release                  # เจ้าของงานปิดตอนจบ; ผู้ที่ attach ไม่ต้องทำอะไร
 ```
+
+`ensure` ยึด lease ต่อ browser instance ระหว่างตัดสินใจ สี่ process ที่เรียกพร้อมกันจึงได้ id เดียวกันและ
+เปิดหน้าต่างครั้งเดียว. registry อยู่ที่ `~/.teibto/bsk-sessions/<instance>.json` (override ด้วย
+`TEIBTO_BSK_SESSION_ROOT`) เก็บแค่ id/เจ้าของ/เวลา ไม่มี cookie หรือ token. daemon เองก็เก็บ session ที่ทิ้งไว้
+เฉย ๆ ด้วย (`idle session stopped` — เห็น 6 ครั้งใน 90 นาทีบนเครื่อง dev) `ensure` จึงตรวจกับ `bsk status`
+ทุกครั้งก่อนคืน id เดิม
 
 การชนกันของหลาย agent มีสามชั้น และแก้คนละที่ (วัดกับ bsk 0.3.0 + Chrome 152 · #112):
 
