@@ -10,6 +10,23 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **หลาย agent ขับ browser เดียวกันแล้วแย่ง tab/session กัน:** `flow-runner.py --engine bsk` สร้าง tab ของตัวเอง
+  (`tab create --no-active --url about:blank`) และส่ง `--tab-id` กับทุกคำสั่งที่เป็น tab-scoped — คำสั่งที่ไม่ pin
+  จะยิงไปที่ active tab ซึ่ง peer เปลี่ยนได้ด้วย `tab create`/`tab select` · ทุกคำสั่งบน session เดียวกันผ่าน lease
+  ข้าม process ตัวใหม่ `scripts/bsk_lease.py` (ยึดด้วย `mkdir` + owner pid + heartbeat; แย่ง lease ได้เฉพาะเมื่อ
+  heartbeat ค้าง **และ** เจ้าของตายจริง; ปล่อยได้เฉพาะ lock ของตัวเอง) · `session_busy` ไม่ทำให้ run ล้มอีกต่อไป
+  runner รอแล้วส่งใหม่ (คำสั่งที่โดนปฏิเสธยังไม่ถูก dispatch — วัดแล้ว) และรายงานเวลาที่รอใน
+  `run_done.session_sharing` · `examples/nsbsk.py` เปลี่ยนมาใช้ lease เดียวกัน, ล็อกตอน `close()` และ pin tab
+  ให้ครบทุกคำสั่ง (#112)
+
+### Added
+
+- **`--bsk-session` / `TEIBTO_BSK_SESSION`:** ให้ run attach Agent Window ที่เปิดไว้แล้วแทนการเปิดหน้าต่างใหม่
+  ต่อ agent หนึ่งตัว; run ปิดเฉพาะ tab ของตัวเองและไม่ `session stop` ให้ใคร · session ที่ไม่มีอยู่จริง =
+  `BSK_SESSION_MISSING`, ใช้กับ `--engine cdp` = `INVALID_ARGS` (#112)
+
 ## [3.0.0] - 2026-09-20
 
 **BrowserSkill (`bsk`) เป็น engine หลักของ runner — นโยบาย dialog ถูกบังคับด้วยด่านในหน้าเว็บ; `cdp.py` ใช้ผ่าน `--engine cdp`**

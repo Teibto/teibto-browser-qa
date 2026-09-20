@@ -14,26 +14,41 @@
 5. เชื่อมหลาย browser ได้ แต่ต้องเลือกเองเสมอ: `--bsk-browser <instance_id>` / `ENGINE2_BROWSER` — ดู id จาก
    `bsk browsers --json`. แยก **profile ทดสอบ** (ไว้รัน fixture ที่เปิด dialog จริง) ออกจาก **browser ที่คนใช้ทำงาน**
 
-### 1.1 หนึ่ง Agent Window ต่อหนึ่งงาน
+### 1.1 หนึ่ง Agent Window ต่อหนึ่งงาน — และหนึ่ง tab ต่อหนึ่ง process
 
 ทุก `bsk session start` เปิด Agent Window ใหม่หนึ่งบานบนจอของเจ้าของ browser. สคริปต์ที่ start session ของตัวเอง
 คูณด้วยจำนวน agent = หน้าต่างเด้งหลายสิบบาน และเจ้าของ browser จะปิดมัน (ดู §4 — เกิดแล้ว 2 ครั้ง).
 
 ```bash
-export NSBSK_SESSION=$(python examples/nsbsk.py open-shared my-job)   # เปิดครั้งเดียวต่องาน
-# ... ทุกสคริปต์ / ทุก agent ที่มี NSBSK_SESSION: Session() จะ attach และทำงานใน tab ของตัวเอง ...
-python examples/nsbsk.py close-shared "$NSBSK_SESSION"               # ปิดครั้งเดียวตอนจบ
+# runner: เปิดหน้าต่างเดียวต่องาน แล้วให้ทุก agent attach
+SID=$(bsk session start --json --no-focus --browser <instance> --name qa | python -c "import json,sys;print(json.load(sys.stdin)['session_id'])")
+python scripts/flow-runner.py --flow f.yaml --out runs/a --bsk-session "$SID"   # หรือ TEIBTO_BSK_SESSION=$SID
+bsk session stop "$SID"        # ปิดครั้งเดียวตอนจบงาน; runner ไม่เคยปิด session ที่ตัวเองไม่ได้เปิด
+
+# harness ตัวอย่าง (examples/nsbsk.py) ใช้ตัวแปรเดียวกัน
+export NSBSK_SESSION=$(python examples/nsbsk.py open-shared my-job)
+python examples/nsbsk.py close-shared "$NSBSK_SESSION"
 ```
+
+การชนกันของหลาย agent มีสามชั้น และแก้คนละที่ (วัดกับ bsk 0.3.0 + Chrome 152 · #112):
 
 | ข้อเท็จจริงที่วัดได้ | ผลต่อการใช้งาน |
 |---|---|
-| session ของ `bsk` รับ **ทีละคำสั่ง** — คำสั่งที่สองที่เข้ามาพร้อมกันได้ `session_busy` | harness ใส่ lock ข้าม process ต่อ session: agent ผลัดกันส่งคำสั่ง. หน้าต่างเหลือบานเดียว แต่ throughput รวมลดลง (worker ที่สองรอ: 4.0 s เทียบ 7.8 s ในงานเดียวกัน) |
+| session ของ `bsk` รับ **ทีละคำสั่ง** — คำสั่งที่สองที่เข้ามาพร้อมกันถูกปฏิเสธใน ~30–180 ms ด้วย `exit_code 4` + `data.reason: "session_busy"` | ทุก process ที่ใช้ session ร่วมกันต้องผลัดกัน: `scripts/bsk_lease.py` เป็น lease ข้าม process ต่อ session id (`%TEMP%/teibto-bsk-lease/<sid>.lease`) ที่ runner และ `nsbsk.py` ใช้ร่วมกัน |
+| คำสั่งที่ถูกปฏิเสธด้วย `session_busy` **ยังไม่ถูก dispatch** — `click` ที่โดนปฏิเสธไม่เปลี่ยนหน้าเว็บเลย (idle → idle) ส่วน click เดียวกันตอนว่างเปลี่ยนเป็น `act-clicked` | รอแล้วส่งใหม่ได้ปลอดภัยแม้เป็นคำสั่งที่เปลี่ยน state; runner รอสูงสุด 30 วินาทีก่อนล้มด้วย `BSK_SESSION_BUSY` |
+| คนละ session บน browser เดียวกัน **ทำงานขนานกันได้จริง** (คำสั่ง 1.5 s สองตัว เสร็จใน 1.57 s) | การชนเกิดเฉพาะ *ภายใน* session เดียวกัน; lease จึงล็อกต่อ session ไม่ใช่ต่อ browser |
+| คำสั่งที่ไม่ส่ง `--tab-id` ยิงไปที่ **active tab ของ session** และ peer เปลี่ยน active tab ได้ด้วย `tab create` (default = focus) หรือ `tab select` | ทุก process ต้องสร้าง tab ของตัวเองแล้ว pin: `tab create --no-active --url about:blank` แล้วส่ง `--tab-id` ทุกคำสั่งที่เป็น tab-scoped. พิสูจน์แล้ว: worker ที่ไม่ pin ถูก peer ลากไปหน้าอื่น (`?w=A-unpinned` → `?w=C-peer-new-tab`) ส่วน worker ที่ pin อยู่ที่หน้าเดิม |
 | tab ที่สร้างโดยไม่ระบุ URL อยู่ที่ `chrome://newtab/` และขับไม่ได้ (`Cannot access a chrome:// URL`) | สร้างด้วย `tab create --no-active --url about:blank` |
 | trusted click ลงใน tab ที่ซ่อนอยู่ (`visibilityState: hidden`) ได้ 9/9 แต่ใช้ 0.4–3.5 s | ใช้ tab พื้นหลังได้; timer/`requestAnimationFrame` ใน tab ที่ซ่อนถูก throttle (`gotchas.md` §18) — wait ช้าลง และหน้าที่ render ด้วย rAF อาจไม่ขึ้น |
 | `bsk` ไม่มีคำสั่งย้ายหรือย่อหน้าต่าง (มีแค่ `window resize`) | ถ้าไม่ต้องการให้อะไรเด้งบนจอของคนเลย ต้องใช้ profile เฉพาะงาน + user ของ automation (§7) |
 
-สคริปต์ต้องปิด session ของตัวเองเสมอ (`with Session(...)`): session ที่ค้างคือหน้าต่างที่ค้างบนจอ — ตรวจด้วย
-`bsk session list --json` ตอนจบงาน.
+ราคาที่จ่าย: throughput รวมลดลงเพราะผลัดกัน — flow-runner สองตัวบน session เดียวกัน (flow 3 step บนหน้า loopback)
+ผ่านทั้งคู่ใน 2.6 วินาที โดยตัวที่มาทีหลังรอ lease 985 ms และเจอ `session_busy` 0 ครั้ง. ตัวเลขนี้อยู่ใน
+`run_done.session_sharing` ของทุก run: `lease_wait_ms` คือเวลาที่รอคิว, `busy_waits` > 0 แปลว่ามีใครขับ session
+เดียวกันโดยไม่ถือ lease.
+
+สคริปต์ที่ **เปิด** session เองต้องปิดเอง (`with Session(...)` / runner ปิดให้อัตโนมัติ): session ที่ค้างคือหน้าต่าง
+ที่ค้างบนจอ — ตรวจด้วย `bsk session list --json` ตอนจบงาน. สคริปต์ที่ **attach** ปิดเฉพาะ tab ของตัวเอง.
 
 ## 2. สองทางในการรัน
 
