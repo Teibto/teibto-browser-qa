@@ -20,7 +20,10 @@ Walk the happy path once, then split it into two outputs: a QA verdict and docum
 Claude is the brain and `cdp.py` is the hands and eyes, talking **straight to Chrome over CDP** —
 no daemon in between. Use short-output commands to avoid context overflow. The runner's default engine is BrowserSkill (`bsk`), reached through the same runner interface
 ([`BROWSER-AGENT-STANDARD.md`](BROWSER-AGENT-STANDARD.md) §4); every diagram below shows the `cdp.py` path
-(`--engine cdp`), which CI, the local UI and the lens/PDF pipeline still use.
+(`--engine cdp`), which CI, the local UI and the lens/PDF pipeline still use. On `bsk` the same pin exists one level up:
+a run either starts its own Agent Window or attaches to one with `--bsk-session`, and in both cases it
+creates and pins **its own tab**, takes a cross-process lease (`scripts/bsk_lease.py`) around every
+command because a session runs one at a time, and closes only what it opened.
 
 ```mermaid
 sequenceDiagram
