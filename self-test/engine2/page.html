@@ -1,0 +1,18 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>owner</title>
+<body style="margin:0;font-family:sans-serif">
+<div id="banner" style="height:100vh;display:flex;align-items:center;justify-content:center;font-size:18vw"></div>
+<button id="act" onclick="document.getElementById('out').textContent='act-clicked'">Act</button>
+<span id="out">idle</span>
+<script>
+  // ทำให้หน้าของแต่ละ worker ต่างกันแบบเห็นได้ในภาพ: สีพื้น + ตัวอักษรตาม ?w=
+  var who = (new URLSearchParams(location.search).get('w') || '?');
+  var colors = {A: '#c0392b', B: '#27ae60', C: '#2980b9', D: '#8e44ad', E: '#d35400', F: '#16a085'};
+  document.title = 'owner-' + who;
+  var banner = document.getElementById('banner');
+  banner.textContent = who;
+  banner.style.background = colors[who] || '#555';
+  banner.style.color = '#fff';
+</script>
+</body>

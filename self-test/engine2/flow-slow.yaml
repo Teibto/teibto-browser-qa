@@ -1,0 +1,17 @@
+story: contention-slow
+title: A run that is still working when something happens to it
+vars:
+  - {name: worker, label: Worker}
+  - {name: base_url, label: Fixture URL}
+scenarios:
+  - id: slow
+    steps:
+      - action: open
+        target: "{{base_url}}/slow.html?w={{worker}}"
+        capture: false
+      - action: eval
+        target: "1"
+        intent: "wait for the fixture to become ready (8 s)"
+        wait: "fn:document.querySelector('#state').textContent==='ready'"
+        assert: {target: "#state", contains: "ready"}
+        capture: true
