@@ -21,7 +21,6 @@ import http.server
 import json
 import os
 import shutil
-import socket
 import socketserver
 import subprocess
 import sys
