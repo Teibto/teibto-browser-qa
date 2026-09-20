@@ -29,7 +29,8 @@ Keep these rules in context for every live run. Read [`references/gotchas.md`](r
 for failure modes and verified workarounds.
 
 1. **Isolate the browser.** One job gets one `CDP_PORT`, one `--user-data-dir`, and one pinned
-   `TGT_ID`. Never guess among shared tabs.
+   `TGT_ID`. On `bsk`: one pinned session **and** one tab of your own — a command without `--tab-id`
+   drives whichever tab is active, which any other agent can move. Never guess among shared tabs.
 2. **Use trusted actions.** `click` already scrolls into view and sends an Input event. If it does not
    work, record a failure; never hide it with `element.click()`.
 3. **Assert observable outcomes.** Exit 0 means the command was dispatched, not that the business

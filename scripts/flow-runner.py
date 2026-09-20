@@ -30,6 +30,9 @@ from urllib.parse import urlsplit
 import yaml
 from jsonschema import Draft202012Validator
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))   # scripts/ is importable when run by path
+from bsk_lease import LeaseTimeout, SessionLease  # noqa: E402
+
 try:
     sys.stdout.reconfigure(encoding="utf-8")
     sys.stderr.reconfigure(encoding="utf-8")
@@ -59,6 +62,14 @@ BSK_PINNED_VERSION = "0.3.0"
 BSK_MUTATING_DIALOGS = {"confirm", "prompt", "beforeunload"}
 # A detached debugger is transient, but only commands that cannot act twice may be retried.
 BSK_RETRY_LIMIT = 2
+# Commands that address the session or the browser, not one tab. Everything else acts on a tab and
+# must carry --tab-id: without it bsk targets whichever tab is active, which any peer (or the person
+# using the browser) can change under a running job.
+BSK_SESSION_SCOPED = {"status", "browsers", "daemon", "doctor", "logs", "session", "tab", "window"}
+# The daemon refuses a second concurrent command on one session with reason `session_busy` and never
+# dispatches it (measured, #112), so waiting and re-sending is safe even for a click. The lease keeps
+# our own processes apart; this window covers a peer that does not take the lease.
+BSK_BUSY_RETRY_SECONDS = 30.0
 # The in-page guard answers page dialogs before the native dialog can block the browser, so a
 # leaked native confirm is evidence the guard did not install; format with json.dumps(policy).
 BSK_GUARD_JS = (
@@ -464,13 +475,18 @@ class BskSession:
     """BrowserSkill CLI behind the CDPSession interface the runner already uses."""
 
     def __init__(self, bsk: list[str], *, browser: str | None = None,
-                 request_timeout: float = 45.0, dialog: str = "safe"):
+                 request_timeout: float = 45.0, dialog: str = "safe",
+                 session: str | None = None):
         self.bsk = bsk
         self.script = Path(bsk[-1])
         self.request_timeout = request_timeout
         self.dialog_policy = dialog
         self.dialogs: queue.Queue[dict[str, str]] = queue.Queue()
         self.session_id: str | None = None
+        self.tab_id: str | None = None
+        self.owns_session = session is None
+        self.lease_wait_ms = 0.0
+        self.busy_waits = 0
         self.console_since = 0
         status = self._cli(["status"])
         browsers = self._cli(["browsers"])
@@ -479,6 +495,14 @@ class BskSession:
                               detail={"browsers": browsers})
         known = ", ".join(f"{item.get('instance_id')} ({item.get('browser_name')} "
                           f"{item.get('browser_version')})" for item in browsers)
+        if session:
+            # Attaching: the session already names its browser, so there is nothing to disambiguate.
+            live = {str(item.get("session_id")): item for item in (status.get("sessions") or [])}
+            if session not in live:
+                raise RunnerError("BSK_SESSION_MISSING",
+                                  f"ไม่พบ bsk session {session} ที่ยังทำงานอยู่; ที่มีอยู่: "
+                                  f"{', '.join(live) or '(ไม่มี)'}")
+            browser = browser or str(live[session].get("browser_instance_id") or "")
         if browser:
             browsers = [item for item in browsers if item.get("instance_id") == browser]
             if not browsers:
@@ -497,12 +521,24 @@ class BskSession:
                 detail=versions,
             )
         instance = str(browsers[0].get("instance_id"))
-        started = self._cli(["session", "start", "--name", "flow-runner", "--no-focus",
-                             "--browser", instance])
-        self.session_id = str(started["session_id"])
+        if session:
+            self.session_id = str(session)
+        else:
+            started = self._cli(["session", "start", "--name", "flow-runner", "--no-focus",
+                                 "--browser", instance])
+            self.session_id = str(started["session_id"])
+        # Invariant 1 for this engine: own one tab and pin it. A tab left on chrome://newtab cannot
+        # be driven, so it is created on about:blank, and --no-active keeps it off the person's face.
+        created = self._cli(["tab", "create", "--no-active", "--url", "about:blank"])
+        self.tab_id = str(created.get("tab_id") or created.get("id") or "")
+        if not self.tab_id:
+            raise RunnerError("BSK_TAB_UNPINNED", "bsk tab create ไม่คืน tab_id — ขับต่อโดยไม่ pin tab ไม่ได้",
+                              detail=created if isinstance(created, dict) else None)
         self.ready = {"protocol": "bsk-cli", "version": BSK_PINNED_VERSION,
                       "browser": f"{browsers[0].get('browser_name')} {browsers[0].get('browser_version')}",
                       "browser_instance": instance,
+                      "session_owned": self.owns_session,
+                      "tab_id": self.tab_id,
                       "target_id": self.session_id}
 
     def _cli(self, args: list[str], *, timeout: float | None = None, idempotent: bool = False) -> Any:
@@ -511,17 +547,33 @@ class BskSession:
         command = [*self.bsk, *args, "--json"]
         if self.session_id and args[0] != "session":
             command += ["--session", self.session_id]
+        if self.tab_id and args[0] not in BSK_SESSION_SCOPED:
+            command += ["--tab-id", self.tab_id]
         self.attempts = 0
+        busy_deadline = time.monotonic() + BSK_BUSY_RETRY_SECONDS
         while True:
             self.attempts += 1
             try:
-                done = subprocess.run(command, capture_output=True, text=True, encoding="utf-8",
-                                      errors="replace", env=env, timeout=timeout or self.request_timeout)
+                done = self._dispatch(command, env, timeout or self.request_timeout)
             except subprocess.TimeoutExpired as exc:
                 raise RunnerError("SESSION_TIMEOUT", f"bsk {args[0]} ไม่ตอบภายในเวลาที่กำหนด") from exc
+            except LeaseTimeout as exc:
+                raise RunnerError("BSK_SESSION_BUSY",
+                                  f"bsk session {self.session_id} ถูกใช้งานโดย process อื่นนานเกินไป: {exc}") from exc
             if done.returncode == 0:
                 break
             text = (done.stderr or done.stdout).strip()
+            if '"reason":"session_busy"' in text.replace(" ", "").replace("\n", ""):
+                # Rejected before dispatch, so re-sending cannot act twice. Somebody is driving this
+                # session without the lease; wait them out rather than failing a whole run.
+                self.attempts -= 1
+                self.busy_waits += 1
+                if time.monotonic() >= busy_deadline:
+                    raise RunnerError("BSK_SESSION_BUSY",
+                                      f"bsk session {self.session_id} ไม่ว่างภายใน "
+                                      f"{BSK_BUSY_RETRY_SECONDS:.0f}s — มี agent อื่นขับ session เดียวกันอยู่")
+                time.sleep(0.25)
+                continue
             if "session not registered" in text or "no active tab in Agent Window" in text:
                 # Usually a human closed the Agent Window. Whatever ran last may or may not have landed.
                 raise RunnerError("BSK_SESSION_LOST",
@@ -540,6 +592,19 @@ class BskSession:
             return json.loads(done.stdout)
         except ValueError as exc:
             raise RunnerError("INVALID_SESSION_OUTPUT", f"bsk {args[0]} คืนค่าที่ไม่ใช่ JSON") from exc
+
+    def _dispatch(self, command: list[str], env: dict[str, str],
+                  timeout: float) -> subprocess.CompletedProcess[str]:
+        """One bsk invocation, serialised against every other process on this session."""
+        def run() -> subprocess.CompletedProcess[str]:
+            return subprocess.run(command, capture_output=True, text=True, encoding="utf-8",
+                                  errors="replace", env=env, timeout=timeout)
+
+        if not self.session_id:
+            return run()                       # status/browsers/session start: no session to share yet
+        with SessionLease(self.session_id) as lease:
+            self.lease_wait_ms = round(self.lease_wait_ms + lease.waited_ms, 3)
+            return run()
 
     def _evaluate(self, expression: str, *, idempotent: bool = False) -> Any:
         result = self._run(["evaluate", expression], idempotent=idempotent)
@@ -692,12 +757,20 @@ class BskSession:
                 return items
 
     def close(self, *, force: bool = False) -> None:
-        if self.session_id:
+        if not self.session_id:
+            return
+        if self.owns_session:
             try:
                 self._cli(["session", "stop", self.session_id], timeout=20)
             except RunnerError:
                 pass
-            self.session_id = None
+        elif self.tab_id:
+            # Shared window: close our own tab and leave the session to whoever started it.
+            try:
+                self._cli(["tab", "close", self.tab_id], timeout=20)
+            except RunnerError:
+                pass
+        self.session_id = self.tab_id = None
 
 
 class StepTimings:
@@ -904,7 +977,7 @@ def run_flow(flow: dict[str, Any], path: Path, output_dir: Path, variables: dict
              cdp_script: Path, target_id: str, port: str | None, sink: EventSink,
              dialog: str = "safe", allow_destructive: bool = False,
              engine: str = "cdp", bsk: list[str] | None = None,
-             bsk_browser: str | None = None) -> int:
+             bsk_browser: str | None = None, bsk_session: str | None = None) -> int:
     run_started = time.perf_counter()
     output_dir.mkdir(parents=True, exist_ok=True)
     shots = output_dir / "shots"
@@ -957,12 +1030,15 @@ def run_flow(flow: dict[str, Any], path: Path, output_dir: Path, variables: dict
         allowed_origins = enforce_policy(policy, flow, variables,
                                          allow_destructive=allow_destructive)
         if engine == "bsk":
-            session = BskSession(bsk or [], browser=bsk_browser, dialog=dialog)
+            session = BskSession(bsk or [], browser=bsk_browser, dialog=dialog,
+                                 session=bsk_session)
             target_id = str(session.ready["target_id"])
-            # The header was written before the session existed; the bsk session id is the pin.
+            # The header was written before the session existed; the bsk session id plus the tab this
+            # run owns is the pin — an unpinned tab is whichever tab a peer left active.
             report[report.index("**Target ID:** ``")] = (
                 f"**Target ID:** `{target_id}` (bsk session · browser "
-                f"`{session.ready['browser_instance']}`)")
+                f"`{session.ready['browser_instance']}` · tab `{session.ready['tab_id']}` · "
+                f"{'own window' if session.ready['session_owned'] else 'shared window'})")
         else:
             session = CDPSession(cdp_script, target_id, port=port, dialog=dialog)
         startup_ms = round((time.perf_counter() - startup_started) * 1000, 3)
@@ -972,7 +1048,9 @@ def run_flow(flow: dict[str, Any], path: Path, output_dir: Path, variables: dict
                    "version": session.ready.get("version"),
                    "input_settle": session.ready.get("input_settle"),
                    "port": session.ready.get("port"),
-                   **({"browser_instance": session.ready["browser_instance"]}
+                   **({"browser_instance": session.ready["browser_instance"],
+                       "tab_id": session.ready["tab_id"],
+                       "session_owned": session.ready["session_owned"]}
                       if engine == "bsk" else {}),
                    "duration_ms": startup_ms})
         global_index = 0
@@ -1164,6 +1242,10 @@ def run_flow(flow: dict[str, Any], path: Path, output_dir: Path, variables: dict
                "verdict": verdict,
                "duration_ms": round((time.perf_counter() - run_started) * 1000, 3),
                "startup_ms": startup_ms,
+               # How much of the run was spent queueing behind other processes on a shared session.
+               **({"session_sharing": {"lease_wait_ms": getattr(session, "lease_wait_ms", 0.0),
+                                       "busy_waits": getattr(session, "busy_waits", 0)}}
+                  if engine == "bsk" else {}),
                "report": str(report_path.resolve())})
     return 0 if verdict == "PASS" else 1
 
@@ -1195,6 +1277,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--bsk", help="path to the bsk CLI (default: TEIBTO_BSK or PATH)")
     parser.add_argument("--bsk-browser", default=os.environ.get("TEIBTO_BSK_BROWSER"),
                         help="bsk browser instance id; required when several are connected")
+    parser.add_argument("--bsk-session", default=os.environ.get("TEIBTO_BSK_SESSION"),
+                        help="attach to an existing bsk session (shared Agent Window) instead of "
+                             "starting one; the run owns only its own tab and never stops the session")
     parser.add_argument("--dialog", choices=DIALOG_POLICIES, default="safe",
                         help="dialog policy handed to cdp.py (default: safe; never inherited from env)")
     parser.add_argument("--stdout", choices=STDOUT_MODES, default="events",
@@ -1214,6 +1299,8 @@ def main(argv: list[str] | None = None) -> int:
         if not args.out:
             raise RunnerError("INVALID_ARGS", "ต้องระบุ --out เมื่อสั่ง run")
         bsk = resolve_bsk(args.bsk) if args.engine == "bsk" else None
+        if args.bsk_session and args.engine != "bsk":
+            raise RunnerError("INVALID_ARGS", "--bsk-session ใช้ได้เฉพาะกับ --engine bsk")
         if args.engine == "cdp" and not args.target_id:
             raise RunnerError("UNPINNED_TARGET", "ต้องระบุ --target-id หรือ TGT_ID")
         cdp_script = resolve_cdp_script(args.cdp_script) if args.engine == "cdp" else Path(bsk[-1])
@@ -1233,7 +1320,8 @@ def main(argv: list[str] | None = None) -> int:
         return run_flow(flow, path, output_dir, variables, cdp_script,
                         args.target_id or "", args.cdp_port, sink, dialog=args.dialog,
                         allow_destructive=args.allow_destructive,
-                        engine=args.engine, bsk=bsk, bsk_browser=args.bsk_browser)
+                        engine=args.engine, bsk=bsk, bsk_browser=args.bsk_browser,
+                        bsk_session=args.bsk_session)
     except RunnerError as exc:
         payload = {"type": "fatal", "error": {"code": exc.code, "message": str(exc)}}
         if sink:

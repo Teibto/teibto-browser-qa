@@ -20,11 +20,13 @@ Built-in rules (do not bypass them in scenario code):
     NSBSK_SESSION=<id>, and every Session() — in any script, from any agent — attaches to it and works in
     its OWN background tab instead of opening another window. `python nsbsk.py close-shared <id>` ends it.
     Trusted clicks land in hidden tabs (measured 9/9); timers are throttled there, so waits run slower.
+  * Every command on a shared session goes through scripts/bsk_lease.py: a bsk session runs one
+    command at a time and refuses the second with `session_busy`, so processes take turns.
 """
+import importlib.util
 import json
 import os
 import subprocess
-import tempfile
 import time
 
 HOST = os.environ.get("NSBSK_HOST", "").rstrip("/")
@@ -48,36 +50,18 @@ class EffectUnknown(RuntimeError):
     """bsk sent the input but could not confirm it. Observe the page; never re-issue the action."""
 
 
-class _SharedLock:
-    """Cross-process mutex for a shared session: a bsk session rejects a second concurrent command
-    with `session_busy`, so every process attached to the same window takes turns."""
+def _load_lease():
+    """The lease lives with the runner so both entry points take turns the same way."""
+    path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts", "bsk_lease.py")
+    spec = importlib.util.spec_from_file_location("bsk_lease", path)
+    if spec is None or spec.loader is None:
+        raise SystemExit(f"cannot load {path}: copy scripts/bsk_lease.py next to this harness")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
-    def __init__(self, session_id, stale_after=180.0):
-        self.path = os.path.join(tempfile.gettempdir(), f"nsbsk-{session_id}.lock")
-        self.stale_after = stale_after
 
-    def __enter__(self):
-        deadline = time.monotonic() + 300
-        while True:
-            try:
-                os.mkdir(self.path)          # atomic on every platform
-                return self
-            except FileExistsError:
-                try:
-                    if time.time() - os.path.getmtime(self.path) > self.stale_after:
-                        os.rmdir(self.path)  # owner died mid-command
-                        continue
-                except OSError:
-                    pass
-                if time.monotonic() >= deadline:
-                    raise TimeoutError("shared bsk window stayed busy for 300 s")
-                time.sleep(0.05)
-
-    def __exit__(self, *exc):
-        try:
-            os.rmdir(self.path)
-        except OSError:
-            pass
+_lease = _load_lease()
 
 
 class _NoLock:
@@ -102,8 +86,9 @@ class Laps:
 
 
 class Session:
-    TAB_COMMANDS = {"navigate", "evaluate", "click", "fill", "press", "select", "screenshot", "console",
-                    "snapshot", "observe", "reload", "wait-for-navigation"}
+    # Everything except these acts on one tab, and an unpinned command lands on whichever tab is
+    # active — which any peer's `tab create`/`tab select` can change under a running job.
+    SESSION_COMMANDS = {"status", "browsers", "daemon", "doctor", "logs", "session", "tab", "window"}
 
     def __init__(self, name="nsbsk", focus=False, attach=None):
         if not (HOST and COMPANY and BROWSER):
@@ -129,11 +114,11 @@ class Session:
 
     def run(self, args, *, idempotent, timeout=120):
         cmd = ["bsk", *args, "--json"] + (["--session", self.sid] if self.sid and args[0] != "session" else [])
-        if self.tab_id and args[0] in self.TAB_COMMANDS:
+        if self.tab_id and args[0] not in self.SESSION_COMMANDS:
             cmd += ["--tab-id", self.tab_id]
         for attempt in (1, 2, 3):
             self.calls += 1
-            with (_SharedLock(self.sid) if (self.sid and not self.owns_session) else _NoLock()):
+            with (_lease.SessionLease(self.sid) if (self.sid and not self.owns_session) else _NoLock()):
                 done = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace",
                                       timeout=timeout, env=_ENV)
             if done.returncode == 0:
@@ -273,8 +258,9 @@ class Session:
     def close(self):
         if self.sid and not self.owns_session:
             if self.tab_id:          # shared window: close only our own tab, leave the session to its owner
-                subprocess.run(["bsk", "tab", "close", self.tab_id, "--session", self.sid, "--quiet"],
-                               env=_ENV, capture_output=True, timeout=30)
+                with _lease.SessionLease(self.sid):
+                    subprocess.run(["bsk", "tab", "close", self.tab_id, "--session", self.sid, "--quiet"],
+                                   env=_ENV, capture_output=True, timeout=30)
             self.sid = self.tab_id = None
             return
         if self.sid:

@@ -71,7 +71,8 @@ class BskEngineTests(unittest.TestCase):
         self.assertTrue((out / "shots" / "read-01.png").is_file())
         report = (out / "qa-report.md").read_text(encoding="utf-8")
         self.assertIn("**Engine:** bsk 0.3.0", report)
-        self.assertIn("**Target ID:** `fake-session` (bsk session · browser `only-one`)", report)
+        self.assertIn("**Target ID:** `fake-session` (bsk session · browser `only-one` · "
+                      "tab `4242` · own window)", report)
         self.assertIn("session stop", calls)
 
     def test_same_event_types_as_primary_engine(self):
@@ -241,6 +242,68 @@ class BskEngineTests(unittest.TestCase):
         self.assertEqual(process.returncode, 2)
         fatal = next(event for event in events if event["type"] == "fatal")
         self.assertEqual(fatal["error"]["code"], "UNPINNED_TARGET")
+
+
+class BskSessionSharingTests(unittest.TestCase):
+    run_flow = BskEngineTests.run_flow
+
+    """#112: several agents on one browser must not drive each other's tab or window."""
+
+    def test_the_run_owns_a_tab_and_pins_every_tab_scoped_command_to_it(self):
+        _, _, events, calls = self.run_flow(READ_ONLY)
+        ready = next(event for event in events if event["type"] == "session_ready")
+        self.assertEqual(ready["tab_id"], "4242")
+        self.assertTrue(ready["session_owned"])
+        self.assertIn("tab create", calls)
+        # Unpinned means "whichever tab is active", which a peer can move at any moment.
+        self.assertNotIn("tab=unpinned", calls)
+        self.assertIn("tab=4242", calls)
+
+    def test_attaching_to_a_shared_session_never_starts_or_stops_it(self):
+        _, out, events, calls = self.run_flow(
+            READ_ONLY, {"FAKE_BSK_SESSIONS": "shared-1:only-one"},
+            ["--bsk-session", "shared-1"])
+        ready = next(event for event in events if event["type"] == "session_ready")
+        self.assertEqual(events[-1]["verdict"], "PASS")
+        self.assertEqual(ready["target_id"], "shared-1")
+        self.assertFalse(ready["session_owned"])
+        self.assertNotIn("session start", calls)
+        self.assertNotIn("session stop", calls)
+        self.assertIn("tab close", calls)     # only our own tab goes away
+        self.assertIn("shared window", (out / "qa-report.md").read_text(encoding="utf-8"))
+
+    def test_the_env_can_supply_the_shared_session(self):
+        _, _, events, calls = self.run_flow(
+            READ_ONLY, {"FAKE_BSK_SESSIONS": "shared-9:only-one", "TEIBTO_BSK_SESSION": "shared-9"})
+        ready = next(event for event in events if event["type"] == "session_ready")
+        self.assertEqual(ready["target_id"], "shared-9")
+        self.assertNotIn("session start", calls)
+
+    def test_attaching_to_a_session_that_is_gone_fails_closed(self):
+        process, _, events, calls = self.run_flow(
+            READ_ONLY, {"FAKE_BSK_SESSIONS": "shared-1:only-one"},
+            ["--bsk-session", "ghost"])
+        fatal = next(event for event in events if event["type"] == "fatal")
+        self.assertEqual(fatal["error"]["code"], "BSK_SESSION_MISSING")
+        self.assertEqual(process.returncode, 1)   # a session that cannot be opened fails the run
+        self.assertNotIn("session start", calls)
+        self.assertNotIn("tab create", calls)
+
+    def test_attaching_is_rejected_on_the_cdp_engine(self):
+        process, _, events, _ = self.run_flow(
+            READ_ONLY, {"TEIBTO_QA_ENGINE": "cdp", "TGT_ID": "page-1"},
+            ["--bsk-session", "shared-1"], with_engine=False)
+        fatal = next(event for event in events if event["type"] == "fatal")
+        self.assertEqual(fatal["error"]["code"], "INVALID_ARGS")
+        self.assertEqual(process.returncode, 2)
+
+    def test_a_peer_holding_the_session_is_waited_out_not_reported_as_a_failure(self):
+        process, _, events, calls = self.run_flow(READ_ONLY, {"FAKE_BSK_BUSY_ONCE": "click"})
+        self.assertEqual(events[-1]["verdict"], "PASS")
+        self.assertEqual(process.returncode, 0)
+        # The rejected command was never dispatched, so the same click is sent again (#112 E7).
+        self.assertEqual(2, sum(1 for call in calls if call.startswith("click ")))
+        self.assertGreaterEqual(events[-1]["session_sharing"]["busy_waits"], 1)
 
 
 if __name__ == "__main__":
