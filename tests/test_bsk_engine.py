@@ -306,6 +306,38 @@ class BskSessionSharingTests(unittest.TestCase):
         self.assertEqual(["tab select", "screenshot --out"], order[:2])
         self.assertIn("tab-target=4242", calls)
 
+    def test_a_peer_that_steals_focus_once_costs_a_retry_not_the_run(self):
+        """#120: a capture is read-only, so select+capture may simply be sent again."""
+        process, out, events, calls = self.run_flow(READ_ONLY, {"FAKE_BSK_STEAL_FOCUS": "once"})
+        self.assertEqual(events[-1]["verdict"], "PASS")
+        self.assertEqual(process.returncode, 0)
+        self.assertTrue((out / "shots" / "read-01.png").is_file())
+        self.assertEqual(2, sum(1 for call in calls if call == "screenshot --out"))
+        self.assertEqual(2, sum(1 for call in calls if call == "tab select"))
+
+    def test_a_peer_that_never_yields_fails_with_a_contended_tab_not_a_raw_error(self):
+        _, _, events, calls = self.run_flow(READ_ONLY, {"FAKE_BSK_STEAL_FOCUS": "always"})
+        failed = next(event for event in events
+                      if event["type"] == "step_done" and event.get("error"))
+        self.assertEqual(failed["error"]["code"], "CAPTURE_TAB_CONTENDED")
+        self.assertIn("--bsk-session", failed["error"]["message"])   # names the way out
+        # Three attempts for the step's own capture, three more for the failure evidence shot.
+        self.assertEqual(6, sum(1 for call in calls if call == "screenshot --out"))
+
+    def test_an_rpc_timeout_on_a_window_that_is_gone_reads_as_a_lost_session(self):
+        """A closed Agent Window reaches the CLI as a timeout; blaming a slow browser hides it."""
+        _, _, events, _ = self.run_flow(READ_ONLY, {"FAKE_BSK_RPC_TIMEOUT": "click"})
+        failed = next(event for event in events
+                      if event["type"] == "step_done" and event.get("error"))
+        self.assertEqual(failed["error"]["code"], "BSK_SESSION_LOST")
+
+    def test_an_rpc_timeout_while_the_window_is_alive_stays_a_command_failure(self):
+        _, _, events, _ = self.run_flow(
+            READ_ONLY, {"FAKE_BSK_RPC_TIMEOUT": "click", "FAKE_BSK_SESSIONS": "fake-session:only-one"})
+        failed = next(event for event in events
+                      if event["type"] == "step_done" and event.get("error"))
+        self.assertEqual(failed["error"]["code"], "BSK_COMMAND_FAILED")
+
     def test_a_peer_holding_the_session_is_waited_out_not_reported_as_a_failure(self):
         process, _, events, calls = self.run_flow(READ_ONLY, {"FAKE_BSK_BUSY_ONCE": "click"})
         self.assertEqual(events[-1]["verdict"], "PASS")

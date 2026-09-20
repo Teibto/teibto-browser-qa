@@ -71,6 +71,9 @@ BSK_SESSION_SCOPED = {"status", "browsers", "daemon", "doctor", "logs", "session
 # dispatches it (measured, #112), so waiting and re-sending is safe even for a click. The lease keeps
 # our own processes apart; this window covers a peer that does not take the lease.
 BSK_BUSY_RETRY_SECONDS = 30.0
+# A capture only reads the screen, so the select+capture pair may be re-sent when a peer that does
+# not take the lease activates its own tab in between (#120).
+BSK_CAPTURE_ATTEMPTS = 3
 # The in-page guard answers page dialogs before the native dialog can block the browser, so a
 # leaked native confirm is evidence the guard did not install; format with json.dumps(policy).
 BSK_GUARD_JS = (
@@ -576,8 +579,11 @@ class BskSession:
                                       f"{BSK_BUSY_RETRY_SECONDS:.0f}s — มี agent อื่นขับ session เดียวกันอยู่")
                 time.sleep(0.25)
                 continue
-            if "session not registered" in text or "no active tab in Agent Window" in text:
-                # Usually a human closed the Agent Window. Whatever ran last may or may not have landed.
+            if ("session not registered" in text or "no active tab in Agent Window" in text
+                    or ('"code":"timeout"' in text.replace(" ", "") and self._session_gone())):
+                # Usually a human closed the Agent Window. Whatever ran last may or may not have
+                # landed. A closed window also shows up as an RPC timeout, so a timeout is checked
+                # against the daemon's own session list before it is blamed on a slow browser.
                 raise RunnerError("BSK_SESSION_LOST",
                                   f"bsk session หายระหว่าง {args[0]} (Agent Window ถูกปิด?) — ผลของ action ล่าสุด"
                                   "ไม่ทราบ ห้ามรันซ้ำโดยไม่ตรวจกับ backend ก่อน")
@@ -594,6 +600,49 @@ class BskSession:
             return json.loads(done.stdout)
         except ValueError as exc:
             raise RunnerError("INVALID_SESSION_OUTPUT", f"bsk {args[0]} คืนค่าที่ไม่ใช่ JSON") from exc
+
+    def _capture(self, path: str) -> None:
+        """Photograph this run's own tab.
+
+        bsk captures the visible tab only, so the tab is selected first and both calls run under one
+        lease. That is enough against processes that take the lease; a peer that does not (another
+        tool, or the person using the browser) can still activate its tab in between, so the pair is
+        retried — a capture changes nothing on the page, and re-sending it is always safe.
+        """
+        last = ""
+        for attempt in range(1, BSK_CAPTURE_ATTEMPTS + 1):
+            try:
+                with self._critical():
+                    if self.tab_id:
+                        self._run(["tab", "select", self.tab_id], idempotent=True)
+                    self._run(["screenshot", "--out", path], idempotent=True)
+            except RunnerError as exc:
+                if exc.code != "BSK_COMMAND_FAILED" or "not active" not in str(exc):
+                    raise
+                last = str(exc)
+                if attempt == BSK_CAPTURE_ATTEMPTS:
+                    raise RunnerError(
+                        "CAPTURE_TAB_CONTENDED",
+                        f"ถ่ายภาพไม่ได้ใน {BSK_CAPTURE_ATTEMPTS} ครั้ง เพราะมีคนอื่นสลับ active tab ของ "
+                        f"Agent Window นี้ตลอด — ให้ run นี้ใช้หน้าต่างของตัวเอง (ไม่ต้องใส่ --bsk-session) "
+                        f"หรือรอให้ peer ทำงานเสร็จก่อน: {last[:200]}") from exc
+                time.sleep(0.4 * attempt)
+                continue
+            if not Path(path).is_file():
+                raise RunnerError("CAPTURE_FAILED", f"bsk ไม่ได้เขียนไฟล์: {path}")
+            return
+
+    def _session_gone(self) -> bool:
+        """Has our Agent Window disappeared? Asked only to explain a failure, never to drive one."""
+        env = os.environ.copy()
+        env["BSK_AUTO_START"] = "0"
+        try:
+            done = subprocess.run([*self.bsk, "status", "--json"], capture_output=True, text=True,
+                                  encoding="utf-8", errors="replace", env=env, timeout=20)
+            sessions = json.loads(done.stdout).get("sessions") or []
+        except (OSError, ValueError, subprocess.SubprocessError):
+            return False                       # cannot tell: leave the original error as it was
+        return self.session_id not in {str(item.get("session_id")) for item in sessions}
 
     def _dispatch(self, command: list[str], env: dict[str, str],
                   timeout: float) -> subprocess.CompletedProcess[str]:
@@ -748,15 +797,7 @@ class BskSession:
                     raise RunnerError("WAIT_TIMEOUT", f"เงื่อนไขไม่เป็นจริงใน {args[1]}s: {args[0][:200]}")
                 time.sleep(float(args[2]))
         elif command == "shot":
-            # bsk captures the visible tab only, so the run's own tab has to be brought to the
-            # front first. Both calls happen under one lease: a peer that activates its own tab
-            # between the select and the capture would otherwise hand us its page.
-            with self._critical():
-                if self.tab_id:
-                    self._run(["tab", "select", self.tab_id], idempotent=True)
-                self._run(["screenshot", "--out", args[0]], idempotent=True)
-            if not Path(args[0]).is_file():
-                raise RunnerError("CAPTURE_FAILED", f"bsk ไม่ได้เขียนไฟล์: {args[0]}")
+            self._capture(args[0])
         elif command == "console":
             result = self._run(["console", "--since", str(self.console_since)], idempotent=True)
             self.console_since = int(result.get("next_since") or self.console_since)

@@ -37,6 +37,11 @@ if once == args[0] and log:
     seen = pathlib.Path(log).read_text(encoding="utf-8").splitlines().count(args[0] + " " + (args[1] if len(args) > 1 else ""))
     if seen == 1:
         fail("cdp_failed", "Detached while handling command.")
+# FAKE_BSK_RPC_TIMEOUT=<command>: the daemon answers a timeout, which is also what a closed
+# Agent Window looks like from the CLI.
+if os.environ.get("FAKE_BSK_RPC_TIMEOUT") == args[0]:
+    print(json.dumps({"code": "timeout", "message": "tool RPC timed out after 30s", "exit_code": 1}))
+    raise SystemExit(1)
 if os.environ.get("FAKE_BSK_SESSION_LOST") == args[0]:
     fail("not_found", "session not registered or already stopped")
 if os.environ.get("FAKE_BSK_NO_TAB") == args[0]:
@@ -125,6 +130,15 @@ elif command == "evaluate":
         value = "https://example.test/done" if expression == "location.href" else "saved successfully"
         out = {"ok": True, "value": value}
 elif command == "screenshot":
+    # FAKE_BSK_STEAL_FOCUS=once|always models a peer that activates its own tab between our
+    # `tab select` and our capture, which the real engine answers with `not active`.
+    steal = os.environ.get("FAKE_BSK_STEAL_FOCUS")
+    if steal and log:
+        taken = pathlib.Path(log).read_text(encoding="utf-8").splitlines().count("screenshot --out")
+        if steal == "always" or taken == 1:
+            print(json.dumps({"code": "invalid_params", "exit_code": 1,
+                              "message": "tab is not active; screenshot can only capture the visible tab"}))
+            raise SystemExit(1)
     # The real engine captures the visible tab only: a pinned background tab is refused until the
     # caller selects it. Keeping that rule here is what makes #118 a red test instead of an empty
     # shots/ directory nobody notices.
