@@ -39,9 +39,16 @@ if once == args[0] and log:
         fail("cdp_failed", "Detached while handling command.")
 # FAKE_BSK_RPC_TIMEOUT=<command>: the daemon answers a timeout, which is also what a closed
 # Agent Window looks like from the CLI.
-if os.environ.get("FAKE_BSK_RPC_TIMEOUT") == args[0]:
-    print(json.dumps({"code": "timeout", "message": "tool RPC timed out after 30s", "exit_code": 1}))
-    raise SystemExit(1)
+rpc_timeout = os.environ.get("FAKE_BSK_RPC_TIMEOUT", "")
+rpc_command, _, rpc_mode = rpc_timeout.partition(":")
+if rpc_command == args[0]:
+    seen = 0
+    if log and rpc_mode == "once":
+        seen = pathlib.Path(log).read_text(encoding="utf-8").splitlines().count(
+            args[0] + " " + (args[1] if len(args) > 1 else ""))
+    if rpc_mode != "once" or seen == 1:
+        print(json.dumps({"code": "timeout", "message": "tool RPC timed out after 30s", "exit_code": 1}))
+        raise SystemExit(1)
 # FAKE_BSK_STOPPING=<command>: the daemon is tearing the session down under us.
 if os.environ.get("FAKE_BSK_STOPPING") == args[0]:
     print(json.dumps({"code": "timeout", "message": "session is stopping", "exit_code": 4}))
