@@ -1,6 +1,10 @@
 # Command Reference — `cdp.py` (CDP ตรง)
 
-transport ของ skill นี้คือ **`cdp.py`** ซึ่งเป็น asset กลางของ `Teibto/teibto-dev-standards`
+ไฟล์นี้ใช้เฉพาะ `--engine cdp`; ค่าเริ่มต้นของ skill คือ BrowserSkill (`bsk`) — อ่าน
+[`engine2-bsk.md`](engine2-bsk.md) สำหรับงานใหม่ รวม NetSuite เมื่อผู้ใช้เลือก bsk.
+อย่าสลับไป CDP เพียงเพราะตัวอย่างเก่าใช้คำสั่งในไฟล์นี้.
+
+transport ของเลนนี้คือ **`cdp.py`** ซึ่งเป็น asset กลางของ `Teibto/teibto-dev-standards`
 (`scripts/cdp.py`). Flow runner ต้องใช้ JSONL protocol v3+; ad-hoc command ใช้ policy ปกติของ driver.
 
 ## เตรียม (ครั้งเดียวต่อเครื่อง)

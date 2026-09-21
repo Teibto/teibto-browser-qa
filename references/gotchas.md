@@ -1,5 +1,8 @@
 # กับดักที่เจอจริง + วิธีแก้ (transport = CDP ตรง)
 
+ค่าเริ่มต้นคือ BrowserSkill (`bsk`); กับดักของ bsk อยู่ใน [`engine2-bsk.md`](engine2-bsk.md).
+ใช้ไฟล์นี้เมื่อเลือก `--engine cdp` โดยชัดแจ้งเท่านั้น.
+
 รวมข้อจำกัดและความเข้าใจผิดที่ทำให้ direct-CDP automation ผ่านหรือ fail แบบหลอกบน Windows.
 พฤติกรรมที่ขึ้นกับ Chrome/driver ระบุ provenance ใน `docs/CLAIMS-AUDIT.md`; รัน self-test ใหม่เมื่อ
 เวอร์ชันเปลี่ยน.

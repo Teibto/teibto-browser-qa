@@ -2,14 +2,14 @@
 
 [![Release](https://img.shields.io/github/v/release/Teibto/teibto-browser-qa?logo=github&label=release&color=5A3FD6)](https://github.com/Teibto/teibto-browser-qa/releases/latest)
 [![CI](https://github.com/Teibto/teibto-browser-qa/actions/workflows/ci.yml/badge.svg)](https://github.com/Teibto/teibto-browser-qa/actions/workflows/ci.yml)
-[![driver](https://img.shields.io/badge/driver-CDP%20direct%20(cdp.py)-orange?logo=googlechrome)](https://github.com/Teibto/teibto-dev-standards)
+[![driver](https://img.shields.io/badge/driver-BrowserSkill%20(bsk)-orange?logo=googlechrome)](https://github.com/Teibto/teibto-dev-standards)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
 <p align="center">
   <img src="docs/banner.png" alt="teibto-browser-qa: browser QA and docs from one real browser run" width="100%">
 </p>
 
-A browser-QA skill for driving a real Chrome target through the team's canonical `cdp.py`. It turns
+A browser-QA skill for driving Chrome through BrowserSkill (`bsk`) by default, using the user's existing login. It turns
 one live flow into an evidence-backed verdict and, when needed, a user guide or bug report.
 
 > **Renamed 2026-08-21:** `agent-browser-qa` moved to `Teibto/teibto-browser-qa`. Install only
@@ -33,8 +33,10 @@ plans, evidence packs, and release-readiness review use `teibto-qa-review`.
 ```mermaid
 flowchart LR
     spec["Flow YAML or ad-hoc steps"] --> runner["flow-runner.py"]
-    runner -->|"JSONL v3<br/>bounded session"| cdp["canonical cdp.py"]
-    cdp --> chrome["Pinned Chrome target"]
+    runner -->|"default"| bsk["BrowserSkill + shared session lease"]
+    runner -->|"explicit --engine cdp"| cdp["canonical cdp.py / JSONL v3"]
+    bsk --> chrome["Owned, pinned browser tab"]
+    cdp --> chrome
     chrome --> evidence["short results + screenshots"]
     evidence --> report["QA report"]
     evidence --> docs["guide / bug-report PDF"]
@@ -53,7 +55,7 @@ py -m pip install -r requirements.txt
 py -m pip install websocket-client pillow numpy
 ```
 
-The flow runner requires canonical `cdp.py` JSONL protocol v3 or newer, first released in
+The explicit `--engine cdp` lane requires canonical `cdp.py` JSONL protocol v3 or newer, first released in
 [`teibto-dev-standards v0.83.0`](https://github.com/Teibto/teibto-dev-standards/releases/tag/v0.83.0).
 Pass its path with `--cdp-script` or `TEIBTO_CDP_SCRIPT`. The runner also checks the standard team
 installation path automatically. CI verifies every change against that pinned tag in real Chrome
@@ -61,41 +63,39 @@ installation path automatically. CI verifies every change against that pinned ta
 
 ## Quick smoke run
 
-Launch a dedicated Chrome profile and port, pin a target, navigate with event-bound readiness, then
-assert the page and capture evidence:
+Install the pinned BrowserSkill CLI and connect its extension to the host-managed daemon.
+Read [`references/engine2-bsk.md`](references/engine2-bsk.md) for setup, shared-session rules,
+dialog handling and NetSuite identity checks. The same engine is the default for NetSuite interactive QA
+when selected by the machine owner.
 
-```bash
-export TEIBTO_CDP_SCRIPT="$HOME/.claude/skills/netsuite-qa-browser/references/cdp.py"
-export CDP_PORT=9400
-AB(){ py "$TEIBTO_CDP_SCRIPT" "$@"; }
-
-chrome --user-data-dir=/tmp/teibto-browser-qa-profile \
-  --remote-debugging-port=$CDP_PORT --no-first-run about:blank &
-until curl -sf "http://127.0.0.1:$CDP_PORT/json/version" >/dev/null; do sleep 1; done
-
-export TGT_ID=$(AB newtab "https://example.com?job=smoke")
-AB nav https://example.com --until=load --timeout=30
-AB get text title
-AB console
-AB shot hello.png
+```powershell
+$env:BSK_AUTO_START = '0'
+python scripts/bsk-shared.py status
+$sid = python scripts/bsk-shared.py ensure
+python scripts/flow-runner.py --flow examples/saucedemo.yaml --out runs/manual `
+  --engine bsk --bsk-session $sid --stdout summary
 ```
 
-The title should contain `Example Domain`, `console` should return `[]`, and `hello.png` should exist.
-If `console` reports that no collector exists, the page was not observed; that is not a clean result.
-See [`references/commands.md`](references/commands.md) for the complete command reference and
-[`references/gotchas.md`](references/gotchas.md) before testing a live application.
+Choose `--browser <instance-id>` on the coordinator when multiple browsers are connected.
+The runner owns its tab and holds the session lease; do not stop the shared session after a run.
+Use `--engine cdp` only for the capabilities listed in the engine reference or CI.
+
+For fixes newer than the latest `.skill` release, use a verified `main` commit, run
+`python scripts/build-skill.py`, and install the complete bundle into each agent's skill directory.
+Record the source commit and preserve local configuration separately; old skill descriptions can
+otherwise continue routing agents to CDP even after the runner has been updated.
 
 ## Run a repeatable flow
 
 [`examples/saucedemo.yaml`](examples/saucedemo.yaml) demonstrates a happy path plus an adversarial
-scenario. Pin the target and send secrets through stdin rather than argv:
+scenario. Share a session and send secrets through stdin rather than argv:
 
 ```powershell
-$env:TGT_ID = '<page-target-id>'
-$env:TEIBTO_CDP_SCRIPT = 'D:\path\to\teibto-dev-standards\scripts\cdp.py'
+$env:BSK_AUTO_START = '0'
+$sid = python scripts/bsk-shared.py ensure
 '{"username":"standard_user","password":"..."}' |
   py scripts/flow-runner.py --flow examples/saucedemo.yaml --out runs/manual --vars-json - `
-    --stdout summary
+    --engine bsk --bsk-session $sid --stdout summary
 ```
 
 The runner writes:
@@ -107,8 +107,7 @@ runs/manual/
   shots/
 ```
 
-It validates the schema before opening the driver, refuses to guess a shared tab, negotiates protocol
-v3+, attributes structured dialog evidence to the command/step that caused it, waits for the new
+It validates the schema before opening the driver, owns and pins its tab, attributes structured dialog evidence to the command/step that caused it, waits for the new
 main-frame document on navigation, and polls bounded observable outcomes after fast
 inputs, redacts secret variables, records every auto-answered dialog as evidence under a pinned
 `safe` dialog policy, and fails closed on command, wait, assertion, capture, console, or transport
@@ -140,7 +139,7 @@ Read only the reference needed for the current task:
 | Need | Source |
 |---|---|
 | Safety traps and diagnosis | [`references/gotchas.md`](references/gotchas.md) |
-| CDP commands and setup | [`references/commands.md`](references/commands.md) |
+| Explicit CDP commands and setup | [`references/commands.md`](references/commands.md) |
 | Test design and browser limits | [`references/test-design.md`](references/test-design.md), [`references/cdp-limits.md`](references/cdp-limits.md) |
 | Flow schema, waits, capture, telemetry | [`references/flow-spec.md`](references/flow-spec.md) |
 | Retry, quarantine, and coverage gate | [`references/reliability-policy.md`](references/reliability-policy.md), [`references/coverage-model.md`](references/coverage-model.md) |

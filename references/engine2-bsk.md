@@ -4,6 +4,20 @@
 กับดักใน [`gotchas.md`](gotchas.md) เป็นของ direct CDP และไม่ได้ย้ายตามมาเอง. ทุกตัวเลขข้างล่างวัดกับ
 `bsk` 0.3.0 + Chrome 152 บน Windows และมีแถวใน `docs/CLAIMS-AUDIT.md` — ขยับรุ่นแล้วต้องวัดใหม่.
 
+## การเลือก engine และการอัปเดต
+
+BrowserSkill เป็นค่าเริ่มต้นสำหรับ interactive QA รวม NetSuite เมื่อเจ้าของเครื่องเลือกใช้.
+คำสั่งเก่าที่บังคับ `cdp.py` ไม่ใช่เหตุผลให้สลับ engine; ใช้ CDP เฉพาะ capability ที่ตาราง
+engine ระบุหรือเมื่อผู้ใช้เลือก. สำหรับ NetSuite อ่าน §3 และ §6 ก่อนเปลี่ยนข้อมูล:
+ตรวจ account/environment/role, ติดตั้ง dialog guard และยืนยันผล save จากแหล่งอิสระ.
+ถ้า browser ยังไม่ login ให้เจ้าของทำ login/MFA ใน browser ที่เลือก ไม่เปิด profile ใหม่หรือ
+เรียก CDP login อัตโนมัติ. ห้ามรบกวนงาน CDP ที่ยังรันอยู่ระหว่างย้าย.
+
+อัปเดตแพ็กเกจ `teibto-browser-qa` จาก commit ที่ตรวจสอบแล้วของ `main` เมื่อต้องการ fixes
+ที่ใหม่กว่า release. ติดตั้งทั้ง `SKILL.md`, references, scripts, examples และ schemas พร้อมกัน;
+การคัดลอกเฉพาะ SKILL.md ทำให้คำสั่งเรียก runtime ที่ยังเก่า. เก็บ SHA ของแหล่งที่ติดตั้ง.
+แยกเวอร์ชันแพ็กเกจนี้ออกจาก `bsk` CLI/extension ซึ่ง runner pin ไว้ที่ 0.3.0.
+
 ## 1. ตั้งเครื่อง (ครั้งเดียว)
 
 1. ติดตั้ง CLI แบบ pin รุ่น: รัน `install.ps1` ของ upstream โดยตั้ง `BSK_VERSION=0.3.0` (รุ่นที่ runner pin)
