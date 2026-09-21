@@ -318,7 +318,8 @@ trusted input และคือรัศมีระเบิดของ injec
 | QA ทั่วไป, งานบน browser ที่คน login ไว้, งานที่ต้องให้คนทำ MFA กลาง run | `bsk` (ค่าตั้งต้น) |
 | `lens` / `netlog` / `stub` / `steady` / `diff`, PDF pipeline | `--engine cdp` — `bsk` ไม่มีความสามารถเหล่านี้ |
 | CI (`driver-compat`) และ local UI | `--engine cdp` — runner ของ CI ไม่มี extension |
-| NetSuite บนเครื่องที่ใช้ ns-qa coordinator (หลาย agent แชร์ session เดียว) | `--engine cdp` ผ่าน coordinator |
+| NetSuite interactive QA เมื่อเจ้าของเครื่องเลือก BrowserSkill | `bsk` ผ่าน `bsk-shared.py`, shared lease และ owned tab; คง identity/role/dialog/save gates |
+| NetSuite ที่เลือก CDP อย่างชัดแจ้ง | `--engine cdp` ผ่าน ns-qa coordinator เดิม; ห้าม fallback/login อัตโนมัติ |
 
 ความสามารถที่ `cdp.py` ขาดยังเปิด issue ที่ `Teibto/teibto-dev-standards`; ความสามารถที่ `bsk` ขาดบันทึกใน
 `references/engine2-bsk.md` และเปิด issue ที่ upstream เมื่อเจ้าของ repo สั่ง.

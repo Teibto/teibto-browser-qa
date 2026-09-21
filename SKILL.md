@@ -1,45 +1,47 @@
 ---
 name: teibto-browser-qa
 description: >-
-  Drive a real browser through the canonical cdp.py driver and produce evidence-backed QA results,
+  Drive a real browser through BrowserSkill (bsk) by default and produce evidence-backed QA results,
   screenshots, user guides, or bug-report PDFs. Use for live smoke/functional/visual/UX checks of
   generic web apps, Suitelets, APEX pages, forms, grids, and multi-step flows. Not for writing
   Playwright/Cypress CI suites; NetSuite record-form QA belongs to netsuite-ui-qa-testing, while QA
-  plan/evidence/release-readiness review belongs to teibto-qa-review. Read references/gotchas.md
-  before driving the browser.
+  plan/evidence/release-readiness review belongs to teibto-qa-review. Read references/engine2-bsk.md
+  before driving with bsk; references/gotchas.md covers the explicit CDP lane.
 ---
 
 # Browser QA & Docs
 
-Use the team-owned `cdp.py` from
-[`Teibto/teibto-dev-standards`](https://github.com/Teibto/teibto-dev-standards) to drive Chrome
-directly over CDP. The driver supplies actions and evidence; the agent derives tests, judges results,
-and writes the report. A happy-path run should yield both a smoke verdict and documentation material.
+Use BrowserSkill (`bsk`) to drive the user's connected Chrome through a shared Agent Window.
+The driver supplies actions and evidence; the agent derives tests, judges results, and writes the report. A happy-path run should yield both a smoke verdict and documentation material.
 
 BrowserSkill (`bsk`) is the **primary engine**: `flow-runner.py` drives it unless told otherwise, so a run
 works in the browser a person is already logged in to. `bsk` itself accepts every native dialog, so the
 runner enforces the `--dialog` policy with an in-page guard (`safe`: `confirm`/`prompt` are answered NO) and
 fails the step if a native dialog still gets through. Use `--engine cdp` (the team's `cdp.py`) for
-`lens`/`netlog`/`stub`/`diff`, for CI, and for the shared NetSuite coordinator lane. Setup, limits and the
+`lens`/`netlog`/`stub`/`diff` and CI. NetSuite interactive QA also uses `bsk` when the machine owner
+has selected it; retain identity, role, dialog and save-verification gates. The old NetSuite CDP
+coordinator applies only to an explicitly selected CDP run, never as an automatic fallback. Setup, limits and the
 NetSuite rules are in [`references/engine2-bsk.md`](references/engine2-bsk.md).
 
 ## Invariants
 
-Keep these rules in context for every live run. Read [`references/gotchas.md`](references/gotchas.md)
-for failure modes and verified workarounds.
+Keep these rules in context for every live run. Read [`references/engine2-bsk.md`](references/engine2-bsk.md)
+for the default engine; [`references/gotchas.md`](references/gotchas.md) covers explicit CDP runs.
 
-1. **Isolate the browser.** One job gets one `CDP_PORT`, one `--user-data-dir`, and one pinned
-   `TGT_ID`. On `bsk`: one pinned session **and** one tab of your own — a command without `--tab-id`
-   drives whichever tab is active, which any other agent can move. Never guess among shared tabs.
+1. **Own and pin your tab.** Obtain the machine's shared Agent Window with `scripts/bsk-shared.py ensure`,
+   then pin the session and your own tab on every tab-scoped command. Use the shared lease;
+   a command without `--tab-id` follows the active tab, which a peer can move. Close only your own tab.
+   Explicit CDP runs pin `TGT_ID` and follow their browser coordinator's isolation rules.
 2. **Use trusted actions.** `click` already scrolls into view and sends an Input event. If it does not
    work, record a failure; never hide it with `element.click()`.
 3. **Assert observable outcomes.** Exit 0 means the command was dispatched, not that the business
    result happened. Use a bounded `wait`, `url`, `get`, or `is` check after every state-changing step.
-4. **Navigate through the driver.** Prefer `nav <url> --until=load --timeout=30`; it binds readiness
-   to the new main-frame document and installs the console collector before page scripts run.
-5. **Treat dialogs as mutations.** Read every `[dialog]` line on stderr. Use `DIALOG=dismiss` when a
-   save, delete, or before-unload confirmation must not be accepted.
-6. **`UNVERIFIED` is never `PASS`.** Report anything CDP cannot observe as unverified and name the
+4. **Navigate through the driver.** Use the selected engine's navigation command and a bounded
+   page-specific readiness check. The CDP spelling is `nav <url> --until=load --timeout=30`.
+5. **Treat dialogs as mutations.** On `bsk`, use the runner's `--dialog safe` policy and inspect
+   dialog events; native acceptance that escapes the guard fails the step. Direct scripts must
+   implement the guards in `references/engine2-bsk.md`. `DIALOG=dismiss` is a CDP-only setting.
+6. **`UNVERIFIED` is never `PASS`.** Report anything the selected engine cannot observe as unverified and name the
    required alternative; see [`references/cdp-limits.md`](references/cdp-limits.md).
 7. **Keep evidence token-safe.** Query only the required text/value/count, filter `a11y`, and save
    screenshots to files. Do not return full-page HTML, accessibility dumps, or image bytes to context.
@@ -75,7 +77,7 @@ The full standard — pain inventory, the nine rules, coverage matrix, and adopt
 
 | Need | Read/use |
 |---|---|
-| Explore or smoke-test a live page | [`references/commands.md`](references/commands.md) |
+| Explore or smoke-test a live page | [`references/engine2-bsk.md`](references/engine2-bsk.md); CDP-only commands: [`references/commands.md`](references/commands.md) |
 | Design supported and adversarial cases | [`references/test-design.md`](references/test-design.md) |
 | Store and replay a flow | [`references/flow-spec.md`](references/flow-spec.md) and `scripts/flow-runner.py` |
 | Diagnose retry/flakiness | [`references/reliability-policy.md`](references/reliability-policy.md) |
@@ -83,10 +85,14 @@ The full standard — pain inventory, the nine rules, coverage matrix, and adopt
 | Accessibility or performance | [`references/a11y-layer.md`](references/a11y-layer.md) or [`references/perf-layer.md`](references/perf-layer.md) |
 | Responsive/theme/focus/network UX | [`references/ux-lens.md`](references/ux-lens.md) |
 | User-guide or bug-report PDF | [`references/pdf-reports.md`](references/pdf-reports.md) |
-| Drive a logged-in browser `cdp.py` cannot attach to | [`references/engine2-bsk.md`](references/engine2-bsk.md) and `flow-runner.py --engine bsk` |
+| Drive a logged-in browser, including NetSuite | [`references/engine2-bsk.md`](references/engine2-bsk.md) and `flow-runner.py --engine bsk` |
 | Change real settings through a UI | [`references/configure.md`](references/configure.md); keep it separate from QA |
 
 ## Live action loop
+
+For `bsk`, use the commands and NetSuite procedures in `references/engine2-bsk.md`.
+The following command spellings and `@ref`/`backendNodeId` details describe the explicit CDP lane;
+do not send them to `bsk` or switch engines to follow an old recipe.
 
 ```text
 nav --until=load
