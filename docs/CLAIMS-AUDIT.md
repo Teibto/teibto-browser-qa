@@ -44,6 +44,8 @@ Status terms:
 | A flow that declares no `allowed_origins` keeps its previous behaviour and pays no extra round trip | verified | no-policy run asserting `origin_gate: not-declared` |
 | Missing/old driver fails as `DRIVER_INCOMPATIBLE` rather than using a silent fallback | verified | `tests/test_flow_runner.py` |
 | Success/failure screenshots follow scenario/step capture policy | verified | runner unit tests and live fixture |
+| `scripts/profile-sweep.py` keeps a profile that Chrome is using, one touched within `--keep-days`, or one with a `.keep` marker, and defaults to dry-run | verified | `tests/test_profile_sweep.py` (in-use/age/marker/protect/dry-run/apply cases) |
+| Chrome `--disable-features=OptimizationGuideModelDownloading` + `--disable-component-update` cut `.qa-profiles` growth | inferred | mitigation documented in `gotchas.md` §10; not A/B-verified in this repository, so do not use alone for a verdict |
 
 ## Performance evidence
 
