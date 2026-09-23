@@ -10,6 +10,14 @@
 
 ## [Unreleased]
 
+### Added
+
+- **`scripts/bsk-account.py`: daemon แยกต่อ account ลูกค้า** — `ensure <account>` เปิด (หรือใช้ตัวเดิม) daemon
+  ที่มี `BSK_HOME` และ port ของตัวเอง (เริ่ม 52810 ทีละ 10 · ไม่แจก 52800) · `env` พิมพ์ `BSK_HOME` /
+  `BSK_AUTO_START` / `TEIBTO_BSK_SESSION_ROOT` สำหรับ bash · PowerShell · JSON · `status` บอกว่า browser ต่ออยู่หรือยัง
+  และต้องตั้ง Local port ของส่วนเสริมเป็นเท่าไร · มาจากงานจริงที่สามโปรเจกต์ใช้ daemon เดียวกันจน session ซ้อนและ
+  login NetSuite หลุด · วิธีใช้และตัวเลขที่วัดได้อยู่ใน `references/engine2-bsk.md` §1.2
+
 ### Fixed
 
 - **ด่านจำลอง S05/S10 ไม่แกว่งอีก:** เดิมฉีด fault ด้วย `sleep` ตายตัวและไม่ตรวจว่า fault ลงจริง —

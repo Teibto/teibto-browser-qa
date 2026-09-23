@@ -93,6 +93,26 @@ def stored() -> list[str]:
     return [line for line in store.read_text(encoding="utf-8").splitlines() if line.strip()]
 
 
+# FAKE_BSK_DAEMONS=1 models one daemon per BSK_HOME (scripts/bsk-account.py): `daemon start` records the
+# port in <BSK_HOME>/fake-daemon.json, `status` answers only when that file exists, like a real daemon
+# that is or is not listening on the account's named pipe. FAKE_BSK_DAEMON_BROWSERS lists who is connected.
+if os.environ.get("FAKE_BSK_DAEMONS") == "1" and command in ("daemon", "status"):
+    home = pathlib.Path(os.environ.get("BSK_HOME") or (pathlib.Path.home() / ".bsk"))
+    state = home / "fake-daemon.json"
+    if command == "daemon":
+        home.mkdir(parents=True, exist_ok=True)
+        state.write_text(json.dumps({"pid": 4000 + len(str(home)), "ws_port": int(flag("--port"))}), encoding="utf-8")
+        raise SystemExit(0)
+    if not state.exists():
+        print(json.dumps({"code": None, "message": "ensure daemon is running: automatic daemon startup is disabled",
+                          "exit_code": 2}))
+        raise SystemExit(2)
+    daemon = json.loads(state.read_text(encoding="utf-8"))
+    browsers = [{"instance_id": item} for item in os.environ.get("FAKE_BSK_DAEMON_BROWSERS", "").split(",") if item]
+    print(json.dumps({"daemon_version": version, "pid": daemon["pid"], "ws_port": daemon["ws_port"],
+                      "browsers": browsers, "sessions": []}))
+    raise SystemExit(0)
+
 if command == "status":
     # FAKE_BSK_SESSIONS=<session-id>:<instance-id>,... models sessions another agent already started.
     items = [item for item in os.environ.get("FAKE_BSK_SESSIONS", "").split(",") if item] + stored()
