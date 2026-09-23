@@ -70,6 +70,31 @@ python scripts/bsk-shared.py release                  # เจ้าของง
 สคริปต์ที่ **เปิด** session เองต้องปิดเอง (`with Session(...)` / runner ปิดให้อัตโนมัติ): session ที่ค้างคือหน้าต่าง
 ที่ค้างบนจอ — ตรวจด้วย `bsk session list --json` ตอนจบงาน. สคริปต์ที่ **attach** ปิดเฉพาะ tab ของตัวเอง.
 
+### 1.2 หนึ่ง daemon ต่อหนึ่ง account ลูกค้า — แยก port และ `BSK_HOME`
+
+§1.1 จัดการการชนกัน *ภายใน* daemon เดียว. เมื่อเปิดหลายโปรเจกต์ (หลาย account ลูกค้า) พร้อมกัน ทุกโปรเจกต์
+ลงที่ daemon port 52800 ตัวเดียวและ Chrome โปรไฟล์เดียว: session ซ้อนกัน และ login NetSuite ของโปรเจกต์หนึ่ง
+เตะอีกโปรเจกต์หลุด (เกิดจริง 2026-09-23 · สาเหตุเป็น `inferred` — ตรงกับแถว "login ฝั่งหนึ่งแล้วอีกฝั่งหลุด" ใน §4).
+ทางแก้คือ **daemon แยกต่อ account** + **Chrome โปรไฟล์แยกต่อ account**:
+
+```bash
+python scripts/bsk-account.py ensure foodstar          # เปิด (หรือใช้ตัวเดิม) daemon ของ account · จอง port ให้ครั้งแรก
+eval "$(python scripts/bsk-account.py env foodstar)"   # bash · PowerShell: env foodstar --shell pwsh | Invoke-Expression
+SID=$(python scripts/bsk-shared.py ensure --browser <instance>)   # registry ของ account เองผ่าน TEIBTO_BSK_SESSION_ROOT
+python scripts/bsk-account.py status                   # ทุก account: port · pid · browser ที่ต่ออยู่
+```
+
+มี daemon ที่เปิดด้วยมือไว้ก่อนแล้ว: `ensure <account> --port <P> --bsk-home <path>` รับเข้า registry และใช้ตัวที่รันอยู่ ไม่เปิดตัวที่สอง.
+
+| ข้อเท็จจริงที่วัดได้ (bsk 0.3.1 · Chrome 153 · Windows · 2026-09-23) | ผลต่อการใช้งาน |
+|---|---|
+| `bsk daemon start --port <P>` ฟังที่ port นั้น · daemon คนละ `BSK_HOME` ได้ named pipe และ `daemon.lock` คนละชุด (`bsk-daemon-58b7…` กับ `bsk-daemon-19e4…`) และรันพร้อมกันได้ | ทุกคำสั่ง `bsk` ของ account ต้องมี `BSK_HOME` ตัวเดียวกับ daemon ของมัน — ขาดตัวแปรนี้คำสั่งจะไปลง daemon กลาง 52800 เงียบ ๆ |
+| ส่วนเสริม BrowserSkill ต่อได้ทีละ port และเก็บค่า **Local port** ต่อ Chrome โปรไฟล์ · กด **Save port** แล้วหลุดจาก 52800 และต่อ 52810 ในวินาทีเดียวกัน (log ของสอง daemon: `browser disconnected` 14:06:49.448 → `browser connected` 14:06:49.451) | ฝั่ง browser ตั้งด้วยมือเท่านั้น — เจ้าของเครื่องเลือกโปรไฟล์ของ account (agent เปิดหน้าต่างของโปรไฟล์ที่มีอยู่แล้วให้ได้เมื่อถูกขอ แต่ไม่สร้างโปรไฟล์ใหม่ และตั้งค่าในป๊อปอัปแทนคนไม่ได้) · ตรวจผลด้วย `bsk-account.py status` ไม่ใช่เชื่อว่ากด Save แล้ว (รอบแรกที่แจ้งว่ากดแล้ว ค่าไม่ถูกบันทึก) |
+| Chrome คนละโปรไฟล์ = cookie คนละชุด | login NetSuite ของแต่ละ account แยกกัน ไม่เตะกันหลุด |
+| `bsk-account.py` ไม่เคยแจก port 52800 และไม่ย้าย port ของ account ที่มีอยู่แล้ว (`PORT_CONFLICT`) · daemon ที่ฟังผิด port ถูกรายงาน (`PORT_MISMATCH`) ไม่ถูกใช้ต่อ | port ของ account เปลี่ยนได้ต่อเมื่อแก้ในส่วนเสริมด้วย จึงไม่เปลี่ยนเงียบ ๆ · registry `~/.teibto/bsk-accounts.json` เก็บแค่ชื่อ port และ path |
+
+ห้ามปิด daemon 52800 หรือ daemon ของ account อื่นจากงานของตัวเอง — มันเป็นของโปรเจกต์ที่ยังรันอยู่.
+
 ## 2. สองทางในการรัน
 
 | ทาง | ใช้เมื่อ | ข้อจำกัด |
