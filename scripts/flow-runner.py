@@ -75,7 +75,15 @@ EVAL_EVIDENCE = "state set by eval, not trusted input"
 # by equality after normalisation — deriving one from the other would fail every existing flow.
 IDENTITY_ACTIONS = ("click", "fill")
 # Actions whose driver command takes `--observe` and therefore returns a page-state receipt.
+# `eval` is deliberately absent: cdp.py wraps only click/fill/key/pick in `observed()`, so there is
+# no receipt to ask for. An eval step's evidence is the BAS-7 `eval` event instead, which records
+# that the state was declared rather than observed — a weaker claim, and it is reported as one.
 RECEIPT_ACTIONS = ("click", "fill", "select", "press")
+# A `fn:` wait evaluates flow-supplied JavaScript in the page to decide when to continue. It is a
+# read-only predicate by contract, not by enforcement: nothing stops the expression from having a
+# side effect, and the BAS-7 eval gate does not cover it. Recorded so a reader of the report can
+# see that this run ran page JavaScript the eval gate never saw.
+FN_WAIT_PREFIX = "fn:"
 RECEIPT_KEYS = frozenset({"url", "title", "focused", "console_new", "dialogs", "net_errors",
                           "downloads", "ref_invalidated"})
 RECEIPT_MISSING = "no page-state receipt from the driver (BAS-3: UNVERIFIED)"
@@ -225,6 +233,7 @@ def flow_policy(flow: dict[str, Any]) -> dict[str, Any]:
     undeclared_evals: list[str] = []
     identity: list[dict[str, Any]] = []
     identity_misplaced: list[str] = []
+    fn_waits: list[dict[str, Any]] = []
     for scenario in flow["scenarios"]:
         for index, step in enumerate(scenario["steps"], 1):
             level = step.get("risk", DEFAULT_RISK)
@@ -237,6 +246,11 @@ def flow_policy(flow: dict[str, Any]) -> dict[str, Any]:
                                  "expect_count": step.get("expect_count")})
                 if step["action"] not in IDENTITY_ACTIONS:
                     identity_misplaced.append(f"{scenario['id']}#{index} (action: {step['action']})")
+            for field, raw in (("wait", step.get("wait")),
+                               ("target", step.get("target") if step["action"] == "wait" else None)):
+                if isinstance(raw, str) and raw.startswith(FN_WAIT_PREFIX):
+                    fn_waits.append({"step": f"{scenario['id']}#{index}", "field": field,
+                                     "expression": raw[len(FN_WAIT_PREFIX):]})
             if step["action"] != "eval":
                 continue
             reason = str(step.get("eval_reason") or "").strip()
@@ -255,6 +269,7 @@ def flow_policy(flow: dict[str, Any]) -> dict[str, Any]:
         "undeclared_evals": undeclared_evals,
         "identity_steps": identity,
         "identity_misplaced": identity_misplaced,
+        "fn_waits": fn_waits,
     }
 
 
@@ -1083,12 +1098,15 @@ def action_receipt(result: dict[str, Any]) -> dict[str, Any] | None:
 
 
 def perform_action(session: CDPSession, step: dict[str, Any], variables: dict[str, Any],
-                   timings: StepTimings, engine: str = "cdp") -> dict[str, Any]:
+                   timings: StepTimings, engine: str = "cdp",
+                   context: dict[str, Any] | None = None) -> dict[str, Any]:
     action = step["action"]
     target = substitute(step.get("target", ""), variables)
     value = substitute(step.get("value", ""), variables)
     flags = driver_flags(step, variables, engine)
-    context: dict[str, Any] = {"receipt_requested": "--observe" in flags, "receipt": None}
+    # The caller may own the dict so that a failure after the action still sees the receipt.
+    context = {} if context is None else context
+    context.update({"receipt_requested": "--observe" in flags, "receipt": None})
     if step.get("wait") == "networkidle" and action != "open":
         context["document_before"] = timings.command(
             session,
@@ -1262,7 +1280,10 @@ def run_flow(flow: dict[str, Any], path: Path, output_dir: Path, variables: dict
                               "destructive_allowed": allow_destructive,
                               "eval_gate": "declared" if policy["eval_steps"] else "no-eval-steps",
                               "eval_steps": policy["eval_steps"],
-                              "identity_steps": policy["identity_steps"]},
+                              "identity_steps": policy["identity_steps"],
+                              # Page JavaScript the BAS-7 eval gate does not cover; see
+                              # references/flow-spec.md § `fn:` waits.
+                              "fn_waits": policy["fn_waits"]},
                "scenarios": [{"id": item["id"], "steps": len(item["steps"])}
                              for item in flow["scenarios"]]})
     startup_started = time.perf_counter()
@@ -1309,6 +1330,9 @@ def run_flow(flow: dict[str, Any], path: Path, output_dir: Path, variables: dict
                            "global_index": global_index, "intent": intent, "status": "running"})
                 timings = StepTimings()
                 performance: dict[str, Any] | None = None
+                # Held outside the try so a step that fails after its action still reports the
+                # receipt that action already returned.
+                context: dict[str, Any] = {}
                 try:
                     if raw_step["action"] == "eval":
                         # Recorded before it runs: an eval that throws still changed whatever it
@@ -1322,7 +1346,8 @@ def run_flow(flow: dict[str, Any], path: Path, output_dir: Path, variables: dict
                                    **declaration, "evidence": EVAL_EVIDENCE})
                         report.append(f"- 🧪 eval (risk: {declaration['risk']}) — {EVAL_EVIDENCE}"
                                       f": {declaration['reason']}")
-                    context = perform_action(session, raw_step, variables, timings, engine)
+                    context = perform_action(session, raw_step, variables, timings, engine,
+                                             context)
                     perform_wait(session, raw_step, variables, context, timings)
                     # The gate runs before the assertion so an escape is reported as an escape.
                     # Asserting first on a foreign page would surface ASSERTION_FAILED and hide
@@ -1356,9 +1381,11 @@ def run_flow(flow: dict[str, Any], path: Path, output_dir: Path, variables: dict
                         receipts_requested += 1
                         if receipt is not None:
                             receipts_received += 1
-                        elif status != "unverified" and raw_step["action"] in MUTATING_ACTIONS:
-                            # BAS-3: a state change nobody observed is the same evidence position
-                            # as one nobody asserted, whatever the assertion says.
+                        elif status != "unverified":
+                            # BAS-3 applies to every action we asked to observe, including `fill`:
+                            # the read-back proves the field holds the value, not that the page
+                            # survived it. A state change nobody observed sits in the same
+                            # evidence position as one nobody asserted.
                             unverified += 1
                             status = "unverified"
                             detail = (f"{detail} · " if detail else "") + RECEIPT_MISSING
@@ -1436,6 +1463,10 @@ def run_flow(flow: dict[str, Any], path: Path, output_dir: Path, variables: dict
                                "global_index": global_index, "intent": intent, "status": "fail",
                                "error": {"code": exc.code, "message": str(exc)},
                                "shot": shot,
+                               # The action may well have landed before the wait or the assertion
+                               # failed; its receipt is the evidence of what it did.
+                               **({"receipt": context.get("receipt")}
+                                  if context.get("receipt_requested") else {}),
                                **({"performance": performance} if performance else {}),
                                **({"evidence_error": evidence_error} if evidence_error else {}),
                                "duration_ms": timing_payload["total_ms"],
@@ -1521,6 +1552,10 @@ def run_flow(flow: dict[str, Any], path: Path, output_dir: Path, variables: dict
         # A flow with no eval step keeps the report it had before, down to the line count.
         summary.insert(2, f"**Eval steps:** {evals_run}/{len(policy['eval_steps'])} executed "
                           f"— {EVAL_EVIDENCE}")
+    if policy["fn_waits"]:
+        summary.insert(2, f"**`fn:` waits:** {len(policy['fn_waits'])} step(s) ran flow-supplied "
+                          "page JavaScript as a wait predicate — read-only by contract, not "
+                          "enforced by the eval gate")
     if receipts_requested:
         summary.insert(2, f"**Action receipts:** {receipts_received}/{receipts_requested} received"
                           + (f" · identity guard declared on {len(policy['identity_steps'])} step(s)"
@@ -1537,6 +1572,7 @@ def run_flow(flow: dict[str, Any], path: Path, output_dir: Path, variables: dict
                "risk_counts": policy["risk_counts"],
                "eval_steps": {"declared": len(policy["eval_steps"]), "executed": evals_run,
                               "evidence": EVAL_EVIDENCE},
+               "fn_waits": {"declared": len(policy["fn_waits"]), "gated_by_eval_rule": False},
                "action_receipts": {"requested": receipts_requested, "received": receipts_received,
                                    "engine_supported": engine == "cdp"},
                "identity_guard": {"declared": len(policy["identity_steps"]),

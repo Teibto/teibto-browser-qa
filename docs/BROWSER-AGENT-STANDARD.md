@@ -94,7 +94,7 @@ page-state receipt, ไม่มี download ledger และไม่มีต�
 
 | Pain | ปิดด้วย | สถานะวันนี้ | เลน |
 |---|---|---|---|
-| A1 | BAS-3 | 🟢 runner สั่ง `--observe` ให้ทุก action ที่เปลี่ยน state เอง และ "ไม่มีใบเสร็จ = `UNVERIFIED`" | cdp |
+| A1 | BAS-3 | 🟡 runner สั่ง `--observe` เองทุกครั้งให้ `click`/`fill`/`select`/`press` และ "ไม่มีใบเสร็จ = `UNVERIFIED`" · **`eval` ไม่มีใบเสร็จให้ขอ** (driver ไม่ wrap `observed()`) จึงยังมี action ที่เปลี่ยน state แล้วไม่มีใครสังเกต | cdp |
 | A2 | BAS-3 | 🟡 `console_new` อยู่ในใบเสร็จ และคืน `"unwatched"` เมื่อไม่ได้เฝ้า ไม่ใช่ `0` | cdp |
 | A3 | BAS-8 | 🟢 บังคับแล้ว | ทุก engine |
 | A4 | BAS-8 · BAS-9 | 🟢 บังคับแล้ว | ทุก engine |
@@ -117,18 +117,19 @@ page-state receipt, ไม่มี download ledger และไม่มีต�
 | D1 | BAS-5 | 🟡 invariant 8 บังคับแล้ว · ซอง `<<<PAGE_DATA>>>` **ถูกปฏิเสธ** ที่ canonical PR #300 จะไม่มา | ทุก engine |
 | D2 | BAS-5 | 🟡 `get text --visible-only` ตัดข้อความซ่อนครบเจ็ดท่า (opt-in) · `a11y` ตั้งใจยังเห็น sr-only/นอกจอ | cdp |
 | D3 | BAS-6 | 🟡 `cookies` ไม่คืนค่า และ `console`/`lens netlog` ผ่านตัว redact **เป็นค่าตั้งต้น** | cdp |
-| D4 | BAS-7 | 🟡 flow ที่มี `action: eval` ต้องประกาศ `eval_reason` + `risk` ไม่งั้นถูกปฏิเสธก่อนเปิด browser และทุก eval ที่รันถูกบันทึกเป็นหลักฐาน · ad-hoc mode ยังไม่มีด่าน | ทุก engine |
+| D4 | BAS-7 | 🟡 flow ที่มี `action: eval` ต้องประกาศ `eval_reason` + `risk` ไม่งั้นถูกปฏิเสธก่อนเปิด browser และทุก eval ที่รันถูกบันทึกเป็นหลักฐาน · **`fn:` wait ยังรัน JS ของ flow ได้โดยไม่ต้องประกาศ** (บันทึกไว้ ไม่ได้ปฏิเสธ) · ad-hoc mode ยังไม่มีด่าน | ทุก engine |
 | E1 | BAS-1 · BAS-3 | 🟢 บังคับแล้ว | ทุก engine |
 | E2 | BAS-3 | 🟡 `--stdout summary` แก้ฝั่ง runner แล้ว | ทุก engine |
 | E3 | BAS-3 · BAS-2 | 🟡 ad-hoc mode มีใบเสร็จให้สั่งแล้ว · ยังไม่มีอะไรบังคับว่าต้องสั่ง | cdp |
 
-นับจากตารางข้างบนได้ 🟢 15 · 🟡 12 · 🔴 0 จาก 27 รายการ — ก่อน #153/#154 ตารางเดียวกันนับได้
+นับจากตารางข้างบนได้ 🟢 14 · 🟡 13 · 🔴 0 จาก 27 รายการ — ก่อน #153/#154 ตารางเดียวกันนับได้
 🟢 14 · 🟡 12 · 🔴 1 (บรรทัดสรุปเดิมเขียน 🟢 15 · 🟡 11 · 🔴 1 ซึ่ง **ไม่ตรงกับตารางของตัวเอง**;
 แก้ให้ตรงแล้วที่ #154 · จำนวนก่อน #291–#294 ที่เคยบันทึกไว้คือ 🟢 15 · 🟡 6 · 🔴 6 และไม่ได้นับใหม่).
 ไม่มีช่องไหนเหลือ 🔴 แล้ว: D4 ซึ่งเป็นช่องสุดท้ายและ **ไม่ใช่งานฝั่ง driver** ได้ด่านฝั่งสกิลแล้วที่ #153.
-A1 ขึ้น 🟢 ที่ #154 เพราะ runner สั่งใบเสร็จให้เองทุก action ที่เปลี่ยน state ไม่ใช่รอให้ผู้เขียน flow สั่ง
-(และไม่มีใบเสร็จ = `UNVERIFIED` ไม่ใช่ผ่านเงียบ) · A9 ยัง 🟡 เพราะ `expect:` ยังเป็น opt-in ต่อ step:
-flow ที่ไม่ประกาศยังคลิกผิด element ได้เงียบเหมือนเดิม.
+**ไม่มีช่องไหนขึ้น 🟢 จาก #153/#154:** A1 ยัง 🟡 เพราะ `eval` เป็น action ที่เปลี่ยน state ได้แต่ driver
+ไม่มีใบเสร็จให้ขอ — "ทุก action ที่เปลี่ยน state มีใบเสร็จ" จึงยังไม่จริง · A9 ยัง 🟡 เพราะ `expect:`
+เป็น opt-in ต่อ step: flow ที่ไม่ประกาศยังคลิกผิด element ได้เงียบเหมือนเดิม · D4 ยัง 🟡 เพราะ `fn:` wait
+ยังรัน JS ของ flow ได้โดยไม่ผ่านด่านประกาศ.
 ช่อง 🟡 ที่เหลือจะขึ้น 🟢 ได้ต่อเมื่อ runner สั่งความสามารถนั้นให้เอง (ไม่ใช่ opt-in ของผู้เขียน flow)
 และมีเทสด้านลบในรีโปนี้.
 
@@ -201,7 +202,7 @@ ref ที่ stale ต้องคืน **ข้อความที่บอ
 
 ### BAS-3 — หนึ่ง action หนึ่งใบเสร็จ (ผลสังเกตต้องแนบมา ไม่ใช่ต้องจำเอง)
 
-**Status.** `partial` — ด่าน: `scripts/flow-runner.py` (สั่ง `--observe` ให้ทุก action ที่เปลี่ยน state บนเลน cdp และนับ "ไม่มี receipt" เป็น `UNVERIFIED`) + `tests/test_flow_runner.py` (`IdentityGuardAndReceiptTests`) + `tests/test-flow-runner-live.sh` · driver: `Teibto/teibto-dev-standards#292` v0.88.0, canonical `tests/test-cdp.sh` T28a–T28n · **ยังไม่มี:** `downloads on` (A10) ยังต้องสั่งเอง, ad-hoc mode ยังไม่มีอะไรบังคับว่าต้องสั่ง `--observe` และ `bsk` ไม่มีใบเสร็จเลย — ติดตามที่ #76
+**Status.** `partial` — ด่าน: `scripts/flow-runner.py` (สั่ง `--observe` ให้ `click`/`fill`/`select`/`press` บนเลน cdp ทุกครั้ง และนับ "ไม่มี receipt" เป็น `UNVERIFIED`) + `tests/test_flow_runner.py` (`IdentityGuardAndReceiptTests`) + `tests/test-flow-runner-live.sh` · driver: `Teibto/teibto-dev-standards#292` v0.88.0, canonical `tests/test-cdp.sh` T28a–T28n · **ยังไม่มี:** `eval` ไม่มีใบเสร็จเลยเพราะ driver wrap `observed()` เฉพาะ click/fill/key/pick (หลักฐานของ eval step คือ event ของ BAS-7 ซึ่งพิสูจน์ *การประกาศ* ไม่ใช่ *ผล*), `downloads on` (A10) ยังต้องสั่งเอง, ad-hoc mode ยังไม่มีอะไรบังคับว่าต้องสั่ง `--observe`, และ `bsk` ไม่มีใบเสร็จเลย — ติดตามที่ #76
 
 **กฎ.** action ที่เปลี่ยน state คืน **page-state receipt** ก้อนสั้น:
 
@@ -288,7 +289,7 @@ ref ที่ stale ต้องคืน **ข้อความที่บอ
 
 ### BAS-7 — eval เป็นเครื่องมืออ่าน ไม่ใช่ทางลัดในการเปลี่ยน state
 
-**Status.** `partial` — ด่าน: `scripts/flow-runner.py` (`EVAL_NOT_DECLARED`, ปฏิเสธก่อนเปิด browser) + `tests/test_flow_runner.py` (`EvalDeclarationTests`) · บังคับแล้วใน flow ทั้งสอง engine: `action: eval` ต้องประกาศ `eval_reason` และ `risk` ของตัวเอง และทุก eval ที่รันถูกบันทึกลง run-log + `qa-report.md` ว่า `state set by eval, not trusted input` · **ยังไม่มี:** ad-hoc mode (`cdp.py eval` ตรง ๆ) ไม่มีด่าน และด่านนี้ไม่ตัดสินแทนคนว่า expression นั้นเปลี่ยน state จริงหรือไม่ — ติดตามที่ #76
+**Status.** `partial` — ด่าน: `scripts/flow-runner.py` (`EVAL_NOT_DECLARED`, ปฏิเสธก่อนเปิด browser) + `tests/test_flow_runner.py` (`EvalDeclarationTests`) · บังคับเฉพาะ step ที่ `action: eval` ของ flow ทั้งสอง engine: ต้องประกาศ `eval_reason` และ `risk` ของตัวเอง และทุก eval ที่รันถูกบันทึกลง run-log + `qa-report.md` ว่า `state set by eval, not trusted input` · **ยังไม่ครอบ (สามช่อง):** (ก) ad-hoc mode (`cdp.py eval` ที่พิมพ์เอง) · (ข) **`wait: "fn:<js>"` และ `action: wait` ที่ target ขึ้นต้นด้วย `fn:`** ซึ่งรัน JavaScript ของ flow ในหน้าเว็บเหมือนกันแต่ **ไม่ต้องประกาศอะไร** — เป็น read-only predicate โดย *สัญญา* ไม่ใช่โดยการบังคับ (runner บันทึกไว้ใน `run_start.run_policy.fn_waits` + `run_done.fn_waits` + บรรทัดสรุปในรายงาน แต่ไม่ปฏิเสธ) · (ค) ด่านนี้ไม่ตัดสินแทนคนว่า expression เปลี่ยน state จริงหรือไม่ — ติดตามที่ #76
 
 **กฎ.** `eval`/`evalf` ใช้เพื่อ **อ่าน/assert** และตั้ง test-only state ที่ตั้งใจเท่านั้น. การใช้ `eval` เปลี่ยน state
 ของแอปแทน trusted action **เป็น finding ไม่ใช่ทางแก้** (กฎนี้มีอยู่แล้ว — เอกสารนี้เพิ่ม *เหตุผล*: มันคือทางเลี่ยง
@@ -428,9 +429,10 @@ download ledger (A10) ส่งมาแล้วที่ v0.88.0 เป็น 
 
 **ช่องว่างที่ปิดไปแล้ว:** C4 (origin escape) และ C2 ฝั่งนโยบาย ปิดด้วย BAS-4 · D1 ฝั่งกฎของ agent ปิดด้วย
 invariant ข้อ 8 · A8 ฝั่งการรายงานปิดด้วย `PASS(visual)` · A9, A10, D2, D3 และ E3 มีของจริงบนเลน cdp แล้ว ·
-D4 ได้ด่านฝั่งสกิลแล้วที่ #153 (flow mode) · A1 ปิดแล้วที่ #154 (runner สั่งใบเสร็จเอง).
-**ที่ยังเปิดอยู่:** ad-hoc mode ของ D4 (`cdp.py eval` ตรง ๆ ยังไม่มีด่าน) · A9 ที่ `expect:` ยังเป็น
-opt-in ต่อ step · และของเทียบเท่าทั้งสี่อย่างบน engine ตั้งต้น `bsk` ซึ่ง **ยังไม่มี**
+D4 ได้ด่านฝั่งสกิลแล้วที่ #153 (เฉพาะ `action: eval` ใน flow) · A1 ได้ใบเสร็จที่ runner สั่งเองที่ #154.
+**ที่ยังเปิดอยู่:** D4 นอกช่อง `action: eval` — ad-hoc mode (`cdp.py eval` ตรง ๆ) และ `fn:` wait
+ที่รัน JS ของ flow โดยไม่ต้องประกาศ · A1 สำหรับ `eval` ซึ่ง driver ไม่มีใบเสร็จให้ · A9 ที่ `expect:`
+ยังเป็น opt-in ต่อ step · และของเทียบเท่าทั้งสี่อย่างบน engine ตั้งต้น `bsk` ซึ่ง **ยังไม่มี**
 
 ---
 

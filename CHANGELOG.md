@@ -10,9 +10,12 @@
 
 ## [Unreleased]
 
-### Added
+### Changed
 
-- **flow: `action: eval` ต้องประกาศตัว และทุก eval ที่รันกลายเป็นหลักฐาน (#153, BAS-7 / pain D4)** —
+- **BREAKING — flow: `action: eval` ต้องประกาศตัว และทุก eval ที่รันกลายเป็นหลักฐาน (#153, BAS-7 / pain D4)** —
+  flow เดิมทุกไฟล์ที่มี step `action: eval` **จะหยุดทำงานทันทีด้วย `EVAL_NOT_DECLARED`** จนกว่าจะแก้ ·
+  **การย้ายรุ่น:** เติม `eval_reason: "<ทำไมต้องใช้ eval>"` และ `risk: read|write|destructive` ให้ทุก step
+  ที่ `action: eval` (ดูตัวอย่างที่ `self-test/engine2/flow-own.yaml`) ·
   step ที่ `action: eval` ต้องมี `eval_reason` (สตริงไม่ว่าง) และ `risk` ของตัวเอง โดย **ห้ามรับค่า default
   `read`** เพราะ default คือรูปร่างของการเปลี่ยน state ของแอปแบบไม่มีใครรู้ บน profile ที่ login ค้างไว้ ·
   ขาดอย่างใดอย่างหนึ่ง = `EVAL_NOT_DECLARED` ตั้งแต่ **ก่อนเปิด browser** (session ไม่ถูก start เลย) ·
@@ -20,22 +23,28 @@
   `🧪 eval (risk: …) — state set by eval, not trusted input: <reason>` + สรุป `**Eval steps:**` ใน
   `qa-report.md`, สรุปรวมที่ `run_done.eval_steps` · flow ที่ไม่มี `eval` ได้รายงานและ event ชุดเดิมทุกบรรทัด ·
   ช่อง 🔴 สุดท้ายของ pain inventory (D4) ปิดแล้ว และ BAS-7 เลื่อน `proposed` → `partial`
-  (ad-hoc mode ยังไม่มีด่าน)
-- **flow: `expect:`/`expect_count:` ต่อเข้า `--expect` ของ driver และทุก action ที่เปลี่ยน state ขอใบเสร็จ
+  (ครอบเฉพาะ step `action: eval` — ad-hoc mode และ `fn:` wait ยังไม่มีด่าน)
+- **flow: `expect:`/`expect_count:` ต่อเข้า `--expect` ของ driver และ action ที่ driver สังเกตได้ขอใบเสร็จ
   (#154, BAS-2/BAS-3 · pain A9/A1 · เลน `--engine cdp` เท่านั้น)** — step `click`/`fill` ที่ประกาศ `expect:`
   ส่ง `--expect`/`--expect-count` ให้ `cdp.py` v0.88.0 ซึ่งตรวจ accessible name **ก่อน** dispatch input event:
   ไม่ตรง = step FAIL ด้วย `EXPECT_MISMATCH`/`EXPECT_COUNT_MISMATCH` โดยหน้าเว็บไม่ถูกแตะเลย (พิสูจน์สดใน
   `tests/test-flow-runner-live.sh`) · identity มาจากฟิลด์ที่ประกาศตรง ๆ **ไม่ใช่เดาจาก `intent:`** ซึ่งเป็น
   ร้อยแก้วสำหรับคนอ่านรายงาน ขณะที่ driver เทียบแบบ equality — การเดาจะทำให้ flow เดิมล้มทุกไฟล์ ·
-  runner สั่ง `--observe` ให้ `click`/`fill`/`select`/`press` **เองทุกครั้งโดยไม่ต้องประกาศ** และ
-  "ไม่มีใบเสร็จ = `UNVERIFIED`" ตาม BAS-3 · ใบเสร็จอยู่ที่ `step_done.receipt`, บรรทัด `🧾 receipt:` ในรายงาน
-  และ `run_done.action_receipts` · **`bsk` ไม่มีของเทียบเท่าและไม่อ้าง coverage:** flow ที่ประกาศ `expect`
-  บนเลนนั้นถูกปฏิเสธด้วย `EXPECT_UNSUPPORTED_ENGINE` ก่อนเปิด session · A1 ขึ้น 🟢, A9 ยัง 🟡 (opt-in ต่อ step) →
-  ตารางนับได้ 🟢 15 · 🟡 12 · 🔴 0 และบรรทัดสรุปเดิมที่เขียน 🟢 15 · 🟡 11 · 🔴 1 ทั้งที่ตารางเป็น 14/12/1
-  ถูกแก้ให้ตรงกับตารางแล้ว
-
-### Changed
-
+  runner สั่ง `--observe` ให้ `click`/`fill`/`select`/`press` **เองทุกครั้งโดยไม่ต้องประกาศ** (สี่คำสั่งนี้คือ
+  ทั้งหมดที่ `cdp.py` wrap ด้วย `observed()` — **`eval` ไม่มีใบเสร็จให้ขอ**) และ action ที่ขอใบเสร็จแล้วไม่ได้
+  กลับมา = `UNVERIFIED` ตาม BAS-3 รวม `fill` ด้วย · ใบเสร็จอยู่ที่ `step_done.receipt` (ติดไปกับ step ที่ล้ม
+  *หลัง* action สำเร็จด้วย), บรรทัด `🧾 receipt:` ในรายงาน และ `run_done.action_receipts` ·
+  **`bsk` ไม่มีของเทียบเท่าและไม่อ้าง coverage:** flow ที่ประกาศ `expect` บนเลนนั้นถูกปฏิเสธด้วย
+  `EXPECT_UNSUPPORTED_ENGINE` ก่อนเปิด session · **ไม่มีช่อง coverage ไหนขึ้น 🟢**: A1 ยัง 🟡 เพราะ `eval`
+  ไม่มีใบเสร็จ, A9 ยัง 🟡 เพราะ `expect:` เป็น opt-in ต่อ step → ตารางนับได้ 🟢 14 · 🟡 13 · 🔴 0
+  และบรรทัดสรุปเดิมที่เขียน 🟢 15 · 🟡 11 · 🔴 1 ทั้งที่ตารางเป็น 14/12/1 ถูกแก้ให้ตรงกับตารางแล้ว ·
+  **ข้อจำกัดที่รู้ตัว:** `--observe` ทำงานอยู่ใน command เดียวกับ action และ driver ไม่แตกเวลาให้
+  จึงแยกออกจาก `perf_budget_ms` ไม่ได้แบบที่ทำกับ origin gate — วัดได้ median **0.789 ms** ต่อ action
+  (20 คู่บน fixture ของ repo, ดู `docs/CLAIMS-AUDIT.md`) การแยกจริงต้องแก้ฝั่ง driver
+- **flow: `fn:` wait ถูกบันทึกเป็นหลักฐาน (ไม่ถูกปฏิเสธ)** — `wait: "fn:<js>"` และ `action: wait` ที่ target
+  ขึ้นต้นด้วย `fn:` รัน JavaScript ของ flow ในหน้าเว็บโดยไม่ผ่านด่านประกาศของ BAS-7 · flow เดิม**ไม่พัง** แต่
+  run-log และ report บอกไว้ตรง ๆ ว่ามีกี่ step (`run_start.run_policy.fn_waits`, `run_done.fn_waits`,
+  บรรทัด ``**`fn:` waits:**``) และ D4 ยัง 🟡 ด้วยเหตุผลนี้
 - **BAS coverage สะท้อนของจริงที่ driver `v0.88.0` ให้ (#76):** child ฝั่ง driver ทั้งสี่ใบ
   (`teibto-dev-standards` #291 `--expect`/`--expect-count` · #292 page-state receipt + download ledger ·
   #293 ตัวกรอง hidden text · #294 redaction ของ `cookies`/`console`/netlog) ปิดแล้วและอยู่ใน driver ที่รีโปนี้ pin ·
