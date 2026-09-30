@@ -55,11 +55,12 @@ py -m pip install -r requirements.txt
 py -m pip install websocket-client pillow numpy
 ```
 
-The explicit `--engine cdp` lane requires canonical `cdp.py` JSONL protocol v3 or newer, first released in
-[`teibto-dev-standards v0.83.0`](https://github.com/Teibto/teibto-dev-standards/releases/tag/v0.83.0).
-Pass its path with `--cdp-script` or `TEIBTO_CDP_SCRIPT`. The runner also checks the standard team
-installation path automatically. CI verifies every change against that pinned tag in real Chrome
-(`driver-compat` job; see [`CONTRIBUTING.md`](CONTRIBUTING.md)).
+The explicit `--engine cdp` lane requires canonical `cdp.py` JSONL protocol v3 or newer **and** a ready
+handshake that proves the pinned target is foreground/visible, first released in
+[`teibto-dev-standards v0.86.0`](https://github.com/Teibto/teibto-dev-standards/releases/tag/v0.86.0)
+(protocol v3 alone, e.g. v0.83.0, is no longer sufficient). Pass its path with `--cdp-script` or
+`TEIBTO_CDP_SCRIPT`. The runner also checks the standard team installation path automatically. CI verifies
+every change against the pinned tag in real Chrome (`driver-compat` job; see [`CONTRIBUTING.md`](CONTRIBUTING.md)).
 
 ## Quick smoke run
 

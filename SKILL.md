@@ -122,10 +122,11 @@ Check `console` after key steps; an error saying no collector exists means the p
 not that it had no errors. Use `lens netlog` only inside a `run` that enabled `netlog on`.
 
 For repeatable flows, `scripts/flow-runner.py` validates the YAML schema, requires a pinned target,
-negotiates CDP JSONL protocol v3+, and owns one bounded `session --jsonl --input-settle=none` per run.
+negotiates CDP JSONL protocol v3+, requires ready evidence that the exact pinned target is
+foreground/visible, and owns one bounded `session --jsonl --input-settle=none` per run.
 It replaces fixed input sleeps with bounded outcome checks, keeps application latency visible in
 action/wait timing, and emits separate action/wait/assert/capture timings. The runner fails closed on an old
-driver, an unsupported field, an assertion failure, or missing evidence.
+driver, a hidden/background target, an unsupported field, an assertion failure, or missing evidence.
 For agent-run flows, pass `--stdout summary`; the complete event stream remains in `run-log.jsonl`.
 Use step-level `perf_budget_ms` when action-to-observable-outcome time is an acceptance criterion.
 Declare `allowed_origins` on any flow that must not leave its environment: the runner re-checks the

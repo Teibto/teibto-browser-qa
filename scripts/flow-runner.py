@@ -356,6 +356,22 @@ class CDPSession:
         if ready.get("target_id") != target_id:
             self.close(force=True)
             raise RunnerError("TARGET_MISMATCH", f"CDP ต่อผิด target (driver: {script})", detail=ready)
+        if "foreground" not in ready or "visibility_state" not in ready:
+            self.close(force=True)
+            raise RunnerError(
+                "DRIVER_INCOMPATIBLE",
+                "cdp.py ไม่มี foreground-ready evidence: runner ต้องได้ foreground=true "
+                f"และ visibility_state=visible ก่อนเริ่มวัด performance (driver: {script})",
+                detail=ready,
+            )
+        if ready.get("foreground") is not True or ready.get("visibility_state") != "visible":
+            self.close(force=True)
+            raise RunnerError(
+                "TARGET_BACKGROUND",
+                "pinned target ไม่ได้อยู่ foreground/visible; ห้ามใช้ run นี้เป็น performance "
+                f"baseline (driver: {script})",
+                detail=ready,
+            )
         self.ready = ready
 
     def _read_stdout(self) -> None:
@@ -1090,6 +1106,8 @@ def run_flow(flow: dict[str, Any], path: Path, output_dir: Path, variables: dict
                "driver_policy": {"protocol": SESSION_PROTOCOL,
                                  "min_version": MIN_SESSION_VERSION,
                                  "input_settle": INPUT_SETTLE_POLICY,
+                                 "foreground_required": True,
+                                 "visibility_state": "visible",
                                  "dialog": dialog,
                                  "dialog_evidence": "structured-per-command",
                                  "dialog_enforcement": "in-page-guard" if engine == "bsk" else "driver",
@@ -1124,6 +1142,8 @@ def run_flow(flow: dict[str, Any], path: Path, output_dir: Path, variables: dict
                    "protocol": session.ready.get("protocol"),
                    "version": session.ready.get("version"),
                    "input_settle": session.ready.get("input_settle"),
+                   "foreground": session.ready.get("foreground"),
+                   "visibility_state": session.ready.get("visibility_state"),
                    "port": session.ready.get("port"),
                    **({"browser_instance": session.ready["browser_instance"],
                        "tab_id": session.ready["tab_id"],

@@ -17,6 +17,10 @@ infra error = ปัญหา transport/CDP หลุด ไม่เกี่�
 | `WS_DISCONNECTED` / `WS_ERROR` | WebSocket หลุดกลาง flow | cdp.py session protocol |
 | `CONTEXT_DESTROYED` | navigation ทำให้ execution context เปลี่ยน | retry 1 ครั้งเฉพาะ safe read ใน cdp.py |
 
+`DRIVER_INCOMPATIBLE` และ `TARGET_BACKGROUND` ก่อนเริ่ม flow ไม่ใช่เหตุให้ยิง scenario ซ้ำจนผ่าน:
+อัปเดต canonical driver หรือแก้ Chrome/target ownership แล้วเริ่ม run ใหม่. ห้ามลด contract หรือใช้
+run ที่ hidden เป็น performance evidence.
+
 `flow-runner.py` ไม่ replay action เอง: transport error ทำให้ run ปัจจุบัน FAIL และปิด bounded child
 process. การ retry ทั้ง scenario ต้องเป็นการตัดสินใจของ orchestration ภายนอกหลังตรวจสาเหตุแล้ว
 เท่านั้น เพื่อไม่กด action ที่เปลี่ยน state ซ้ำโดยไม่รู้ตัว
