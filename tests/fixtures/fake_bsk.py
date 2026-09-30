@@ -122,7 +122,7 @@ if command == "status":
 elif command == "browsers":
     # FAKE_BSK_BROWSERS=<id>,<id> models several connected browsers.
     out = [{"instance_id": item, "browser_name": "chrome", "browser_version": "152.0.0.0",
-            "extension_version": version}
+            "extension_version": os.environ.get("FAKE_BSK_EXTENSION_VERSION", version)}
            for item in os.environ.get("FAKE_BSK_BROWSERS", "only-one").split(",")]
 elif command == "session":
     if args[1] == "start":

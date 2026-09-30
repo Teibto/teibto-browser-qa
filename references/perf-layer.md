@@ -64,16 +64,19 @@ AB eval "performance.mark('qa_end');performance.measure('qa_action','qa_start','
 
 สำหรับ Suitelet/non-record page ให้ลด overhead โดยยังเก็บหลักฐานที่เชื่อได้:
 
-1. ใช้ persistent `--user-data-dir` เพื่อเก็บ login/trusted-device token แต่แยกหนึ่ง profile + port
+1. ใช้ runner/driver ที่ ready เฉพาะหลัง target ที่ pin เป็น foreground และ
+   `document.visibilityState=visible`; ห้ามใช้การถ่าย screenshot เป็น activation side effect และห้าม
+   รับ run ที่ hidden เป็น baseline เพราะ Chrome throttle timer ของ NetSuite ได้.
+2. ใช้ persistent `--user-data-dir` เพื่อเก็บ login/trusted-device token แต่แยกหนึ่ง profile + port
    ต่อ job; ห้ามรันขนานด้วย profile เดียวเพราะ cookie/session ชนกัน.
-2. รวม scenarios ที่เกี่ยวข้องไว้ใน flow เดียว เพื่อ reuse `cdp.py session --jsonl` process/WebSocket
+3. รวม scenarios ที่เกี่ยวข้องไว้ใน flow เดียว เพื่อ reuse `cdp.py session --jsonl` process/WebSocket
    เดียว; อย่าเรียก driver process ใหม่ทุก step.
-3. ใช้ page-specific observable `wait: "fn:..."`; หลีกเลี่ยง fixed sleep และชื่อ compatibility
+4. ใช้ page-specific observable `wait: "fn:..."`; หลีกเลี่ยง fixed sleep และชื่อ compatibility
    `networkidle` เมื่อผลที่ต้องการเป็น AJAX/Oracle JET state.
-4. ใช้ `doc: false` ใน performance/adversarial pass และไม่ต้องใส่ `capture:false`: step ที่ผ่านจะไม่ถ่าย
+5. ใช้ `doc: false` ใน performance/adversarial pass และไม่ต้องใส่ `capture:false`: step ที่ผ่านจะไม่ถ่าย
    แต่ failure ยังได้ screenshot อัตโนมัติ.
-5. รัน agent ด้วย `--stdout summary`; JSONL เต็มยังอยู่ใน artifact โดยไม่ไหลเข้า context.
-6. ใช้ selector/get/count แบบแคบ; ห้าม whole-page HTML หรือ a11y dump.
+6. รัน agent ด้วย `--stdout summary`; JSONL เต็มยังอยู่ใน artifact โดยไม่ไหลเข้า context.
+7. ใช้ selector/get/count แบบแคบ; ห้าม whole-page HTML หรือ a11y dump.
 
 ตัวอย่าง:
 

@@ -19,6 +19,21 @@
   และประกาศแล้วไม่พบก็ FAIL เพื่อไม่ให้ด่านนี้ fail open · หลักฐาน `expected`/`matched`/`unexpected`/`missing`
   อยู่ใน event `errors` และ `qa-report.md` · รายละเอียดใน `references/flow-spec.md` (#101)
 
+- **บทเรียนภาคสนามที่ค้างในสำเนาที่ติดตั้งขึ้น main แล้ว (#149):** `engine2-bsk.md` — idle-stop ของ daemon ปิด Agent Window
+  ทั้งบาน (ต้อง keep-alive ping ถ้าเปิดหน้าค้างให้ผู้ใช้ดู) และ 7 แถว §4 (click บน tab พื้นหลังโดน overlay, รูปแบบ
+  `fill --value`, `evaluate --timeout`, shared session สลับ busy/lost, `wait-ms` ไม่รับ `--session`, option ใน dialog React,
+  ย้าย secret ผ่าน stdin) · `gotchas.md` ข้อ 23 ข้อความ inline ล้น grid cell ที่ด่าน overflow ไม่เห็น
+
+### Fixed
+
+- **runner รับ bsk 0.3.2 แล้ว (#144):** เดิม pin 0.3.0 ตัวเดียว เครื่องที่อัปเดต bsk จึงล้ม `DRIVER_INCOMPATIBLE`
+  ก่อน step แรกทุก run · ตอนนี้รับรุ่นใน `BSK_VERIFIED_VERSIONS` (0.3.0, 0.3.2) เมื่อ daemon กับ extension เป็นรุ่นเดียวกัน
+  และรายงานรุ่นจริงใน `qa-report.md` · 0.3.2 ผ่าน dialog-test (นโยบายเดิม), runner-test และ contention matrix 10/10
+- **contention matrix ไม่ค้างตอนจบ:** fixture server เดิมเป็น thread เดียว socket preconnect ของ Chrome ที่ไม่ส่ง request
+  ทำให้ `shutdown()` ไม่กลับ — เปลี่ยนเป็น threaded server ที่ handler เป็น daemon thread
+
+### Added
+
 - **`scripts/bsk-account.py`: daemon แยกต่อ account ลูกค้า** — `ensure <account>` เปิด (หรือใช้ตัวเดิม) daemon
   ที่มี `BSK_HOME` และ port ของตัวเอง (เริ่ม 52810 ทีละ 10 · ไม่แจก 52800) · `env` พิมพ์ `BSK_HOME` /
   `BSK_AUTO_START` / `TEIBTO_BSK_SESSION_ROOT` สำหรับ bash · PowerShell · JSON · `status` บอกว่า browser ต่ออยู่หรือยัง
@@ -26,6 +41,13 @@
   login NetSuite หลุด · วิธีใช้และตัวเลขที่วัดได้อยู่ใน `references/engine2-bsk.md` §1.2
 
 ### Fixed
+
+- Runner fail closed ก่อนเริ่ม flow ถ้า canonical driver ไม่แนบ foreground-ready evidence หรือ target
+  ที่ pin ยัง hidden; real-Chrome consumer gate บังคับแท็บคู่แข่งให้ active ก่อนทุก run แล้วพิสูจน์ว่า
+  driver foreground target ที่ถูกต้อง ป้องกัน NetSuite background-timer throttle และ performance
+  baseline ช้าปลอม. Fresh authenticated SB2 MRP measurement จบที่ 31.310 วินาทีเมื่อ foreground-ready
+  เทียบกับ background/recovery 644.391 วินาที (ลด elapsed 95.1%) โดยผล 10,020 แถว สถานะ คำเตือน
+  และ error ตรงกัน; รอบช้าจบหลัง foreground recovery ไม่ได้จบขณะ hidden (#74).
 
 - **ด่านจำลอง S05/S10 ไม่แกว่งอีก:** เดิมฉีด fault ด้วย `sleep` ตายตัวและไม่ตรวจว่า fault ลงจริง —
   คำสั่งที่ยิงใส่ session ที่ run กำลังถืออยู่จะถูกปฏิเสธด้วย `session_busy` เงียบ ๆ ทำให้ด่านรายงานผ่าน

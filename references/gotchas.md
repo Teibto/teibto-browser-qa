@@ -30,6 +30,8 @@
 19. `document.fonts.check()` ตอบ `true` ให้ฟอนต์ที่ไม่มี — วัด presence ด้วยความกว้างเทียบ baseline คนละตระกูล
 20. `wait` หลัง `click` ไปหน้าที่โหลดเกิน ~10 วิ ล้มด้วย `WS_TIMEOUT` ทั้งที่ click สำเร็จ
 21. `fill` จบด้วยการกด Tab — โฟกัสไปอยู่ที่ `BODY` แล้ว `key Enter` ต่อจากนั้นจึงไม่ส่งฟอร์ม/แชต
+22. NetSuite อยู่แท็บเบื้องหลัง — timer throttle ทำให้ performance baseline ช้าปลอมหลายเท่า
+23. ด่าน overflow แบบ `scrollWidth > clientWidth` มองไม่เห็นข้อความ inline ที่ล้นออกจาก grid cell — ต้องเทียบ rect กับ block ancestor
 
 ---
 
@@ -510,3 +512,28 @@ step `click` ที่ทำให้เกิด navigation ไปหน้า�
   ใส่ comment อ้างข้อนี้ และห้ามใส่ `perf_budget_ms` ใน step นั้นเพราะตัวเลขจะเป็นเวลาพัก ไม่ใช่เวลาของแอป
 - ถ้าไม่ได้ต้องการพิสูจน์ว่า "ลิงก์กดได้" ให้ใช้ `open` ไป URL ปลายทางแทน — `open` รอ navigation แบบ
   event-bound และไม่เข้ากับดักนี้
+
+---
+
+## 22. NetSuite อยู่แท็บเบื้องหลัง — performance baseline ช้าปลอมหลายเท่า [HIGH]
+
+NetSuite client loop ที่ yield ด้วย `setTimeout(0)` ถูก Chrome throttle เมื่อ
+`document.visibilityState=hidden`. คำสั่งยังสำเร็จและผลธุรกิจอาจเหมือนเดิม แต่เวลารวมพองขึ้นหลายเท่า;
+การสรุปว่า Suitelet/MRP ช้าจาก run นี้จึงผิด.
+
+ก่อน `session_ready`, canonical driver ต้องเรียก `Page.bringToFront` กับ **target ที่ pin** และยืนยัน
+`document.visibilityState=visible`. Runner ต้องเห็น `foreground=true` กับ
+`visibility_state=visible` จึงเริ่ม step; ขาด field ให้ถือว่า driver ไม่ compatible และ hidden ให้ fail
+`TARGET_BACKGROUND`. อย่าใช้ screenshot เพื่อปลุกแท็บ เพราะ performance pass ที่ไม่ถ่ายภาพจะย้อนกลับ
+ไปช้าโดยไม่มีสัญญาณเตือน.
+
+---
+
+## 23. ข้อความ inline ล้นออกจาก grid cell โดยด่าน overflow ไม่เห็น
+
+- อาการ: สตริงยาวไม่มีช่องว่าง (error code, id ใน `<strong class="mono">`) ล้นทับคอลัมน์ข้าง ๆ ใน
+  `grid-template-columns:repeat(auto-fit,minmax(...))` แต่ด่าน `scrollWidth > clientWidth` ผ่านหมด และ axe ก็ไม่จับ
+- สาเหตุ: element ที่ล้นเป็น inline (`clientWidth` = 0) และ grid item ที่ไม่มี `min-width:0` ขยายตาม min-content
+- ด่านที่จับได้: สำหรับทุก element inline ที่มีข้อความของตัวเอง เทียบ `getBoundingClientRect().right` กับ block
+  ancestor ตัวแรกที่ `overflow-x: visible`; เกิน 2px = ล้น · พิสูจน์ด่านด้วยหน้าทดสอบที่ปลูกสตริงยาวใน cell 120px ก่อนเชื่อ
+- แก้: `min-width:0` ที่ grid item + `overflow-wrap:anywhere` ที่ข้อความ mono (เจอจริง 2026-09-29, Deployment Center mock)
