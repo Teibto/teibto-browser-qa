@@ -41,6 +41,7 @@ docs/CLAIMS-AUDIT.md current claim provenance and withdrawn-claim record
 | `scripts/flow-runner.py` | Validated flow execution through BrowserSkill (default) or a bounded CDP JSONL session (`--engine cdp`) |
 | `scripts/bsk_lease.py` | Cross-process turn-taking for one shared `bsk` session (runner and example harness) |
 | `scripts/bsk-shared.py` | Which shared `bsk` Agent Window this machine uses (`ensure`/`status`/`release`) |
+| `scripts/bsk-account.py` | One `bsk` daemon per customer account: own `BSK_HOME`, port and session registry (`ensure`/`env`/`status`) |
 | `schemas/flow.schema.json` | Authoritative executable-flow fields; fail closed on extras |
 | `app/` | Optional loopback UI that delegates to the same runner |
 | `assets/` | User-guide/bug-report templates and evidence markers |

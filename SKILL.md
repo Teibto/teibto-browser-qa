@@ -31,6 +31,8 @@ for the default engine; [`references/gotchas.md`](references/gotchas.md) covers 
 1. **Own and pin your tab.** Obtain the machine's shared Agent Window with `scripts/bsk-shared.py ensure`,
    then pin the session and your own tab on every tab-scoped command. Use the shared lease;
    a command without `--tab-id` follows the active tab, which a peer can move. Close only your own tab.
+   When several customer accounts run on one machine, give each its own daemon and Chrome profile with
+   `scripts/bsk-account.py ensure <account>` (engine2-bsk.md §1.2); never borrow another account's daemon.
    Explicit CDP runs pin `TGT_ID` and follow their browser coordinator's isolation rules.
 2. **Use trusted actions.** `click` already scrolls into view and sends an Input event. If it does not
    work, record a failure; never hide it with `element.click()`.
