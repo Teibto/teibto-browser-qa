@@ -33,6 +33,13 @@
 
 ### Added
 
+- **flow: `wait_timeout_ms` ต่อ step และ `expected_console_errors` ต่อ scenario** — เพดานเวลาของ wait
+  ไม่ถูกฝังในโค้ดอีกต่อไป: ประกาศ `wait_timeout_ms` (500–120000 ms) แล้วใช้ได้ทั้งกับ wait หลัง action และ
+  action `wait` บนทั้งสอง engine (ไม่ประกาศ = 20 s และ 30 s สำหรับ `networkidle` เหมือนเดิม) · scenario ที่
+  ตั้งใจเปิดหน้า error ประกาศ substring ของ console error ที่คาดไว้ได้ — ที่ตรงไม่ทำให้ล้ม, error อื่นยัง FAIL,
+  และประกาศแล้วไม่พบก็ FAIL เพื่อไม่ให้ด่านนี้ fail open · หลักฐาน `expected`/`matched`/`unexpected`/`missing`
+  อยู่ใน event `errors` และ `qa-report.md` · รายละเอียดใน `references/flow-spec.md` (#101)
+
 - **บทเรียนภาคสนามที่ค้างในสำเนาที่ติดตั้งขึ้น main แล้ว (#149):** `engine2-bsk.md` — idle-stop ของ daemon ปิด Agent Window
   ทั้งบาน (ต้อง keep-alive ping ถ้าเปิดหน้าค้างให้ผู้ใช้ดู) และ 7 แถว §4 (click บน tab พื้นหลังโดน overlay, รูปแบบ
   `fill --value`, `evaluate --timeout`, shared session สลับ busy/lost, `wait-ms` ไม่รับ `--session`, option ใน dialog React,
