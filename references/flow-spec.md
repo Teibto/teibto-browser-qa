@@ -41,6 +41,12 @@ $env:TEIBTO_CDP_SCRIPT = 'D:\path\to\teibto-dev-standards\scripts\cdp.py'
   และ URL จริงหลังทุก step (จับ redirect); หลุด = `ORIGIN_NOT_ALLOWED` และหยุด scenario
 - `risk: read|write|destructive` ระดับ step; `destructive` ต้องสั่ง `--allow-destructive` ไม่งั้น
   runner ปฏิเสธ flow ตั้งแต่ก่อนเริ่ม (`DESTRUCTIVE_NOT_ALLOWED`)
+- `action: eval` ต้องประกาศ `eval_reason` + `risk` ของตัวเอง ไม่งั้น `EVAL_NOT_DECLARED` ก่อนเปิด browser
+  และ eval ที่รันแล้วถูกบันทึกเป็นหลักฐานทั้งใน run-log และ report (BAS-7 · ดูหัวข้อด้านล่าง)
+- `expect:` / `expect_count:` ที่ step (`click`/`fill`, เลน `--engine cdp`) ส่งต่อเป็น `--expect`/`--expect-count`
+  ของ driver ซึ่งตรวจ **ก่อน** ยิง input; ไม่ตรง = step FAIL ด้วย `EXPECT_MISMATCH`/`EXPECT_COUNT_MISMATCH`
+  โดยหน้าเว็บไม่ถูกแตะเลย · บนเลน cdp ทุก action ที่เปลี่ยน state ขอ page-state receipt เสมอ
+  (ดูหัวข้อด้านล่าง)
 
 Engine (ค่าตั้งต้น `bsk`; `--engine cdp` หรือ `TEIBTO_QA_ENGINE=cdp` เพื่อใช้ `cdp.py` — มติอยู่ที่ `docs/BROWSER-AGENT-STANDARD.md` §4):
 
@@ -116,6 +122,10 @@ scenarios:
         wait_timeout_ms: 5000      # optional 500–120000; เพดานของ wait ใน step นี้ (default 20000 / networkidle 30000)
         perf_budget_ms: 3000       # optional; เกินแล้ว PERF_BUDGET_EXCEEDED + FAIL
         risk: read|write|destructive   # optional (default read); destructive ต้อง --allow-destructive
+                                       # **บังคับ** เมื่อ action: eval (ห้ามรับ default)
+        eval_reason: "<ทำไมต้องใช้ eval>"  # บังคับเมื่อ action: eval; ห้ามว่าง
+        expect: "<accessible name ที่ตั้งใจจะโดน>"  # optional; เฉพาะ click/fill บน --engine cdp
+        expect_count: 1            # optional; จำนวน element ที่ selector ต้องตรงพอดี
         capture: true|false        # override screenshot policy ของ scenario นี้
         assert:                  # พิสูจน์ผล (ตาม gotchas: อย่าเชื่อ ✓Done)
           url_contains: "/inventory.html"
@@ -184,6 +194,78 @@ step ที่ผ่านด่าน · `qa-report.md` ขึ้นสอง�
 req ไหน* และ *req นี้ครอบด้วย scenario ไหน*. 1 acceptance criterion → 1 scenario (map 1:1) →
 qa-report + user-guide อ้าง req เดียวกัน = ปิด loop req→test→doc. ดู playbook ทีมใน repo:
 `docs/TEAM-PROCESS.md`.
+
+## Identity guard และใบเสร็จต่อ action — เลน `--engine cdp` เท่านั้น (BAS-2 / BAS-3 · pain A9, A1)
+
+**`expect:` / `expect_count:` (step, เฉพาะ `click` และ `fill`):** ส่งต่อเป็น `--expect=<ชื่อ>` /
+`--expect-count=<n>` ของ `cdp.py` v0.88.0 · driver เทียบ **accessible name แบบ equality หลัง normalise**
+และนับจำนวน element ที่ selector ตรง **ก่อน** จะ dispatch input event — ไม่ตรง = `EXPECT_MISMATCH` /
+`EXPECT_COUNT_MISMATCH` และ **หน้าเว็บไม่ถูกแตะเลย** (`click ".btn-primary"` ที่ไปโดนปุ่มอื่นหลัง re-render
+คือช่อง A9 ที่เดิม exit 0 เงียบ ๆ)
+
+**ทำไมต้องประกาศเอง ไม่ใช่เดาจาก `intent:`** — `intent` เป็นร้อยแก้วสำหรับคนอ่านรายงาน
+("Click Login → land on the products page" / ประโยคภาษาไทย) ส่วน driver เทียบชื่อแบบ equality
+การเดาจาก `intent` จะทำให้ flow ที่มีอยู่ทุกไฟล์ล้มทันที และจะบีบให้คนเขียน `intent` ให้ตรงชื่อปุ่มแทนที่จะ
+เขียนให้คนอ่านรู้เรื่อง · ประกาศที่ action อื่น = `EXPECT_NOT_SUPPORTED` ตั้งแต่ก่อนเปิด browser (driver
+ตรวจ identity เฉพาะ `click`/`fill`) · ค่าใน `expect` รองรับ `{{var}}`
+
+**ใบเสร็จต่อ action (`--observe`):** บนเลน cdp runner สั่งใบเสร็จให้ `click`/`fill`/`select`/`press`
+**ทุกครั้ง ไม่ต้องประกาศอะไร** — สี่ action นี้คือทั้งหมดที่ `cdp.py` wrap ด้วย `observed()`
+(**`eval` ไม่มีใบเสร็จให้ขอ**: หลักฐานของ eval step คือ event `eval` ของ BAS-7 ซึ่งพิสูจน์ว่า *มีคนประกาศ*
+ไม่ใช่ว่า *เกิดผลอะไรขึ้น* · `open` เป็น navigation ไม่ใช่ observed action) · ใบเสร็จเข้า `step_done.receipt`
+(`url`, `title`, `focused`, `console_new`, `dialogs`, `net_errors`, `downloads`, `ref_invalidated`)
+และขึ้นในรายงานเป็นบรรทัด `🧾 receipt: …` ใต้ step · `run_done.action_receipts` สรุป requested/received ·
+ค่าที่เป็นสตริง `"unwatched"` แปลว่า **ไม่ได้เฝ้า** ไม่ใช่ศูนย์ (อ่านเป็น 0 คือ false PASS แบบ A2) ·
+action ที่ขอใบเสร็จแล้ว **ไม่ได้** กลับมา = `UNVERIFIED` เท่ากับไม่มี assert ตาม BAS-3 — รวม `fill` ด้วย
+(การอ่านค่ากลับพิสูจน์ว่าช่องมีค่านั้น ไม่ได้พิสูจน์ว่าหน้าเว็บรอดจากการกรอก) · step ที่ล้ม *หลัง* action
+สำเร็จ (wait/assert/budget) ยังพกใบเสร็จของ action นั้นไปใน `step_done` ด้วย เพราะ action ลงไปแล้วจริง
+
+**ใบเสร็จอยู่ใน `perf_budget_ms` ด้วย (ข้อจำกัดที่รู้ตัว):** `--observe` ทำให้ driver ยิง page eval
+เพิ่มสองครั้งคร่อม action **ภายในคำสั่งเดียวกัน** · `cdp.py` v0.88.0 ไม่มีคำสั่งขอใบเสร็จเดี่ยว ๆ
+(`observed()` ถูกเรียกเฉพาะที่ click/fill/key/pick) และไม่รายงานเวลาของส่วนใบเสร็จแยก ⇒ runner
+**แยกเวลาส่วนนี้ออกจาก `outcome_ms` ไม่ได้** แบบเดียวกับที่ทำกับ origin gate (`guard_ms` เป็นคำสั่ง
+ของ runner เอง จึงจับเวลาแยกได้) · ต้นทุนที่วัดได้จริงบน fixture ของ repo อยู่ในตาราง
+`docs/CLAIMS-AUDIT.md` § Performance evidence · การแยกจริงต้องให้ driver แตกเวลาหรือเพิ่มคำสั่ง
+observe เดี่ยว ซึ่งเป็นงานของ `teibto-dev-standards` ไม่ใช่รีโปนี้ (`cdp-limits.md` §4.2)
+
+**`bsk` ไม่มีของเทียบเท่าทั้งสองอย่าง:** flow ที่ประกาศ `expect` แล้วรันด้วย `--engine bsk` ถูกปฏิเสธด้วย
+`EXPECT_UNSUPPORTED_ENGINE` ก่อนเปิด session (ปล่อยผ่าน = รายงานจะโชว์ด่านที่ไม่เคยทำงาน) ·
+`run_start.driver_policy.identity_guard` / `.action_receipt` ของเลนนั้นเป็น `unavailable` และ
+`qa-report.md` เขียนไว้บนบรรทัด `**Engine:**` เอง — run บน `bsk` อ้าง coverage ของ A1/A9 ไม่ได้
+
+## `action: eval` ต้องประกาศตัว (BAS-7 / pain D4)
+
+**ทำไม:** `eval` รันด้วยสิทธิ์ของหน้าเว็บ บน profile ที่ปกติ login ค้างไว้ — มันจึงเปลี่ยน state ของแอปได้
+โดยไม่ต้องแตะ control จริงสักตัว และรายงานที่ออกมาจะดูเหมือน state นั้นมาจากการใช้งานปกติ. ด่านนี้
+**ไม่ห้าม** `eval` (การอ่าน/assert ด้วย `eval` ยังเป็นเรื่องปกติ) แต่ห้าม `eval` แบบ *เงียบ*
+
+**กติกา:** step ที่ `action: eval` ต้องมีครบสองอย่าง
+- `eval_reason: "<ทำไมถึงต้องใช้ eval ตรงนี้>"` — สตริงว่างไม่ผ่าน schema
+- `risk: read|write|destructive` ของตัวเอง — **ห้ามรับค่า default `read`** เพราะ default คือรูปร่างของ
+  การเปลี่ยน state แบบไม่มีใครรู้ · `risk: destructive` ยังต้อง `--allow-destructive` เหมือน action อื่น
+
+ขาดอย่างใดอย่างหนึ่ง = `EVAL_NOT_DECLARED` ตั้งแต่ **ก่อน** session/บราวเซอร์เริ่ม (เหมือน
+`ORIGIN_NOT_ALLOWED` และ `DESTRUCTIVE_NOT_ALLOWED`) ไม่ใช่ล้มกลางทางหลังจาก eval รันไปแล้ว
+
+**หลักฐาน:** ทุก eval ที่รันออกเป็น event
+`{"type":"eval","scenario","index","global_index","target","reason","risk","evidence"}` ใน `run-log.jsonl`
+โดย `evidence` คือ `state set by eval, not trusted input` · `qa-report.md` ได้บรรทัด
+`🧪 eval (risk: <level>) — state set by eval, not trusted input: <reason>` ต่อ eval หนึ่งครั้ง
+บวกบรรทัดสรุป `**Eval steps:** <executed>/<declared> executed — …` · event ถูก emit **ก่อน** รัน
+เพราะ eval ที่ throw ก็เปลี่ยนสิ่งที่มันเปลี่ยนไปแล้ว · `run_done.eval_steps` สรุป declared/executed ·
+flow ที่ไม่มี eval เลยได้รายงานและ event ชุดเดิมทุกบรรทัด
+
+**ยังไม่ครอบ:** ด่านนี้ครอบเฉพาะ step ที่ `action: eval` — ไม่ใช่ทุกทางที่ flow รัน JavaScript ได้
+1. **`wait: "fn:<js>"` และ `action: wait` ที่ `target` ขึ้นต้นด้วย `fn:`** รัน expression ของ flow
+   ในหน้าเว็บเช่นกัน แต่ **ไม่ต้องประกาศ `eval_reason`/`risk`** · ตามสัญญามันคือ *predicate สำหรับอ่าน*
+   (runner เรียกซ้ำทุก 50 ms จนเป็นจริง) — แต่เป็นสัญญา **ไม่ใช่การบังคับ**: ไม่มีอะไรห้าม expression
+   มี side effect · flow เดิมที่ใช้ `fn:` **ไม่ถูกปฏิเสธ** (จะทำให้ flow ที่มีอยู่พังโดยไม่ได้อะไรคืน)
+   แต่ถูก **บันทึกเป็นหลักฐาน**: `run_start.run_policy.fn_waits` (step + expression),
+   `run_done.fn_waits.declared` และบรรทัด ``**`fn:` waits:**`` ในรายงาน · เขียน predicate ให้เป็นการ
+   *อ่าน* เสมอ ถ้าต้องตั้งค่าให้ใช้ `action: eval` ที่ประกาศตัว
+2. **ad-hoc mode** (`cdp.py eval` ที่พิมพ์เอง) ไม่มีด่านนี้
+3. ด่านนี้ไม่ตัดสินแทนคนว่า expression นั้นเปลี่ยน state จริงหรือไม่ — มันบังคับให้ *มีคนประกาศ*
+   และให้ *มีหลักฐาน* เท่านั้น
 
 ## เพดานเวลาของ wait และ console error ที่คาดหวัง
 

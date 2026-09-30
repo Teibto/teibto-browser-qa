@@ -60,6 +60,33 @@ DEFAULT_WAIT_TIMEOUT_MS = 20_000
 NAVIGATION_WAIT_TIMEOUT_MS = 30_000
 RISK_LEVELS = ("read", "write", "destructive")
 DEFAULT_RISK = "read"
+# BAS-7/D4: `action: eval` runs with the page's own privileges on a profile that is normally logged
+# in, so it can change application state without ever touching a trusted control. The gate does not
+# forbid eval — it refuses to let one slip through undeclared: the step must say why it exists
+# (`eval_reason`) and must classify itself (`risk`, never the inherited default), and every eval that
+# runs is written into run-log and qa-report as state that did not come from trusted input.
+EVAL_EVIDENCE = "state set by eval, not trusted input"
+# BAS-2/BAS-3, `--engine cdp` only (driver v0.88.0). `--expect`/`--expect-count` are verified by
+# cdp.py *before* the input event is dispatched, so a mismatch fails the step with the driver's own
+# typed error and the page is never touched. Only `click` and `fill` run that check in the driver
+# (`verify_identity`), so those are the only actions allowed to declare it. The identity comes from
+# an explicit `expect:` rather than from `intent:`: `intent` is free-form prose written for the
+# report ("Click Login → land on the products page"), while the driver compares the accessible name
+# by equality after normalisation — deriving one from the other would fail every existing flow.
+IDENTITY_ACTIONS = ("click", "fill")
+# Actions whose driver command takes `--observe` and therefore returns a page-state receipt.
+# `eval` is deliberately absent: cdp.py wraps only click/fill/key/pick in `observed()`, so there is
+# no receipt to ask for. An eval step's evidence is the BAS-7 `eval` event instead, which records
+# that the state was declared rather than observed — a weaker claim, and it is reported as one.
+RECEIPT_ACTIONS = ("click", "fill", "select", "press")
+# A `fn:` wait evaluates flow-supplied JavaScript in the page to decide when to continue. It is a
+# read-only predicate by contract, not by enforcement: nothing stops the expression from having a
+# side effect, and the BAS-7 eval gate does not cover it. Recorded so a reader of the report can
+# see that this run ran page JavaScript the eval gate never saw.
+FN_WAIT_PREFIX = "fn:"
+RECEIPT_KEYS = frozenset({"url", "title", "focused", "console_new", "dialogs", "net_errors",
+                          "downloads", "ref_invalidated"})
+RECEIPT_MISSING = "no page-state receipt from the driver (BAS-3: UNVERIFIED)"
 ENGINES = ("cdp", "bsk")
 # BrowserSkill (BAS §4): only releases whose dialog policy was re-verified with
 # self-test/engine2/dialog-test.sh are accepted, and daemon and extension must match.
@@ -202,21 +229,52 @@ def flow_policy(flow: dict[str, Any]) -> dict[str, Any]:
     """Summarise the declared run policy without deciding anything."""
     counts = {level: 0 for level in RISK_LEVELS}
     destructive: list[str] = []
+    evals: list[dict[str, Any]] = []
+    undeclared_evals: list[str] = []
+    identity: list[dict[str, Any]] = []
+    identity_misplaced: list[str] = []
+    fn_waits: list[dict[str, Any]] = []
     for scenario in flow["scenarios"]:
         for index, step in enumerate(scenario["steps"], 1):
             level = step.get("risk", DEFAULT_RISK)
             counts[level] = counts.get(level, 0) + 1
             if level == "destructive":
                 destructive.append(f"{scenario['id']}#{index}")
+            if step.get("expect") is not None or step.get("expect_count") is not None:
+                identity.append({"step": f"{scenario['id']}#{index}", "action": step["action"],
+                                 "expect": step.get("expect"),
+                                 "expect_count": step.get("expect_count")})
+                if step["action"] not in IDENTITY_ACTIONS:
+                    identity_misplaced.append(f"{scenario['id']}#{index} (action: {step['action']})")
+            for field, raw in (("wait", step.get("wait")),
+                               ("target", step.get("target") if step["action"] == "wait" else None)):
+                if isinstance(raw, str) and raw.startswith(FN_WAIT_PREFIX):
+                    fn_waits.append({"step": f"{scenario['id']}#{index}", "field": field,
+                                     "expression": raw[len(FN_WAIT_PREFIX):]})
+            if step["action"] != "eval":
+                continue
+            reason = str(step.get("eval_reason") or "").strip()
+            evals.append({"step": f"{scenario['id']}#{index}", "scenario": scenario["id"],
+                          "index": index, "risk": step.get("risk"), "reason": reason})
+            missing = [name for name, declared in (("eval_reason", bool(reason)),
+                                                   ("risk", step.get("risk") in RISK_LEVELS))
+                       if not declared]
+            if missing:
+                undeclared_evals.append(f"{scenario['id']}#{index} (ขาด: {', '.join(missing)})")
     return {
         "allowed_origins": list(flow.get("allowed_origins") or []),
         "risk_counts": counts,
         "destructive_steps": destructive,
+        "eval_steps": evals,
+        "undeclared_evals": undeclared_evals,
+        "identity_steps": identity,
+        "identity_misplaced": identity_misplaced,
+        "fn_waits": fn_waits,
     }
 
 
 def enforce_policy(policy: dict[str, Any], flow: dict[str, Any], variables: dict[str, Any],
-                   *, allow_destructive: bool) -> list[str]:
+                   *, allow_destructive: bool, engine: str = "cdp") -> list[str]:
     """Fail closed before the browser is touched; return the normalised allowed origins.
 
     A flow that declares nothing keeps its old behaviour, so the gate is opt-in per flow
@@ -228,6 +286,31 @@ def enforce_policy(policy: dict[str, Any], flow: dict[str, Any], variables: dict
             "step ที่ risk: destructive ต้องสั่ง --allow-destructive: "
             + ", ".join(policy["destructive_steps"]),
             detail={"steps": policy["destructive_steps"]},
+        )
+    if policy["undeclared_evals"]:
+        raise RunnerError(
+            "EVAL_NOT_DECLARED",
+            "step ที่ action: eval ต้องประกาศ eval_reason และ risk ของตัวเองให้ครบ "
+            f"({EVAL_EVIDENCE}): " + ", ".join(policy["undeclared_evals"]),
+            detail={"steps": policy["undeclared_evals"]},
+        )
+    if policy["identity_misplaced"]:
+        raise RunnerError(
+            "EXPECT_NOT_SUPPORTED",
+            "expect/expect_count ประกาศได้เฉพาะ action " + " และ ".join(IDENTITY_ACTIONS)
+            + " เพราะ driver เทียบ accessible name ก่อนยิง input เฉพาะสองคำสั่งนี้: "
+            + ", ".join(policy["identity_misplaced"]),
+            detail={"steps": policy["identity_misplaced"]},
+        )
+    if policy["identity_steps"] and engine != "cdp":
+        # Running it anyway would mean the report shows a guard that never ran (BAS-2 §เลน).
+        raise RunnerError(
+            "EXPECT_UNSUPPORTED_ENGINE",
+            f"engine {engine} ไม่มีของเทียบเท่า --expect/--expect-count — flow ที่ประกาศ identity "
+            "guard ต้องรันด้วย --engine cdp: "
+            + ", ".join(item["step"] for item in policy["identity_steps"]),
+            detail={"engine": engine,
+                    "steps": [item["step"] for item in policy["identity_steps"]]},
         )
     allowed: list[str] = []
     for raw in policy["allowed_origins"]:
@@ -984,12 +1067,46 @@ def selector_wait(selector: str) -> str:
             "return r.width>0&&r.height>0&&s.visibility!=='hidden';})()") % js_selector(selector)
 
 
+def driver_flags(step: dict[str, Any], variables: dict[str, Any], engine: str) -> list[str]:
+    """Identity and receipt flags for one action, on the lane that actually has them.
+
+    `bsk` has no equivalent of either (`references/engine2-bsk.md` §2), so it is sent none and
+    claims none; a flow that declares `expect` is rejected before that run starts rather than
+    running with the guard silently absent.
+    """
+    if engine != "cdp":
+        return []
+    flags: list[str] = []
+    if step["action"] in IDENTITY_ACTIONS:
+        if step.get("expect") is not None:
+            flags.append("--expect=" + str(substitute(step["expect"], variables)))
+        if step.get("expect_count") is not None:
+            flags.append(f"--expect-count={int(step['expect_count'])}")
+    if step["action"] in RECEIPT_ACTIONS:
+        flags.append("--observe")
+    return flags
+
+
+def action_receipt(result: dict[str, Any]) -> dict[str, Any] | None:
+    """The driver's page-state receipt, or None when this driver returned none.
+
+    Shape-checked rather than trusted: a driver that prints something else on stdout must read as
+    "no receipt" (UNVERIFIED), not as a receipt whose fields are all missing.
+    """
+    data = result.get("data")
+    return data if isinstance(data, dict) and RECEIPT_KEYS.issubset(data) else None
+
+
 def perform_action(session: CDPSession, step: dict[str, Any], variables: dict[str, Any],
-                   timings: StepTimings) -> dict[str, Any]:
+                   timings: StepTimings, engine: str = "cdp",
+                   context: dict[str, Any] | None = None) -> dict[str, Any]:
     action = step["action"]
     target = substitute(step.get("target", ""), variables)
     value = substitute(step.get("value", ""), variables)
-    context: dict[str, Any] = {}
+    flags = driver_flags(step, variables, engine)
+    # The caller may own the dict so that a failure after the action still sees the receipt.
+    context = {} if context is None else context
+    context.update({"receipt_requested": "--observe" in flags, "receipt": None})
     if step.get("wait") == "networkidle" and action != "open":
         context["document_before"] = timings.command(
             session,
@@ -1000,7 +1117,8 @@ def perform_action(session: CDPSession, step: dict[str, Any], variables: dict[st
     if action == "open":
         timings.command(session, "action", "nav", [target, "--until=load", "--timeout=30"])
     elif action == "fill":
-        timings.command(session, "action", "fill", [target, value])
+        context["receipt"] = action_receipt(
+            timings.command(session, "action", "fill", [target, value, *flags]))
         deadline = time.monotonic() + 5
         while True:
             actual = timings.command(session, "wait", "get", ["value", target]).get("data")
@@ -1011,11 +1129,14 @@ def perform_action(session: CDPSession, step: dict[str, Any], variables: dict[st
                 raise RunnerError("FILL_NOT_APPLIED", f"ค่าใน {target} ไม่ตรงหลัง fill")
             timings.sleep("wait", min(0.05, max(0, deadline - time.monotonic())))
     elif action == "click":
-        timings.command(session, "action", "click", [target])
+        context["receipt"] = action_receipt(
+            timings.command(session, "action", "click", [target, *flags]))
     elif action == "select":
-        timings.command(session, "action", "pick", [target, value])
+        context["receipt"] = action_receipt(
+            timings.command(session, "action", "pick", [target, value, *flags]))
     elif action == "press":
-        timings.command(session, "action", "key", [target])
+        context["receipt"] = action_receipt(
+            timings.command(session, "action", "key", [target, *flags]))
     elif action == "scrollintoview":
         expression = ("(function(){var e=document.querySelector(%s);if(!e)return false;"
                       "e.scrollIntoView({block:'center'});return true;})()") % js_selector(target)
@@ -1114,10 +1235,13 @@ def run_flow(flow: dict[str, Any], path: Path, output_dir: Path, variables: dict
     if engine == "bsk":
         report.insert(3, f"**Engine:** bsk (version not reached) (dialog policy `{dialog}` enforced by "
                          "an in-page guard; a native dialog that leaks past it is accepted by the "
-                         "engine and fails the step)")
+                         "engine and fails the step) — this engine has no `--expect` identity guard "
+                         "and no per-action page-state receipt, so this run claims neither (BAS-2, "
+                         "BAS-3 are `--engine cdp` only)")
     assertions = sum(1 for scenario in flow["scenarios"] for step in scenario["steps"]
                      if step.get("assert"))
-    passed = failures = unverified = dialogs = 0
+    passed = failures = unverified = dialogs = evals_run = 0
+    receipts_requested = receipts_received = 0
     perf_total = sum(1 for scenario in flow["scenarios"] for step in scenario["steps"]
                      if step.get("perf_budget_ms") is not None)
     perf_evaluated = perf_passed = 0
@@ -1145,18 +1269,28 @@ def run_flow(flow: dict[str, Any], path: Path, output_dir: Path, variables: dict
                                  "dialog": dialog,
                                  "dialog_evidence": "structured-per-command",
                                  "dialog_enforcement": "in-page-guard" if engine == "bsk" else "driver",
-                                 "navigation": "event-bound-load"},
+                                 "navigation": "event-bound-load",
+                                 # BAS-2/BAS-3 exist on the cdp lane only; `bsk` claims neither.
+                                 "identity_guard": "expect-when-declared" if engine == "cdp"
+                                                   else "unavailable",
+                                 "action_receipt": "requested" if engine == "cdp" else "unavailable"},
                "run_policy": {"allowed_origins": policy["allowed_origins"],
                               "origin_gate": "enforced" if policy["allowed_origins"] else "not-declared",
                               "risk_counts": policy["risk_counts"],
-                              "destructive_allowed": allow_destructive},
+                              "destructive_allowed": allow_destructive,
+                              "eval_gate": "declared" if policy["eval_steps"] else "no-eval-steps",
+                              "eval_steps": policy["eval_steps"],
+                              "identity_steps": policy["identity_steps"],
+                              # Page JavaScript the BAS-7 eval gate does not cover; see
+                              # references/flow-spec.md § `fn:` waits.
+                              "fn_waits": policy["fn_waits"]},
                "scenarios": [{"id": item["id"], "steps": len(item["steps"])}
                              for item in flow["scenarios"]]})
     startup_started = time.perf_counter()
     startup_ms: float | None = None
     try:
         allowed_origins = enforce_policy(policy, flow, variables,
-                                         allow_destructive=allow_destructive)
+                                         allow_destructive=allow_destructive, engine=engine)
         if engine == "bsk":
             session = BskSession(bsk or [], browser=bsk_browser, dialog=dialog,
                                  session=bsk_session)
@@ -1196,8 +1330,24 @@ def run_flow(flow: dict[str, Any], path: Path, output_dir: Path, variables: dict
                            "global_index": global_index, "intent": intent, "status": "running"})
                 timings = StepTimings()
                 performance: dict[str, Any] | None = None
+                # Held outside the try so a step that fails after its action still reports the
+                # receipt that action already returned.
+                context: dict[str, Any] = {}
                 try:
-                    context = perform_action(session, raw_step, variables, timings)
+                    if raw_step["action"] == "eval":
+                        # Recorded before it runs: an eval that throws still changed whatever it
+                        # changed, so the evidence cannot depend on the step succeeding.
+                        evals_run += 1
+                        declaration = {"reason": str(raw_step.get("eval_reason", "")),
+                                       "risk": raw_step.get("risk", DEFAULT_RISK)}
+                        sink.emit({"type": "eval", "scenario": scenario["id"], "index": index,
+                                   "global_index": global_index,
+                                   "target": substitute(raw_step.get("target", ""), variables),
+                                   **declaration, "evidence": EVAL_EVIDENCE})
+                        report.append(f"- 🧪 eval (risk: {declaration['risk']}) — {EVAL_EVIDENCE}"
+                                      f": {declaration['reason']}")
+                    context = perform_action(session, raw_step, variables, timings, engine,
+                                             context)
                     perform_wait(session, raw_step, variables, context, timings)
                     # The gate runs before the assertion so an escape is reported as an escape.
                     # Asserting first on a foreign page would surface ASSERTION_FAILED and hide
@@ -1226,6 +1376,19 @@ def run_flow(flow: dict[str, Any], path: Path, output_dir: Path, variables: dict
                     elif raw_step["action"] in MUTATING_ACTIONS:
                         unverified += 1
                         status, detail = "unverified", "state-changing step has no explicit assertion"
+                    receipt = context.get("receipt")
+                    if context.get("receipt_requested"):
+                        receipts_requested += 1
+                        if receipt is not None:
+                            receipts_received += 1
+                        elif status != "unverified":
+                            # BAS-3 applies to every action we asked to observe, including `fill`:
+                            # the read-back proves the field holds the value, not that the page
+                            # survived it. A state change nobody observed sits in the same
+                            # evidence position as one nobody asserted.
+                            unverified += 1
+                            status = "unverified"
+                            detail = (f"{detail} · " if detail else "") + RECEIPT_MISSING
                     budget_ms = raw_step.get("perf_budget_ms")
                     if budget_ms is not None:
                         # The origin gate is policy, not the application's observable outcome,
@@ -1255,6 +1418,13 @@ def run_flow(flow: dict[str, Any], path: Path, output_dir: Path, variables: dict
                         shot = str(shot_path)
                     marker = "✅" if status == "pass" else ("⚠️" if status == "unverified" else "▸")
                     report.append(f"- {marker} {intent}" + (f" — {detail}" if detail else ""))
+                    if receipt is not None:
+                        report.append(
+                            f"  - 🧾 receipt: url={receipt['url']} · focused="
+                            f"{receipt['focused'] or '-'} · console_new={receipt['console_new']} · "
+                            f"net_errors={receipt['net_errors']} · downloads="
+                            f"{json.dumps(receipt['downloads'], ensure_ascii=False)} · "
+                            f"ref_invalidated={receipt['ref_invalidated']}")
                     if performance:
                         report.append(
                             f"  - ⏱ outcome: {performance['outcome_ms']:.3f}ms / "
@@ -1265,6 +1435,7 @@ def run_flow(flow: dict[str, Any], path: Path, output_dir: Path, variables: dict
                     sink.emit({"type": "step_done", "scenario": scenario["id"], "index": index,
                                "global_index": global_index, "intent": intent, "status": status,
                                "detail": detail, "shot": shot,
+                               **({"receipt": receipt} if context.get("receipt_requested") else {}),
                                **({"performance": performance} if performance else {}),
                                "duration_ms": timing_payload["total_ms"],
                                "timings": timing_payload})
@@ -1292,6 +1463,10 @@ def run_flow(flow: dict[str, Any], path: Path, output_dir: Path, variables: dict
                                "global_index": global_index, "intent": intent, "status": "fail",
                                "error": {"code": exc.code, "message": str(exc)},
                                "shot": shot,
+                               # The action may well have landed before the wait or the assertion
+                               # failed; its receipt is the evidence of what it did.
+                               **({"receipt": context.get("receipt")}
+                                  if context.get("receipt_requested") else {}),
                                **({"performance": performance} if performance else {}),
                                **({"evidence_error": evidence_error} if evidence_error else {}),
                                "duration_ms": timing_payload["total_ms"],
@@ -1373,6 +1548,18 @@ def run_flow(flow: dict[str, Any], path: Path, output_dir: Path, variables: dict
     risky = ", ".join(f"{level}={policy['risk_counts'][level]}" for level in RISK_LEVELS)
     summary.insert(1, f"**Step risk:** {risky} "
                       f"(destructive {'allowed' if allow_destructive else 'blocked'})")
+    if policy["eval_steps"]:
+        # A flow with no eval step keeps the report it had before, down to the line count.
+        summary.insert(2, f"**Eval steps:** {evals_run}/{len(policy['eval_steps'])} executed "
+                          f"— {EVAL_EVIDENCE}")
+    if policy["fn_waits"]:
+        summary.insert(2, f"**`fn:` waits:** {len(policy['fn_waits'])} step(s) ran flow-supplied "
+                          "page JavaScript as a wait predicate — read-only by contract, not "
+                          "enforced by the eval gate")
+    if receipts_requested:
+        summary.insert(2, f"**Action receipts:** {receipts_received}/{receipts_requested} received"
+                          + (f" · identity guard declared on {len(policy['identity_steps'])} step(s)"
+                             if policy["identity_steps"] else ""))
     report[4:4] = summary
     safe_report = redact("\n".join(report), sink.secrets, variables, truncate=False)
     report_path.write_text(str(safe_report), encoding="utf-8")
@@ -1383,6 +1570,13 @@ def run_flow(flow: dict[str, Any], path: Path, output_dir: Path, variables: dict
                "origin_gate": {"allowed": policy["allowed_origins"], "checks": origin_checks,
                                "enforced": bool(policy["allowed_origins"])},
                "risk_counts": policy["risk_counts"],
+               "eval_steps": {"declared": len(policy["eval_steps"]), "executed": evals_run,
+                              "evidence": EVAL_EVIDENCE},
+               "fn_waits": {"declared": len(policy["fn_waits"]), "gated_by_eval_rule": False},
+               "action_receipts": {"requested": receipts_requested, "received": receipts_received,
+                                   "engine_supported": engine == "cdp"},
+               "identity_guard": {"declared": len(policy["identity_steps"]),
+                                  "engine_supported": engine == "cdp"},
                "verdict": verdict,
                "duration_ms": round((time.perf_counter() - run_started) * 1000, 3),
                "startup_ms": startup_ms,

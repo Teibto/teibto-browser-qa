@@ -12,6 +12,8 @@ scenarios:
       - action: eval
         target: "1"
         intent: "wait for the fixture to become ready (8 s)"
+        risk: read
+        eval_reason: "no-op expression used only to hang the wait on; changes nothing"
         wait: "fn:document.querySelector('#state').textContent==='ready'"
         assert: {target: "#state", contains: "ready"}
         capture: true

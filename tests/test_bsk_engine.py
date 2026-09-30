@@ -244,6 +244,34 @@ class BskEngineTests(unittest.TestCase):
                       if event["type"] == "step_done" and event.get("error"))
         self.assertEqual(failed["error"]["code"], "ENGINE_UNSUPPORTED")
 
+    def test_expect_is_refused_on_a_lane_that_has_no_identity_guard(self):
+        """BAS-2 is `--engine cdp` only: running it here would report a guard that never ran."""
+        process, _, events, calls = self.run_flow("""
+            story: engine2
+            title: Second engine
+            scenarios:
+              - id: save
+                steps:
+                  - {action: click, target: "#save", risk: write, expect: "Save"}
+        """)
+        self.assertEqual(process.returncode, 1)
+        fatal = next(event for event in events if event["type"] == "fatal")
+        self.assertEqual(fatal["error"]["code"], "EXPECT_UNSUPPORTED_ENGINE")
+        self.assertIn("save#1", fatal["error"]["message"])
+        self.assertEqual([], [call for call in calls if "click" in call])
+
+    def test_this_lane_declares_that_it_has_no_receipt_or_identity_guard(self):
+        _, out, events, _ = self.run_flow(READ_ONLY)
+        policy = events[0]["driver_policy"]
+        self.assertEqual("unavailable", policy["identity_guard"])
+        self.assertEqual("unavailable", policy["action_receipt"])
+        done = events[-1]
+        self.assertEqual({"requested": 0, "received": 0, "engine_supported": False},
+                         done["action_receipts"])
+        report = (out / "qa-report.md").read_text(encoding="utf-8")
+        self.assertIn("no `--expect` identity guard", report)
+        self.assertNotIn("**Action receipts:**", report)
+
     def test_default_engine_is_bsk_when_the_env_is_unset(self):
         _, _, events, _ = self.run_flow(READ_ONLY, with_engine=False)
         self.assertEqual(events[0]["engine"], "bsk")

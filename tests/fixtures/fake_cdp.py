@@ -28,6 +28,48 @@ if not os.environ.get("FAKE_CDP_OMIT_FOREGROUND"):
 print(json.dumps(ready), flush=True)
 values = {}
 url = "about:blank"
+# v0.88.0 identity guard and page-state receipt, modelled exactly where the runner depends on them:
+# `--expect`/`--expect-count` are checked *before* the action runs, so a mismatch must leave the
+# page untouched, and `--observe` turns the command's stdout into a one-line receipt.
+IDENTITY_FLAGS = ("--expect", "--expect-count")
+AX_NAME = os.environ.get("FAKE_CDP_AX_NAME", "Save")
+MATCH_COUNT = int(os.environ.get("FAKE_CDP_MATCH_COUNT", "1"))
+ACTION_LOG = os.environ.get("FAKE_CDP_ACTIONS")
+
+
+def split_flags(items):
+    opts, pos = {}, []
+    for item in items:
+        key = item.split("=", 1)[0]
+        if key in IDENTITY_FLAGS and "=" in item:
+            opts[key] = item.split("=", 1)[1]
+        elif item == "--observe":
+            opts["--observe"] = ""
+        else:
+            pos.append(item)
+    return pos, opts
+
+
+def identity_error(command, selector, opts):
+    """The driver's own pre-action checks; returns an error payload or None."""
+    wanted = opts.get("--expect-count")
+    if wanted is not None and int(wanted) != MATCH_COUNT:
+        return {"code": "EXPECT_COUNT_MISMATCH",
+                "message": f"{command} {selector}: selector ตรง {MATCH_COUNT} element "
+                           f"ไม่ใช่ {wanted}", "transient": False}
+    expect = opts.get("--expect")
+    if expect is not None and " ".join(expect.split()).casefold() != \
+            " ".join(AX_NAME.split()).casefold():
+        return {"code": "EXPECT_MISMATCH",
+                "message": f"{command} {selector}: ตั้งใจทำกับ \"{expect}\" แต่ element นี้ชื่อ "
+                           f"\"{AX_NAME}\"", "transient": False}
+    return None
+
+
+def record(line):
+    if ACTION_LOG:
+        with open(ACTION_LOG, "a", encoding="utf-8") as handle:
+            handle.write(line + "\n")
 # FAKE_CDP_DIALOG=<kind>:<message> makes every click raise that dialog; the answer follows the
 # DIALOG policy the way protocol v3 does (safe = dismiss anything that is not an alert).
 # The result carries structured dialogs and stderr reports each one immediately.
@@ -39,7 +81,16 @@ for line in sys.stdin:
         print(json.dumps({"type": "closed", "id": request.get("id"), "ok": True,
                           "reason": "requested", "target_id": target}), flush=True)
         break
-    command, args = request["command"], request.get("args", [])
+    command, raw_args = request["command"], request.get("args", [])
+    args, flags = split_flags(raw_args)
+    if command in ("click", "fill"):
+        problem = identity_error(command, args[0] if args else "", flags)
+        if problem:
+            # Refused before the input event: nothing is written to the action log or to `values`.
+            print(json.dumps({"type": "result", "id": request["id"], "ok": False,
+                              "command": command, "target_id": target, "duration_ms": 0.1,
+                              "attempts": 1, "error": problem}), flush=True)
+            continue
     command_dialogs = []
     if command == "click" and dialog_spec:
         kind, message = dialog_spec.split(":", 1)
@@ -57,6 +108,7 @@ for line in sys.stdin:
         data = url
     elif command == "fill":
         values[args[0]] = args[1]
+        record(f"fill {args[0]}")
         data = f"filled {args[0]}"
     elif command == "get" and args[0] == "value":
         data = values.get(args[1])
@@ -87,7 +139,13 @@ for line in sys.stdin:
         pathlib.Path(args[0]).write_bytes(b"PNG")
         data = args[0]
     else:
+        if command in ("click", "pick", "key"):
+            record(f"{command} {args[0] if args else ''}")
         data = True
+    if "--observe" in flags and not os.environ.get("FAKE_CDP_NO_RECEIPT"):
+        data = {"url": url, "title": "fake page", "focused": "", "console_new": 0,
+                "dialogs": command_dialogs, "net_errors": "unwatched", "downloads": "unwatched",
+                "ref_invalidated": False, "action": data}
     payload = {"type": "result", "id": request["id"], "ok": True,
                "command": command, "target_id": target, "duration_ms": 0.1,
                "attempts": 1, "data": data}

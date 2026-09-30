@@ -1,0 +1,17 @@
+story: live-expect-mismatch
+title: Identity guard refuses an element the flow did not mean
+vars:
+  - {name: base_url, label: URL}
+scenarios:
+  - id: wrong-identity
+    steps:
+      - action: open
+        target: "{{base_url}}"
+        wait: networkidle
+        capture: false
+      # The fixture button is named "Save", so this must fail before any input is dispatched
+      # and #status must still read "not saved" afterwards.
+      - action: click
+        target: "#save"
+        expect: "Submit"
+        capture: false

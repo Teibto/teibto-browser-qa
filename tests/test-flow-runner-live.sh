@@ -96,6 +96,29 @@ for run in $(seq 1 "${LIVE_RUNS}"); do
   }
 done
 
+# BAS-2 against the real driver: a declared identity that does not match the element must fail the
+# step, and the page must be exactly as it was — the refusal happens before any input is dispatched.
+MISMATCH_VARS="$(printf '{"base_url":"http://127.0.0.1:%s/live-page.html"}' "${HTTP_PORT}")"
+if printf '%s' "${MISMATCH_VARS}" | "${PY}" "${ROOT}/scripts/flow-runner.py" \
+    --engine cdp --flow "${ROOT}/tests/fixtures/live-expect-mismatch.yaml" \
+    --out "${WORK}/out-mismatch" --vars-json - --target-id "${TARGET_ID}" \
+    --cdp-script "${CDP}" --stdout summary >"${WORK}/runner-mismatch.jsonl"; then
+  echo "FAIL: a click whose --expect does not match the element must not pass"
+  cat "${WORK}/runner-mismatch.jsonl"
+  exit 1
+fi
+grep -q '"code":"EXPECT_MISMATCH"' "${WORK}/out-mismatch/run-log.jsonl" || {
+  echo "FAIL: the mismatch run did not fail as EXPECT_MISMATCH"
+  cat "${WORK}/out-mismatch/run-log.jsonl"
+  exit 1
+}
+STATUS_AFTER="$(TGT_ID="${TARGET_ID}" "${PY}" "${CDP}" eval \
+  "document.querySelector('#status').textContent")"
+[ "${STATUS_AFTER}" = "not saved" ] || {
+  echo "FAIL: the refused click still reached the page (#status = ${STATUS_AFTER})"
+  exit 1
+}
+
 grep -q 'event.isTrusted' "${ROOT}/tests/fixtures/live-page.html"
 [ -s "${WORK}/out-1/shots/native-click-03.png" ]
 "${PY}" - "${WORK}" "${LIVE_RUNS}" <<'PY'
@@ -129,6 +152,15 @@ for run in range(1, count + 1):
     assert fill["action"]["wall_ms"] + fill["wait"]["wall_ms"] >= 140, fill
     assert click["action"]["wall_ms"] + click["wait"]["wall_ms"] >= 280, click
     assert "assert" in click and "capture" in click, click
+    # BAS-3: every state-changing step carries the driver's own page-state receipt, and an
+    # unwatched channel reads as "unwatched" rather than as a zero that looks like "all clear".
+    for step in steps[1:]:
+        receipt = step["receipt"]
+        assert receipt["url"].endswith("live-page.html"), receipt
+        assert receipt["net_errors"] == "unwatched", receipt
+        assert receipt["downloads"] == "unwatched", receipt
+        assert receipt["ref_invalidated"] is False, receipt
+    assert [item["type"] for item in steps[2]["receipt"]["dialogs"]] == ["alert"], steps[2]
     assert steps[2]["performance"]["verdict"] == "PASS", steps[2]
     assert 280 <= steps[2]["performance"]["outcome_ms"] <= 10000, steps[2]
     assert next(item for item in events if item["type"] == "errors").get("timing"), events
@@ -143,6 +175,9 @@ for run in range(1, count + 1):
     assert done["verdict"] == "PASS", done
     assert done["dialogs"] == 1, done
     assert done["performance_budgets"] == {"passed": 1, "evaluated": 1, "total": 1}, done
+    assert done["action_receipts"] == {"requested": 2, "received": 2,
+                                       "engine_supported": True}, done
+    assert done["identity_guard"] == {"declared": 2, "engine_supported": True}, done
     terminal = [json.loads(line) for line in
                 (work / f"runner-{run}.jsonl").read_text(encoding="utf-8").splitlines()]
     assert [item["type"] for item in terminal] == ["run_done"], terminal
@@ -158,4 +193,4 @@ print(json.dumps({"runs": count, "failures": 0,
 PY
 if grep -R -q 's3cret-Ada' "${WORK}"/out-*/run-log.jsonl; then exit 1; fi
 if grep -R -q 's3cret-Ada' "${WORK}"/out-*/qa-report.md; then exit 1; fi
-echo "PASS: ${LIVE_RUNS} real-Chrome run(s) foregrounded the exact pinned target and used protocol v3, per-step dialogs, event-bound nav, fast native input, async waits, performance budgets, summary stdout, redaction, telemetry, and artifacts"
+echo "PASS: ${LIVE_RUNS} real-Chrome run(s) foregrounded the exact pinned target and used protocol v3, per-step dialogs, event-bound nav, fast native input, async waits, performance budgets, declared identity guards with per-action receipts (plus a refused mismatch that never reached the page), summary stdout, redaction, telemetry, and artifacts"

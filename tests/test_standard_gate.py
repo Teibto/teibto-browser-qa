@@ -115,13 +115,19 @@ class RuleStatusGateTests(unittest.TestCase):
         self.assertIn("names no gate under tests/ or scripts/", message)
 
     def test_proposed_rule_without_a_tracking_issue_fails(self) -> None:
+        """Downgrading any rule to `proposed` without a tracking issue must fail.
+
+        The fixture rewrites whichever rule comes first rather than looking for a rule that is
+        already `proposed`: the standard is allowed to have none, and a gate that quietly stops
+        running once every rule is enforced is exactly the failure this suite exists to catch.
+        """
         lines = self.standard_text.splitlines()
         for position, line in enumerate(lines):
-            if line.startswith("**Status.** `proposed`"):
+            if line.startswith("**Status.** `"):
                 lines[position] = "**Status.** `proposed` — ยังไม่ได้ทำ"
                 break
         else:  # pragma: no cover - fixture assumption
-            self.fail("the standard has no proposed rule to break")
+            self.fail("the standard has no Status line to break")
         message = " ".join(self.violations("\n".join(lines)))
         self.assertIn("names no tracking issue", message)
 
