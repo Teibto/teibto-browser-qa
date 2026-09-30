@@ -58,8 +58,9 @@ ALLOWED_SCHEMES = ("http", "https")
 RISK_LEVELS = ("read", "write", "destructive")
 DEFAULT_RISK = "read"
 ENGINES = ("cdp", "bsk")
-# BrowserSkill (BAS §4): pinned because its dialog policy was verified for this version only.
-BSK_PINNED_VERSION = "0.3.0"
+# BrowserSkill (BAS §4): only releases whose dialog policy was re-verified with
+# self-test/engine2/dialog-test.sh are accepted, and daemon and extension must match.
+BSK_VERIFIED_VERSIONS = ("0.3.0", "0.3.2")
 BSK_MUTATING_DIALOGS = {"confirm", "prompt", "beforeunload"}
 # A detached debugger is transient, but only commands that cannot act twice may be retried.
 BSK_RETRY_LIMIT = 2
@@ -518,13 +519,15 @@ class BskSession:
                               f"มี browser เชื่อมอยู่หลายตัว ระบุ --bsk-browser: {known}")
         versions = {"daemon": status.get("daemon_version"),
                     "extension": browsers[0].get("extension_version")}
-        if set(versions.values()) != {BSK_PINNED_VERSION}:
+        if versions["daemon"] != versions["extension"] or versions["daemon"] not in BSK_VERIFIED_VERSIONS:
             raise RunnerError(
                 "DRIVER_INCOMPATIBLE",
-                f"runner pin bsk {BSK_PINNED_VERSION}: พบ daemon={versions['daemon']} "
-                f"extension={versions['extension']} — ตรวจนโยบาย dialog ใหม่ก่อนขยับ pin (BAS §4.3)",
+                f"runner รองรับ bsk {', '.join(BSK_VERIFIED_VERSIONS)} (daemon = extension): พบ "
+                f"daemon={versions['daemon']} extension={versions['extension']} — รุ่นใหม่ต้องผ่าน "
+                "self-test/engine2/dialog-test.sh ก่อนเพิ่มในรายการ (BAS §4.3)",
                 detail=versions,
             )
+        self.version = str(versions["daemon"])
         instance = str(browsers[0].get("instance_id"))
         if session:
             self.session_id = str(session)
@@ -539,7 +542,7 @@ class BskSession:
         if not self.tab_id:
             raise RunnerError("BSK_TAB_UNPINNED", "bsk tab create ไม่คืน tab_id — ขับต่อโดยไม่ pin tab ไม่ได้",
                               detail=created if isinstance(created, dict) else None)
-        self.ready = {"protocol": "bsk-cli", "version": BSK_PINNED_VERSION,
+        self.ready = {"protocol": "bsk-cli", "version": self.version,
                       "browser": f"{browsers[0].get('browser_name')} {browsers[0].get('browser_version')}",
                       "browser_instance": instance,
                       "session_owned": self.owns_session,
@@ -1059,7 +1062,7 @@ def run_flow(flow: dict[str, Any], path: Path, output_dir: Path, variables: dict
     report = [f"# QA Report — {flow['story']}", "", f"**Title:** {flow['title']}",
               f"**Target ID:** `{target_id}`", ""]
     if engine == "bsk":
-        report.insert(3, f"**Engine:** bsk {BSK_PINNED_VERSION} (dialog policy `{dialog}` enforced by "
+        report.insert(3, f"**Engine:** bsk (version not reached) (dialog policy `{dialog}` enforced by "
                          "an in-page guard; a native dialog that leaks past it is accepted by the "
                          "engine and fails the step)")
     assertions = sum(1 for scenario in flow["scenarios"] for step in scenario["steps"]
@@ -1112,6 +1115,7 @@ def run_flow(flow: dict[str, Any], path: Path, output_dir: Path, variables: dict
                 f"**Target ID:** `{target_id}` (bsk session · browser "
                 f"`{session.ready['browser_instance']}` · tab `{session.ready['tab_id']}` · "
                 f"{'own window' if session.ready['session_owned'] else 'shared window'})")
+            report[3] = report[3].replace("bsk (version not reached)", f"bsk {session.ready['version']}", 1)
         else:
             session = CDPSession(cdp_script, target_id, port=port, dialog=dialog)
         startup_ms = round((time.perf_counter() - startup_started) * 1000, 3)

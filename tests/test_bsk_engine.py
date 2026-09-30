@@ -70,7 +70,7 @@ class BskEngineTests(unittest.TestCase):
         self.assertEqual(events[0]["driver_policy"]["dialog_enforcement"], "in-page-guard")
         self.assertTrue((out / "shots" / "read-01.png").is_file())
         report = (out / "qa-report.md").read_text(encoding="utf-8")
-        self.assertIn("**Engine:** bsk 0.3.0", report)
+        self.assertIn("**Engine:** bsk 0.3.0 (dialog policy `safe` enforced", report)
         self.assertIn("**Target ID:** `fake-session` (bsk session · browser `only-one` · "
                       "tab `4242` · own window)", report)
         self.assertIn("session stop", calls)
@@ -154,6 +154,18 @@ class BskEngineTests(unittest.TestCase):
 
     def test_unpinned_version_is_driver_incompatible(self):
         _, _, events, calls = self.run_flow(READ_ONLY, {"FAKE_BSK_VERSION": "0.4.0"})
+        fatal = next(event for event in events if event["type"] == "fatal")
+        self.assertEqual(fatal["error"]["code"], "DRIVER_INCOMPATIBLE")
+        self.assertNotIn("session start", calls)
+
+    def test_every_verified_version_is_accepted_and_reported(self):
+        _, out, events, _ = self.run_flow(READ_ONLY, {"FAKE_BSK_VERSION": "0.3.2"})
+        self.assertEqual(events[-1]["verdict"], "PASS")
+        self.assertIn("**Engine:** bsk 0.3.2", (out / "qa-report.md").read_text(encoding="utf-8"))
+
+    def test_daemon_and_extension_skew_is_driver_incompatible(self):
+        _, _, events, calls = self.run_flow(READ_ONLY, {"FAKE_BSK_VERSION": "0.3.2",
+                                                        "FAKE_BSK_EXTENSION_VERSION": "0.3.0"})
         fatal = next(event for event in events if event["type"] == "fatal")
         self.assertEqual(fatal["error"]["code"], "DRIVER_INCOMPATIBLE")
         self.assertNotIn("session start", calls)

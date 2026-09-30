@@ -346,8 +346,9 @@ trusted input และคือรัศมีระเบิดของ injec
 | สอง engine = สองชุดกับดัก | ✅ ไฟล์กับดักแยก `references/engine2-bsk.md`; 🟡 version pin บังคับใน runner แต่ **ยังไม่มี CI job** ที่รัน `bsk` จริง — เจ้าของ repo ยอมรับความเสี่ยงนี้ในมติ #110; drift ตรวจด้วย `self-test/engine2/*.sh` บนเครื่อง dev |
 | ความเสถียร | 🟡 session หายเมื่อคนปิด Agent Window, `input_cleanup_failed` ต่อปุ่ม — มี typed failure และกฎรับมือ (`engine2-bsk.md` §4, §6) |
 
-ข้อเท็จจริงของ `bsk` ตรวจกับ v0.3.0 (`fa953dc`, MIT) และเป็น `version-pinned`; โครงการออกรุ่นถี่ ต้องรัน
-`self-test/engine2/dialog-test.sh` และ `runner-test.sh` ทุกครั้งที่ขยับ pin.
+ข้อเท็จจริงของ `bsk` ตรวจกับ v0.3.0 (`fa953dc`, MIT) และนโยบาย dialog ตรวจซ้ำกับ v0.3.2 (#144) — เป็น `version-pinned`;
+โครงการออกรุ่นถี่ ต้องรัน `self-test/engine2/dialog-test.sh`, `runner-test.sh` และ `contention-matrix.py` ก่อนเพิ่มรุ่นใน
+`BSK_VERIFIED_VERSIONS` ของ runner.
 
 ### 4.4 เส้นทางอื่นที่ยังเป็นข้อยกเว้น
 

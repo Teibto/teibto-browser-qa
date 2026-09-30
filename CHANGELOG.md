@@ -10,6 +10,14 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **runner รับ bsk 0.3.2 แล้ว (#144):** เดิม pin 0.3.0 ตัวเดียว เครื่องที่อัปเดต bsk จึงล้ม `DRIVER_INCOMPATIBLE`
+  ก่อน step แรกทุก run · ตอนนี้รับรุ่นใน `BSK_VERIFIED_VERSIONS` (0.3.0, 0.3.2) เมื่อ daemon กับ extension เป็นรุ่นเดียวกัน
+  และรายงานรุ่นจริงใน `qa-report.md` · 0.3.2 ผ่าน dialog-test (นโยบายเดิม), runner-test และ contention matrix 10/10
+- **contention matrix ไม่ค้างตอนจบ:** fixture server เดิมเป็น thread เดียว socket preconnect ของ Chrome ที่ไม่ส่ง request
+  ทำให้ `shutdown()` ไม่กลับ — เปลี่ยนเป็น threaded server ที่ handler เป็น daemon thread
+
 ### Added
 
 - **`scripts/bsk-account.py`: daemon แยกต่อ account ลูกค้า** — `ensure <account>` เปิด (หรือใช้ตัวเดิม) daemon
