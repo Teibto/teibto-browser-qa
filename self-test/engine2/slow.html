@@ -1,0 +1,11 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>slow</title>
+<body style="margin:0;font-family:sans-serif">
+<div id="banner" style="height:100vh;display:flex;align-items:center;justify-content:center;font-size:18vw;background:#c0392b;color:#fff">A</div>
+<span id="state">waiting</span>
+<script>
+  // หน้าที่ "พร้อม" ช้า ๆ เพื่อให้ทดสอบสิ่งที่เกิดระหว่าง run กำลังทำงานได้
+  setTimeout(function () { document.getElementById('state').textContent = 'ready'; }, 8000);
+</script>
+</body>

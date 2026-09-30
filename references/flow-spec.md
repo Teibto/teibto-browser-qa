@@ -22,13 +22,47 @@ $env:TEIBTO_CDP_SCRIPT = 'D:\path\to\teibto-dev-standards\scripts\cdp.py'
   ขาด field = `DRIVER_INCOMPATIBLE`, target ยัง hidden = `TARGET_BACKGROUND` และไม่มี step ใดเริ่ม
 - `open` รอ main-frame commit/load event จริง; ไม่ใช้ zero-drain + `readyState` ที่อาจอ่านหน้าเก่า
 - `click` ใช้ native input เท่านั้น; ไม่มี JS fallback เงียบ
-- action/wait/assert/screenshot/console ล้ม = หยุด scenario และ verdict `FAIL`
+- action/wait/assert/screenshot/console ล้ม = verdict `FAIL` และ **หยุดทั้ง run** — scenario ที่เหลือไม่ถูกรัน
+  (flow รวม 8 scenario ที่ล้มใน scenario ที่ 2 รันไปแค่ 2 จาก 19 step). เคสที่คาดว่าจะไม่เสถียรหรือ negative case
+  ให้แยกเป็น flow ของตัวเอง โดยมี scenario ยืนยันตัวตนขึ้นก่อนเสมอ
 - dialog ที่ driver ตอบอัตโนมัติทุกรายการถูกบันทึกเป็น event `dialog` ใน run-log และบรรทัด ⚠️ ใน report;
   policy เป็น `safe` เสมอ (ไม่ inherit `DIALOG` จาก shell) เว้นแต่สั่ง `--dialog accept|dismiss`
 - action ที่เปลี่ยน state แต่ไม่มี explicit assertion = verdict `UNVERIFIED`, ไม่ใช่ `PASS`
 - artifact อยู่ที่ `<out>/run-log.jsonl`, `<out>/qa-report.md`, `<out>/shots/`
 - `--stdout summary` ลด output เข้า agent context แต่ `run-log.jsonl` ยังเก็บ event เต็มเหมือนเดิม
 - `perf_budget_ms` ระดับ step วัด action → explicit wait → assertion; ไม่รวม startup/capture
+- `allowed_origins` ระดับ story เปิด origin gate: ตรวจทั้งเป้าหมายที่ประกาศไว้ (ก่อนเปิดเบราว์เซอร์)
+  และ URL จริงหลังทุก step (จับ redirect); หลุด = `ORIGIN_NOT_ALLOWED` และหยุด scenario
+- `risk: read|write|destructive` ระดับ step; `destructive` ต้องสั่ง `--allow-destructive` ไม่งั้น
+  runner ปฏิเสธ flow ตั้งแต่ก่อนเริ่ม (`DESTRUCTIVE_NOT_ALLOWED`)
+
+Engine (ค่าตั้งต้น `bsk`; `--engine cdp` หรือ `TEIBTO_QA_ENGINE=cdp` เพื่อใช้ `cdp.py` — มติอยู่ที่ `docs/BROWSER-AGENT-STANDARD.md` §4):
+
+```powershell
+py scripts/flow-runner.py --flow qa/<feature>/flow.yaml --out runs/manual --stdout summary          # bsk
+py scripts/flow-runner.py --engine cdp --target-id <id> --flow ... --out ...                        # cdp.py
+```
+
+- flow ไฟล์เดิมใช้ได้ทั้งสอง engine; `bsk` ไม่ต้องมี `TGT_ID` เพราะ session ของมันคือ target ที่ปักไว้
+- นโยบาย `--dialog` ของ `bsk` ถูกบังคับด้วย **ด่านในหน้าเว็บ** ที่ runner ติดตั้งหลังทุก navigation และก่อนทุก action
+  (`safe`: `alert` = accept, `confirm`/`prompt` = ปฏิเสธ); สิ่งที่ด่านตอบออกเป็น event `dialog` พร้อม answer จริง และ
+  `run_start.driver_policy.dialog_enforcement` เป็น `in-page-guard`
+- dialog native ที่หลุดด่านถูก `bsk` accept เสมอ: `confirm`/`prompt`/`beforeunload` แบบนั้น = step ล้มด้วย
+  `ENGINE_DIALOG_ACCEPTED` (เว้นแต่ `--dialog accept`); `alert` บันทึกแต่ไม่ล้ม
+- step ที่ `risk: destructive` ยังต้อง `--allow-destructive` เหมือน `cdp`
+- มี browser เชื่อม `bsk` หลายตัว ต้องระบุ `--bsk-browser <instance_id>` (หรือ `TEIBTO_BSK_BROWSER`; ดู id จาก
+  `bsk browsers --json`) — ไม่ระบุ = `BSK_BROWSER_AMBIGUOUS`, runner ไม่เดา; id ถูกบันทึกใน `session_ready`
+- id ของ Agent Window ที่ใช้ร่วมกันมาจาก `python scripts/bsk-shared.py ensure` (สร้างครั้งเดียวต่อ browser
+  instance แล้ว reuse; `status`/`release` ดูและปิด)
+- หลาย run บน browser เดียวกัน: `--bsk-session <id>` (หรือ `TEIBTO_BSK_SESSION`) ให้ run attach Agent Window
+  ที่เปิดไว้แล้วแทนการเปิดใหม่ — run สร้าง tab ของตัวเองและ pin ทุกคำสั่งไว้กับ tab นั้น, ปิดเฉพาะ tab ของตัวเอง
+  และไม่เคย `session stop` ให้ใคร; session ที่ไม่มีอยู่จริง = `BSK_SESSION_MISSING`. ทุกคำสั่งผ่าน lease ต่อ session
+  (`scripts/bsk_lease.py`) เพราะ session รับทีละคำสั่ง; เวลาที่รอคิวอยู่ใน `run_done.session_sharing`
+  (ดู `references/engine2-bsk.md` §1.1)
+- daemon/extension ต้องเป็นรุ่นที่ runner pin ไว้ ไม่ตรง = `DRIVER_INCOMPATIBLE`; runner ไม่ start daemon เอง
+- รับเฉพาะ CSS selector (`@ref` = `ENGINE_UNSUPPORTED`)
+- console check นับเฉพาะ `console.error` และ uncaught exception; resource ที่โหลดไม่ได้เป็นงานของ `lens netlog`
+  ซึ่ง engine นี้ไม่มี
 
 Local UI (ไม่จำเป็นต่อ CI):
 
@@ -52,6 +86,8 @@ regression ได้, เติม vars ต่างค่าเพื่อย�
 story: <slug>                    # id สั้นๆ ของ flow (ใช้ตั้งชื่อโฟลเดอร์ artifact)
 title: <ชื่ออ่านเข้าใจ>          # ขึ้นหัว guide/report
 ticket: <PROJ-123>               # (team) link กลับ requirement/ticket — ไหลเข้า qa-report + guide
+allowed_origins:                 # optional; ประกาศแล้ว = เปิด origin gate (ไม่ประกาศ = พฤติกรรมเดิม)
+  - "https://1234567-sb1.app.netsuite.com"     # origin เต็มเท่านั้น ไม่รับ wildcard
 
 vars:                            # ค่าที่ inject ผ่าน {{name}} — UI render เป็นช่องกรอก
   - { name: base_url, label: URL, default: "https://..." }
@@ -70,6 +106,7 @@ scenarios:
         value: "<ค่า/ข้อความ (สำหรับ fill/select) — รองรับ {{var}}>"
         wait: networkidle | <ms> | "<selector>" | "fn:<js>"  # รอหลัง action
         perf_budget_ms: 3000       # optional; เกินแล้ว PERF_BUDGET_EXCEEDED + FAIL
+        risk: read|write|destructive   # optional (default read); destructive ต้อง --allow-destructive
         capture: true|false        # override screenshot policy ของ scenario นี้
         assert:                  # พิสูจน์ผล (ตาม gotchas: อย่าเชื่อ ✓Done)
           url_contains: "/inventory.html"
@@ -113,6 +150,27 @@ timing ของตัวเอง และ `run_done` แยก startup/total.
 explicit wait/assert โดยไม่รวม screenshot; `run_done.performance_budgets` สรุป pass/evaluated/total.
 เกิน budget = typed failure `PERF_BUDGET_EXCEEDED` และเก็บ failure evidence ตาม capture policy.
 
+## Origin gate และ risk class
+
+**ทำไมต้องตรวจซ้ำหลัง navigation:** เป้าหมายที่เขียนไว้ใน flow ผ่านการตรวจก่อนเปิดเบราว์เซอร์ แต่ SSO
+หรือ redirect ฝั่ง server พาไปที่อื่นได้หลังจากนั้น — การตรวจครั้งเดียวตอนต้นจึงเป็นด่านที่ fail open.
+Runner อ่าน `url` จริงหลัง action + wait ของทุก step **เมื่อ flow ประกาศ `allowed_origins` เท่านั้น**
+(flow ที่ไม่ประกาศไม่จ่าย round trip เพิ่มเลย)
+
+**ทำไมต้อง parse ไม่ใช่เทียบ prefix:** `https://sb1.example.com.attacker.test` ขึ้นต้นด้วย origin ที่
+อนุญาตเมื่อมองเป็นสตริง แต่เป็นคนละ origin เมื่อมองเป็น URL · `origin_violation()` จึง parse แล้วเทียบ
+`scheme://host[:port]` ทั้งก้อน และปฏิเสธทุก scheme ที่ไม่ใช่ `http`/`https`
+
+**ลำดับใน step:** action → wait → **origin gate** → assert · ด่านอยู่ก่อน assert เพราะถ้า assert ก่อน
+ผลที่ได้จะเป็น `ASSERTION_FAILED` ซึ่งกลบข้อเท็จจริงว่า run หลุดออกนอกขอบเขตไปแล้ว
+
+**ไม่นับรวมใน perf budget:** เวลาที่ใช้อ่าน `url` ของด่านถูกหักออกจาก `outcome_ms` — flow ที่ประกาศ
+origin ของตัวเองไม่ควรถูกลงโทษด้วย budget ที่เข้มขึ้น
+
+**รายงาน:** `run_start.run_policy` บอก origin ที่อนุญาต, `origin_gate` (`enforced`/`not-declared`),
+จำนวน step แยกตาม risk และว่า destructive ถูกอนุญาตหรือไม่ · `run_done.origin_gate.checks` นับจำนวน
+step ที่ผ่านด่าน · `qa-report.md` ขึ้นสองบรรทัดบนหัวรายงาน
+
 **Traceability (สำหรับทีม):** `ticket`/`requirement` + `acceptance` ทำให้ตอบได้ว่า *test นี้ยืนยัน
 req ไหน* และ *req นี้ครอบด้วย scenario ไหน*. 1 acceptance criterion → 1 scenario (map 1:1) →
 qa-report + user-guide อ้าง req เดียวกัน = ปิด loop req→test→doc. ดู playbook ทีมใน repo:
@@ -128,6 +186,10 @@ ignore เงียบ ๆ.
 
 `perf_budget` แบบ object/scenario เดิมยังถูกปฏิเสธ; executable contract คือ integer
 `perf_budget_ms` ที่ step เท่านั้น.
+
+`allowed_origins` และ `risk` **เป็น executable field แล้ว** (schema + พฤติกรรมตอนรัน + การรายงาน +
+เทสตอนล้ม ship พร้อมกัน) · `allowed_origins` รับเฉพาะ origin เต็ม ไม่รับ wildcard ระดับ subdomain
+เพราะ wildcard คือช่องที่ทำให้ด่านนี้ fail open ได้เงียบที่สุด.
 
 - เก็บ release/quarantine/coverage state ใน `qa/<feature>/coverage.yaml`.
 - ทำ setup/teardown เป็น orchestration แยก โดยใช้ scoped marker, identify-before-mutate และ dirty-state

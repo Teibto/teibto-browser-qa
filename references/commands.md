@@ -1,6 +1,10 @@
 # Command Reference — `cdp.py` (CDP ตรง)
 
-transport ของ skill นี้คือ **`cdp.py`** ซึ่งเป็น asset กลางของ `Teibto/teibto-dev-standards`
+ไฟล์นี้ใช้เฉพาะ `--engine cdp`; ค่าเริ่มต้นของ skill คือ BrowserSkill (`bsk`) — อ่าน
+[`engine2-bsk.md`](engine2-bsk.md) สำหรับงานใหม่ รวม NetSuite เมื่อผู้ใช้เลือก bsk.
+อย่าสลับไป CDP เพียงเพราะตัวอย่างเก่าใช้คำสั่งในไฟล์นี้.
+
+transport ของเลนนี้คือ **`cdp.py`** ซึ่งเป็น asset กลางของ `Teibto/teibto-dev-standards`
 (`scripts/cdp.py`). Flow runner ต้องใช้ JSONL protocol v3+ ที่ ready หลังทำ target ที่ pin เป็น
 foreground และยืนยัน `visibility_state=visible`; ad-hoc command ใช้ policy ปกติของ driver.
 
@@ -62,6 +66,10 @@ fallback ของ action เพราะ synthetic click จะซ่อนป�
 จะสรุปผิดว่า field ว่างทั้งที่จริง ๆ หา element ไม่เจอ (คือ selector ผิด/หน้ายังไม่ render)
 
 ## หา element แบบ semantic (ทน dynamic UI)
+
+**ลำดับการเล็งเป้า — หยุดที่ตัวแรกที่ใช้ได้:** `@ref` จาก `a11y` → `data-test`/`id` ที่แอปเป็นเจ้าของ →
+CSS เชิงโครงสร้าง → พิกัด (canvas/วิดีโอ/surface ที่ฝังมาเท่านั้น และ **`cdp.py` ไม่มีคำสั่งที่รับพิกัด**)
+ผลที่มีแต่ pixel ยืนยันได้คือ `PASS(visual)` ไม่ใช่ `PASS` → `cdp-limits.md` §0
 
 `a11y` คืน role + accessible name + ref สำหรับค้น element แบบ semantic:
 

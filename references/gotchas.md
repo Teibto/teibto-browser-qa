@@ -1,5 +1,8 @@
 # กับดักที่เจอจริง + วิธีแก้ (transport = CDP ตรง)
 
+ค่าเริ่มต้นคือ BrowserSkill (`bsk`); กับดักของ bsk อยู่ใน [`engine2-bsk.md`](engine2-bsk.md).
+ใช้ไฟล์นี้เมื่อเลือก `--engine cdp` โดยชัดแจ้งเท่านั้น.
+
 รวมข้อจำกัดและความเข้าใจผิดที่ทำให้ direct-CDP automation ผ่านหรือ fail แบบหลอกบน Windows.
 พฤติกรรมที่ขึ้นกับ Chrome/driver ระบุ provenance ใน `docs/CLAIMS-AUDIT.md`; รัน self-test ใหม่เมื่อ
 เวอร์ชันเปลี่ยน.
@@ -23,7 +26,11 @@
 15. `innerWidth` ใต้ device-metrics override รวม scrollbar — ด่าน overflow จึงแดงทุกความกว้าง (fail ปลอม)
 16. `el.focus()` ไม่ทำให้ `:focus-visible` ทำงาน — ด่าน focus ring รายงานว่า "ทุกปุ่มไม่มี ring"
 17. Chrome cache หน้าเดิม — แก้ไฟล์แล้ว QA ยังวัดโค้ดเก่า ผลที่ได้จึงเป็นของรุ่นก่อนแก้
-18. NetSuite อยู่แท็บเบื้องหลัง — timer throttle ทำให้ performance baseline ช้าปลอมหลายเท่า
+18. แท็บ/หน้าต่างไม่อยู่หน้าสุด — `requestAnimationFrame` ไม่รัน และ trusted `click` อาจหายเงียบ
+19. `document.fonts.check()` ตอบ `true` ให้ฟอนต์ที่ไม่มี — วัด presence ด้วยความกว้างเทียบ baseline คนละตระกูล
+20. `wait` หลัง `click` ไปหน้าที่โหลดเกิน ~10 วิ ล้มด้วย `WS_TIMEOUT` ทั้งที่ click สำเร็จ
+21. `fill` จบด้วยการกด Tab — โฟกัสไปอยู่ที่ `BODY` แล้ว `key Enter` ต่อจากนั้นจึงไม่ส่งฟอร์ม/แชต
+22. NetSuite อยู่แท็บเบื้องหลัง — timer throttle ทำให้ performance baseline ช้าปลอมหลายเท่า
 
 ---
 
@@ -93,6 +100,19 @@ AB viewport 1920 1200 2 && AB shot out.png              # ✗ ได้ 1x — o
 
 (teibto-dev-standards#119 · เทส `T11e` ล็อกข้อนี้ไว้แล้ว) · เหตุผลเดียวกับที่ `evalmedia` ต้องตั้ง
 media แล้ว eval **ในคำสั่งเดียว**
+
+**ขนาดหน้าต่างไม่ตายตามไปด้วย** — สิ่งที่หายไปพร้อม websocket คือชั้น emulation (`devicePixelRatio`
+กลับเป็นค่าเดิม) แต่หน้าต่างถูก resize จริงและ **ค้างขนาดนั้นข้าม invocation** · วัดจริง 2026-09-14
+Chrome 152 ทั้ง headless และ headed: `AB shot m.png --vw=390 --vh=700` แล้วคำสั่งถัดไปอ่าน `innerWidth`
+ได้ 390 จนกว่าจะมีคำสั่งตั้งขนาดใหม่ → ก่อนกลับไปวัดจอ PC ให้ `AB shot x.png --vw=1440 --vh=900` คืนก่อน
+แล้ว assert `innerWidth` · และอย่าใช้ `innerWidth` พิสูจน์ว่า override ยังอยู่ ใช้ `devicePixelRatio` (`ux-lens.md` §4)
+
+**harness ที่ห่อ `viewport` เป็นคำสั่งเดี่ยว = ด่านที่ไม่รู้ว่าวัดที่กี่พิกเซล:** e2e sweep ที่เขียน
+`def viewport(w, h): cdp('viewport', w, h)` แล้วค่อย nav/probe ในคำสั่งถัดไป จะวัดที่ขนาดที่หน้าต่างค้างอยู่
+ตอนนั้น ไม่ใช่ขนาดที่ตั้งใจ · อาการที่หลอกที่สุดคือเฟสหนึ่งเขียวยกแผง อีกเฟสแดงยกแผงรวมหน้าที่ไม่ได้แก้
+ซึ่งอ่านเหมือน regression ของโค้ด (เจอจริง 2026-08-24 · TBTKB #853) → ทุก probe ต้องอยู่ใน invocation
+เดียวกับที่ตั้ง metrics (`run <script>` / `lens responsive`) และเฟสต้อง assert `innerWidth` ตรงกับที่ตั้ง
+**ก่อน** วัดหน้าแรก แล้วหยุดทั้งเฟสถ้าไม่ตรง
 
 ---
 
@@ -187,6 +207,45 @@ Get-CimInstance Win32_Process -Filter "Name='chrome.exe'" |
   ? { $_.CommandLine -like '*\.qa-profiles\*' } |
   % { Stop-Process -Id $_.ProcessId -Force }
 ```
+
+**profile เก่าโตเงียบจนกินดิสก์เป็นสิบ GB:** profile ที่ตั้งชื่อใหม่ต่อ issue/agent ไม่มีใครลบ · baseline
+~240 MB ต่อ profile และบางอันโหลด `OptGuideOnDeviceModel` (on-device model ของ Chrome) เพิ่มอีก ~4 GB ·
+ตรวจจริง 2026-08-28: `D:\Claude\TEIBTO` มี 67 profile รวม 23.7 GB (repo TBTKB อย่างเดียว 53 profile / 20 GB)
+
+- วัดขนาดบน Windows ด้วย `robocopy <dir> D:\__nul__ /L /S /NJH /NFL /NDL /BYTES` แล้วอ่านบรรทัด `Bytes :` ·
+  `du -sm` ผ่าน Git Bash ช้าจน timeout บน tree ที่มีไฟล์เยอะ
+- ก่อนลบต้องเช็คว่าไม่มี Chrome ใช้ profile นั้นอยู่ (ดึง `--user-data-dir=` จาก CommandLine แบบคำสั่งข้างบน)
+  — session อื่นอาจเปิด profile เก่ากลับมาระหว่างกวาด (เจอจริง: `Remove-Item` ล้มที่ `BrowserMetrics\*.pma`)
+  · ห้าม kill browser ของ session อื่นเพื่อให้ลบผ่าน
+- เกณฑ์กวาดที่ใช้ได้จริง: เก็บ profile ที่แตะภายใน 3 วัน และ profile ที่ login ไว้ (ค่า re-login/2FA แพงกว่าพื้นที่)
+  ที่เหลือลบได้
+- artifact dir ของงาน (`.runtime-*/`) มักฝัง chrome profile ไว้ข้างใน — ตัด `chrome-*profile*` ออกก่อน archive
+
+### กวาดด้วยสคริปต์ (ไม่ต้องรื้อคำสั่งมือ)
+
+`scripts/profile-sweep.py` ทำตามเกณฑ์ข้างบนให้อัตโนมัติ — **dry-run เป็นค่าเริ่มต้น** และ
+**ไม่แตะ profile ที่ Chrome กำลังใช้** (ดึง `--user-data-dir=` จาก CommandLine เอง ไม่ต้อง
+`taskkill`):
+
+```bash
+python scripts/profile-sweep.py --profiles-dir .qa-profiles                      # รายงานก่อน ไม่ลบ
+python scripts/profile-sweep.py --profiles-dir .qa-profiles --apply              # กวาดจริง (เก่ากว่า 3 วัน)
+python scripts/profile-sweep.py --profiles-dir .qa-profiles --only run-x --apply --force  # post-run hook
+```
+
+- `--keep-days N` เก็บ profile ที่แตะภายใน N วัน (default 3) · `--protect 'sb2*'` กันชื่อที่ต้องเก็บ
+- วางไฟล์ `.keep` ใน profile ที่ login ไว้ (`.qa-profiles/<customer>/.keep`) ให้รอดทุกโหมด รวม `--force`
+- `--strict-probe` = ถ้าดึงรายการ process ไม่ได้ให้ล้มทันที แทนที่จะถือว่า "ไม่มีใครใช้"
+
+**ลดการโตตั้งแต่ต้น** — flags ตอนเปิด Chrome ของงาน (inferred: ยังไม่ได้ A/B ในรีโปนี้):
+
+```bash
+chrome --user-data-dir=... --disable-features=OptimizationGuideModelDownloading \
+       --disable-component-update --disable-background-networking about:blank
+```
+
+`OptGuideOnDeviceModel` (~4 GB) และ component crx cache (~37 MB/component) คือก้อนที่โตโดยไม่เกี่ยวกับ
+งาน QA; ปิดสองอย่างนี้ตัดการโตได้ — แต่รัน `self-test/smoke-test.sh` ยืนยันก่อนเลื่อนเป็นค่าเริ่มต้น
 
 ---
 
@@ -346,9 +405,116 @@ c.nav(URL + "?qa=" + str(int(time.time())))   # cache-bust ทุกรอบ
 ตัวชี้ขาดว่าเจอกับดักนี้: เปิด URL พร้อม query ใหม่แล้วผลเปลี่ยนทันที · เจอจริง 2026-08-15
 (#117 ของ ERP-AI-First) เสียเวลาไปหนึ่งรอบเต็มกับการยืนยันว่า fix ที่ถูกอยู่แล้ว "ไม่ทำงาน"
 
+**cache ฝั่ง server หลอกแบบเดียวกัน:** static file ของ APEX workspace เสิร์ฟ
+`Cache-Control: max-age=315360000, immutable` ตาม URL ที่มี `v<FILES_VERSION>` — ตรวจว่าเสิร์ฟรุ่นไหนด้วยการ
+`curl` URL จริงแล้ว grep marker ของรุ่นใหม่ ไม่ใช่เชื่อผลตรวจฝั่ง DB อย่างเดียว (TBTKB #983)
+
 ---
 
-## 18. NetSuite อยู่แท็บเบื้องหลัง — performance baseline ช้าปลอมหลายเท่า [HIGH]
+## 18. แท็บ/หน้าต่างไม่อยู่หน้าสุด — `requestAnimationFrame` ไม่รัน และ trusted `click` อาจหายเงียบ [HIGH — เมื่อรันขนานหรือแชร์ Chrome]
+
+เกิดได้ทั้งตอนเปิด QA Chrome หลายตัวพร้อมกัน (#10) และใน shared session ที่หลาย agent ถือคนละแท็บใน Chrome
+ใบเดียว (skill `netsuite-qa-browser`) — อีก agent ยกแท็บของตัวเองขึ้นหน้า แท็บของเรากลายเป็น background
+
+**`requestAnimationFrame` ไม่รันในแท็บ background** — วัดจริง 2026-09-14 Chrome 152 ทั้ง headless และ headed:
+`document.hidden === true` แล้ว callback ไม่รันเลย พอยกแท็บกลับมาหน้าก็รันทันที (`self-test/smoke-test.sh` ล็อกไว้)
+อาการในแอป: element ที่วางตำแหน่งใน rAF ค้างที่ตำแหน่งตั้งต้น (inline `left/top/max-width` ว่าง) ขณะที่ส่วนที่ตั้ง
+แบบ synchronous ถูกต้อง — e2e ผ่านบ้างไม่ผ่านบ้างตามว่าแท็บไหนอยู่หน้า (TBTKB #983) · ต่างจาก #13 ที่ rAF
+รันแน่แต่อ่านเร็วเกิน
+
+- พิสูจน์ก่อนโทษ cache/deploy: ให้ probe คืน `el.style.cssText` ด้วย — ว่างทั้งที่ไฟล์ที่เสิร์ฟเป็นรุ่นใหม่ (#17)
+  = callback ไม่เคยรัน
+- โค้ด layout ที่ต้องถูกเสมอให้ทำแบบ synchronous (อ่าน `offsetWidth` บังคับ layout ได้อยู่แล้ว) — ผู้ใช้จริง
+  ที่สลับแท็บก็โดนแบบเดียวกัน
+
+**trusted `click` ตอบ `clicked <sel> @ x,y` แต่ไม่เกิดอะไร** — เจอจริง 2026-08-23 (6 Chrome ขนานบน TBTKB)
+และ 2026-09-08 (shared session: คลิก rail item เดิมที่เพิ่งใช้ได้ แล้วเงียบสามรอบติด) · **ยังไม่มีข้อสรุปว่าเป็นเพราะ
+background:** ใน session เดียวกันนั้นคลิกอย่างอื่น (ปุ่มในตาราง · modal · toast) สำเร็จทั้งที่ `document.hidden === true`
+ข้อนี้จึงเป็น `inferred` ใน `docs/CLAIMS-AUDIT.md` (ติดตามที่ #74) · ท่าที่แยกได้จริงคือ synthetic เทียบ trusted:
+
+```js
+document.hidden                    // สัญญาณ ไม่ใช่คำอธิบาย
+document.elementFromPoint(x, y)    // จุดกึ่งกลางที่ cdp.py จะคลิก ตกบน element ไหน
+el.click()                         // synthetic — ข้าม hit-test ทั้งหมด
+```
+
+- synthetic ผ่าน + trusted ไม่ผ่าน = handler ผูกครบ ปัญหาอยู่ที่ชั้น input/hit-test
+- trusted ล้มเฉพาะบาง element แต่ตัวอื่นบนหน้าเดียวกันผ่าน → สงสัย hit-test ของจุดนั้นก่อน (กึ่งกลางอาจตกบนลูก
+  ที่ไม่ใช่เป้า เช่น `<svg>` ในปุ่ม) ไม่ใช่สงสัยทั้งแท็บ
+- flow ที่ต้องเป็น user input จริงห้ามเปลี่ยนไปใช้ synthetic เพื่อให้ผ่าน · synthetic ใช้เปิด state เพื่อวัด geometry
+  อย่างเดียวได้
+
+**แก้:** สั่ง `AB shot x.png` ก่อนชุดคลิกหรือก่อนวัดสิ่งที่พึ่ง rAF — `shot` เรียก `Page.bringToFront` ให้ ·
+และ assert ผลหลังคลิกเสมอ (#1)
+
+---
+
+## 19. `document.fonts.check()` ตอบ `true` ให้ฟอนต์ที่ไม่มีในเครื่อง [HIGH — ทำให้ ship regression]
+
+`document.fonts.check('12px "JetBrains Mono"')` คืน `true` บนเครื่องที่ไม่มี JetBrains Mono เพราะมันตอบว่า
+"มี web font ที่ยังต้องรอโหลดไหม" ไม่ใช่ "เครื่องมี family นี้ไหม" · วัดจริง Chrome 152 / Windows 11: ตอบ `true`
+ให้ JetBrains Mono, Fira Code, Cascadia Mono ที่ไม่มีสักตัว (2026-09-08) และให้ชื่อที่ไม่มีอยู่จริง
+(2026-09-14 ทั้ง headless/headed · `self-test/smoke-test.sh` ล็อกไว้)
+
+**ท่าที่ตอบถูก — เทียบความกว้างกับ baseline:**
+
+```js
+const w = (fam, txt) => {
+  const s = document.createElement('span');
+  s.style.cssText = 'position:absolute;visibility:hidden;font-size:40px;white-space:pre;font-family:' + fam;
+  s.textContent = txt; document.body.appendChild(s);
+  const r = s.getBoundingClientRect().width; s.remove(); return Math.round(r * 100) / 100;
+};
+const present = (n, t) => w(`"${n}", serif`, t) !== w('"__no_such_face__", serif', t);
+```
+
+**baseline ต้องเป็น generic คนละตระกูลกับ family ที่ตรวจ** — generic `monospace` ของ Chrome บน Windows คือ
+Consolas เทียบกับมันแล้วได้คำตอบว่า "Consolas ไม่ได้ติดตั้ง" ซึ่งผิดและดูน่าเชื่อมาก (วัดซ้ำ 2026-09-14:
+เทียบ `serif` = มี · เทียบ `monospace` = ไม่มี)
+
+**อีกด้านที่สำคัญกว่า:** อย่าสรุปพฤติกรรมฟอนต์จากไฟล์ใน repo ฟอนต์ที่ผู้ใช้ลงเองมีอยู่จริงและมีผลจริง — stack
+ที่ "ไม่มีตัวไหนถูก serve" ยังเลือก family ที่เครื่องมีได้ · การถอดชื่อออกเพราะคิดว่าไม่มีผลทำให้ตัวอักษรไทยทั้งหน้า
+เปลี่ยนฟอนต์และ merge ไปแล้วก่อนจะจับได้ (TEIBTO-Bank-Reconcile #105) · **วัดในเบราว์เซอร์ก่อนแตะ font stack
+เสมอ** — เป็นคำถามที่ repo ตอบไม่ได้โดยหลักการ
+
+## 20. `wait` หลัง `click` ไปหน้าที่โหลดเกิน ~10 วิ ล้มด้วย `WS_TIMEOUT` [HIGH — false FAIL บน NetSuite]
+
+step `click` ที่ทำให้เกิด navigation ไปหน้าโหลดช้า แล้วตามด้วย `wait` แบบ expression, selector หรือ
+`networkidle` ล้มด้วย `WS_TIMEOUT` หลัง ~10 วินาที **ไม่ใช่** ที่ deadline 20–30 วินาทีของ `wait` เอง —
+ทั้งที่ click สำเร็จและหน้าปลายทางโหลดครบในอีกไม่กี่วินาที. รายงานจึงออกมาเป็น FAIL ที่ step คลิก
+โดย `failing_phase` คือ `wait` ไม่ใช่ `action`.
+
+วัดจริงบน NetSuite SB2 (2026-09-19, flow read-only: Sales Order list → คลิก View):
+`wait.driver_ms = 10012` แล้ว `WS_TIMEOUT` · หน้า Sales Order view เดียวกันวัดด้วย `nav --until=load` ได้
+**13,812 ms** · เปลี่ยน wait เป็นพักแบบกำหนดเวลาแล้ว flow เดิมผ่าน 4/4. สาเหตุที่ evaluate ไม่ตอบ
+(renderer ไม่ว่าง หรือ execution context ถูกทำลายระหว่าง navigation) **ยังไม่ได้แยก** — ติดตามที่
+`Teibto/teibto-dev-standards#396`.
+
+**อ่านอาการให้ถูกก่อนไล่บั๊ก:** `WS_TIMEOUT` + `failing_phase: wait` + `driver_ms ≈ 10000` หลัง click ที่เปลี่ยนหน้า
+= กับดักนี้ ไม่ใช่ปุ่มกดไม่ติด. เปิด failure screenshot ดู — ถ้าเห็นหน้าปลายทางกำลังขึ้น แปลว่า click ลงแล้ว.
+
+**ท่าเลี่ยงจนกว่า driver จะแก้:**
+
+```yaml
+- action: click
+  target: "tr.uir-list-row-tr a.viewitem"
+  risk: read
+  wait: 17000            # พักแบบกำหนดเวลา: runner sleep เอง ไม่ส่งคำสั่งเข้า driver ระหว่างหน้าโหลด
+  assert: { url_contains: "/salesord.nl?id=" }
+- action: wait           # step ถัดไปพิสูจน์ outcome จริงเมื่อ renderer ว่างแล้ว
+  target: "fn:!!document.querySelector('h1.uir-record-type')"
+  assert: { target: "h1.uir-record-type", contains: "Sales Order" }
+```
+
+- ตั้งเวลาพักจากเวลาโหลดที่ **วัดได้** ของหน้านั้น (`nav --until=load` แล้วจับเวลา) บวกส่วนเผื่อ ไม่ใช่เดา
+- นี่คือ fixed sleep ซึ่งขัดกับแนวทาง "รอ observable outcome": ใช้เฉพาะ step ที่เข้าอาการข้างบน,
+  ใส่ comment อ้างข้อนี้ และห้ามใส่ `perf_budget_ms` ใน step นั้นเพราะตัวเลขจะเป็นเวลาพัก ไม่ใช่เวลาของแอป
+- ถ้าไม่ได้ต้องการพิสูจน์ว่า "ลิงก์กดได้" ให้ใช้ `open` ไป URL ปลายทางแทน — `open` รอ navigation แบบ
+  event-bound และไม่เข้ากับดักนี้
+
+---
+
+## 22. NetSuite อยู่แท็บเบื้องหลัง — performance baseline ช้าปลอมหลายเท่า [HIGH]
 
 NetSuite client loop ที่ yield ด้วย `setTimeout(0)` ถูก Chrome throttle เมื่อ
 `document.visibilityState=hidden`. คำสั่งยังสำเร็จและผลธุรกิจอาจเหมือนเดิม แต่เวลารวมพองขึ้นหลายเท่า;

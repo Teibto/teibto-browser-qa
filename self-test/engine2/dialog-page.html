@@ -1,0 +1,25 @@
+<!doctype html><meta charset="utf-8"><title>Engine2 dialogs</title>
+<body style="font-family:sans-serif">
+<!-- ผลของ dialog แต่ละชนิดถูกเขียนลง DOM หลัง dialog คืนค่า: เทสเทียบค่านี้กับสิ่งที่ engine รายงาน -->
+<button id="btn-alert">alert</button>      <span id="r-alert">idle</span><br>
+<button id="btn-confirm">confirm</button>  <span id="r-confirm">idle</span><br>
+<button id="btn-prompt">prompt</button>    <span id="r-prompt">idle</span><br>
+<button id="btn-leave">leave</button>      <span id="r-leave">idle</span>
+<script>
+  var $ = function (id) { return document.getElementById(id); };
+  // ?left=1 = หน้านี้ถูกโหลดใหม่เพราะ beforeunload ถูก accept
+  if (new URLSearchParams(location.search).get('left') === '1') $('r-leave').textContent = 'left';
+
+  $('btn-alert').onclick = function () { alert('engine2-alert'); $('r-alert').textContent = 'returned'; };
+  // confirm: true = accept, false = dismiss
+  $('btn-confirm').onclick = function () { $('r-confirm').textContent = String(confirm('engine2-confirm: delete record?')); };
+  // prompt: string = accept, null = dismiss
+  $('btn-prompt').onclick = function () { $('r-prompt').textContent = JSON.stringify(prompt('engine2-prompt', 'default-text')); };
+  // beforeunload ต้องมี user activation จึงผูกกับ trusted click; ยังอยู่หน้าเดิมหลัง 1.5 วิ = dismiss
+  $('btn-leave').onclick = function () {
+    window.addEventListener('beforeunload', function (e) { e.preventDefault(); e.returnValue = ''; });
+    setTimeout(function () { $('r-leave').textContent = 'stayed'; }, 1500);
+    location.href = location.pathname + '?left=1';
+  };
+</script>
+</body>

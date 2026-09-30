@@ -1,0 +1,22 @@
+story: contention-own
+title: A run stays on its own page and photographs it
+vars:
+  - {name: worker, label: Worker}
+  - {name: base_url, label: Fixture URL}
+scenarios:
+  - id: own
+    steps:
+      - action: open
+        target: "{{base_url}}/page.html?w={{worker}}"
+        capture: false
+      - action: click
+        target: "#act"
+        risk: read
+        wait: "fn:document.querySelector('#out').textContent==='act-clicked'"
+        assert: {target: "#out", contains: "act-clicked"}
+        capture: true
+      - action: eval
+        target: "document.title"
+        intent: "the page under this run is still its own"
+        assert: {url_contains: "w={{worker}}"}
+        capture: true

@@ -16,6 +16,9 @@ on:
 jobs:
   quality-gate:
     uses: ./.github/workflows/ci.yml
+    # A reusable workflow sees no repository secrets unless they are passed on. Without this the
+    # driver-compat job cannot read DEV_STANDARDS_DEPLOY_KEY, fails closed, and no release is published.
+    secrets: inherit
 
   release:
     name: publish-release

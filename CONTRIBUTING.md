@@ -7,7 +7,7 @@ How to change this skill without breaking the discipline it is built on. New her
 
 - Chrome + `py -m pip install websocket-client pillow numpy` — needed to run `self-test/smoke-test.sh`.
   Use canonical `cdp.py` protocol v3+ with foreground-ready evidence (`foreground=true` and
-  `visibility_state=visible`); v0.83.0 has protocol v3 but predates those fields. Override the standard
+  `visibility_state=visible`, released in v0.86.0); v0.83.0 has protocol v3 but predates those fields. Override the standard
   team path with `NS_CDP` for smoke tests or `TEIBTO_CDP_SCRIPT` for the flow runner.
 - Python 3.10+ with PyYAML/jsonschema: `pip install -r requirements.txt` — for the `scripts/`.
 - Node.js 20+ only when changing the optional local UI.
@@ -72,9 +72,7 @@ Re-run after any Chrome or `cdp.py` version bump — this is the drift detector.
 ### Driver pin and the `driver-compat` CI job
 
 The runner is verified against one canonical driver generation: `TEIBTO_DEV_STANDARDS_REF` in
-`.github/workflows/ci.yml`. While the foreground-ready driver change is under review, this is the
-immutable commit `56b4e788ab80807c3f62b43b88a151a52a96df8e`; replace it with that change's reviewed
-release tag before this browser PR leaves Draft. CI job `driver-compat` clones that exact revision and
+`.github/workflows/ci.yml` (currently `v0.88.0`, which carries the foreground-ready handshake). CI job `driver-compat` clones that exact revision and
 runs `tests/test-flow-runner-live.sh`
 in real Chrome on every pull request, so driver drift fails before merge instead of on a developer
 machine. `teibto-dev-standards` is private: the job needs the repository secret

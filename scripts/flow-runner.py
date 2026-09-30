@@ -14,19 +14,25 @@ placed in argv or artifacts. Exit 0=PASS, 1=FAIL/UNVERIFIED, 2=setup/input error
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import os
 import queue
 import re
+import shutil
 import subprocess
 import sys
 import threading
 import time
 from pathlib import Path
 from typing import Any, TextIO
+from urllib.parse import urlsplit
 
 import yaml
 from jsonschema import Draft202012Validator
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))   # scripts/ is importable when run by path
+from bsk_lease import LeaseTimeout, SessionLease  # noqa: E402
 
 try:
     sys.stdout.reconfigure(encoding="utf-8")
@@ -48,6 +54,41 @@ INPUT_SETTLE_POLICY = "none"
 DIALOG_POLICIES = ("safe", "accept", "dismiss")
 STDOUT_MODES = ("events", "summary")
 SUMMARY_EVENT_TYPES = {"fatal", "run_done"}
+ALLOWED_SCHEMES = ("http", "https")
+RISK_LEVELS = ("read", "write", "destructive")
+DEFAULT_RISK = "read"
+ENGINES = ("cdp", "bsk")
+# BrowserSkill (BAS §4): pinned because its dialog policy was verified for this version only.
+BSK_PINNED_VERSION = "0.3.0"
+BSK_MUTATING_DIALOGS = {"confirm", "prompt", "beforeunload"}
+# A detached debugger is transient, but only commands that cannot act twice may be retried.
+BSK_RETRY_LIMIT = 2
+# Commands that address the session or the browser, not one tab. Everything else acts on a tab and
+# must carry --tab-id: without it bsk targets whichever tab is active, which any peer (or the person
+# using the browser) can change under a running job.
+BSK_SESSION_SCOPED = {"status", "browsers", "daemon", "doctor", "logs", "session", "tab", "window"}
+# The daemon refuses a second concurrent command on one session with reason `session_busy` and never
+# dispatches it (measured, #112), so waiting and re-sending is safe even for a click. The lease keeps
+# our own processes apart; this window covers a peer that does not take the lease.
+BSK_BUSY_RETRY_SECONDS = 30.0
+# A capture only reads the screen, so the select+capture pair may be re-sent when a peer that does
+# not take the lease activates its own tab in between (#120).
+BSK_CAPTURE_ATTEMPTS = 3
+# The in-page guard answers page dialogs before the native dialog can block the browser, so a
+# leaked native confirm is evidence the guard did not install; format with json.dumps(policy).
+BSK_GUARD_JS = (
+    "(function(P){if(window.__tbqaGuard===P)return 'kept';"
+    "window.__tbqaGuard=P;window.__tbqaDialogs=window.__tbqaDialogs||[];"
+    "window.alert=function(m){window.__tbqaDialogs.push({type:'alert',message:String(m),answer:'accept'});};"
+    "window.confirm=function(m){var a=P==='accept'?'accept':'dismiss';"
+    "window.__tbqaDialogs.push({type:'confirm',message:String(m),answer:a});return a==='accept';};"
+    "window.prompt=function(m,d){var a=P==='accept'?'accept':'dismiss';"
+    "window.__tbqaDialogs.push({type:'prompt',message:String(m),answer:a});"
+    "return a==='accept'?(d===undefined?'':String(d)):null;};"
+    "window.onbeforeunload=null;return 'installed';})(%s)"
+)
+BSK_DRAIN_JS = ("(function(){var d=window.__tbqaDialogs||[];"
+                "window.__tbqaDialogs=[];return JSON.stringify(d);})()")
 
 
 class RunnerError(RuntimeError):
@@ -128,6 +169,82 @@ def redact(value: Any, secrets: set[str], variables: dict[str, Any], *, truncate
             value = value.replace(secret, "***")
         return value[:MAX_EVENT_TEXT] if truncate else value
     return value
+
+
+def origin_of(url: str) -> str | None:
+    """Return `scheme://host[:port]` lowercased, or None when the URL is not http(s)."""
+    parts = urlsplit(str(url).strip())
+    if parts.scheme.lower() not in ALLOWED_SCHEMES or not parts.netloc:
+        return None
+    return f"{parts.scheme.lower()}://{parts.netloc.lower()}"
+
+
+def origin_violation(url: str, allowed: list[str]) -> str | None:
+    """Describe why `url` is outside `allowed`, or None when it is inside.
+
+    Parsed, never prefix-matched: `https://sb1.example.com.attacker.test` starts with an
+    allowed origin as a string and is a different origin as a URL. That difference is the
+    whole point of the gate, so a redirect is checked the same way a declared target is.
+    """
+    origin = origin_of(url)
+    if origin is None:
+        return f"scheme is not http/https: {str(url)[:200]}"
+    if origin not in allowed:
+        return f"origin {origin} is not in allowed_origins ({', '.join(allowed)})"
+    return None
+
+
+def flow_policy(flow: dict[str, Any]) -> dict[str, Any]:
+    """Summarise the declared run policy without deciding anything."""
+    counts = {level: 0 for level in RISK_LEVELS}
+    destructive: list[str] = []
+    for scenario in flow["scenarios"]:
+        for index, step in enumerate(scenario["steps"], 1):
+            level = step.get("risk", DEFAULT_RISK)
+            counts[level] = counts.get(level, 0) + 1
+            if level == "destructive":
+                destructive.append(f"{scenario['id']}#{index}")
+    return {
+        "allowed_origins": list(flow.get("allowed_origins") or []),
+        "risk_counts": counts,
+        "destructive_steps": destructive,
+    }
+
+
+def enforce_policy(policy: dict[str, Any], flow: dict[str, Any], variables: dict[str, Any],
+                   *, allow_destructive: bool) -> list[str]:
+    """Fail closed before the browser is touched; return the normalised allowed origins.
+
+    A flow that declares nothing keeps its old behaviour, so the gate is opt-in per flow
+    rather than a breaking change to every existing flow.
+    """
+    if policy["destructive_steps"] and not allow_destructive:
+        raise RunnerError(
+            "DESTRUCTIVE_NOT_ALLOWED",
+            "step ที่ risk: destructive ต้องสั่ง --allow-destructive: "
+            + ", ".join(policy["destructive_steps"]),
+            detail={"steps": policy["destructive_steps"]},
+        )
+    allowed: list[str] = []
+    for raw in policy["allowed_origins"]:
+        origin = origin_of(raw)
+        if origin is None:
+            raise RunnerError("INVALID_ALLOWED_ORIGIN",
+                              f"allowed_origins ต้องเป็น http(s) origin: {raw}")
+        allowed.append(origin)
+    if not allowed:
+        return allowed
+    for scenario in flow["scenarios"]:
+        for index, step in enumerate(scenario["steps"], 1):
+            if step["action"] != "open":
+                continue
+            target = str(substitute(step.get("target", ""), variables))
+            problem = origin_violation(target, allowed)
+            if problem:
+                raise RunnerError("ORIGIN_NOT_ALLOWED", f"{scenario['id']}#{index}: {problem}",
+                                  detail={"scenario": scenario["id"], "index": index,
+                                          "url": target})
+    return allowed
 
 
 def resolve_cdp_script(explicit: str | None) -> Path:
@@ -366,6 +483,385 @@ class CDPSession:
             self._stderr_thread.join(timeout=3)
 
 
+def resolve_bsk(explicit: str | None) -> list[str]:
+    candidate = explicit or os.environ.get("TEIBTO_BSK") or shutil.which("bsk")
+    if not candidate or not (Path(candidate).is_file() or shutil.which(candidate)):
+        raise RunnerError("BSK_MISSING", "ไม่พบ bsk: ระบุ --bsk หรือ TEIBTO_BSK หรือเพิ่มใน PATH")
+    # A .py path is a test double; the real CLI is a native executable.
+    return [sys.executable, candidate] if candidate.endswith(".py") else [candidate]
+
+
+class BskSession:
+    """BrowserSkill CLI behind the CDPSession interface the runner already uses."""
+
+    def __init__(self, bsk: list[str], *, browser: str | None = None,
+                 request_timeout: float = 45.0, dialog: str = "safe",
+                 session: str | None = None):
+        self.bsk = bsk
+        self.script = Path(bsk[-1])
+        self.request_timeout = request_timeout
+        self.dialog_policy = dialog
+        self.dialogs: queue.Queue[dict[str, str]] = queue.Queue()
+        self.session_id: str | None = None
+        self.tab_id: str | None = None
+        self.owns_session = session is None
+        self.held_lease: SessionLease | None = None
+        self.lease_wait_ms = 0.0
+        self.busy_waits = 0
+        self.console_since = 0
+        status = self._cli(["status"])
+        browsers = self._cli(["browsers"])
+        if not isinstance(browsers, list) or not browsers:
+            raise RunnerError("BSK_NOT_READY", "ไม่มี browser ที่เชื่อม extension อยู่",
+                              detail={"browsers": browsers})
+        known = ", ".join(f"{item.get('instance_id')} ({item.get('browser_name')} "
+                          f"{item.get('browser_version')})" for item in browsers)
+        if session:
+            # Attaching: the session already names its browser, so there is nothing to disambiguate.
+            live = {str(item.get("session_id")): item for item in (status.get("sessions") or [])}
+            if session not in live:
+                raise RunnerError("BSK_SESSION_MISSING",
+                                  f"ไม่พบ bsk session {session} ที่ยังทำงานอยู่; ที่มีอยู่: "
+                                  f"{', '.join(live) or '(ไม่มี)'}")
+            browser = browser or str(live[session].get("browser_instance_id") or "")
+        if browser:
+            browsers = [item for item in browsers if item.get("instance_id") == browser]
+            if not browsers:
+                raise RunnerError("BSK_NOT_READY", f"ไม่พบ browser {browser}; ที่เชื่อมอยู่: {known}")
+        elif len(browsers) > 1:
+            # Same rule as invariant 1: never guess among shared targets.
+            raise RunnerError("BSK_BROWSER_AMBIGUOUS",
+                              f"มี browser เชื่อมอยู่หลายตัว ระบุ --bsk-browser: {known}")
+        versions = {"daemon": status.get("daemon_version"),
+                    "extension": browsers[0].get("extension_version")}
+        if set(versions.values()) != {BSK_PINNED_VERSION}:
+            raise RunnerError(
+                "DRIVER_INCOMPATIBLE",
+                f"runner pin bsk {BSK_PINNED_VERSION}: พบ daemon={versions['daemon']} "
+                f"extension={versions['extension']} — ตรวจนโยบาย dialog ใหม่ก่อนขยับ pin (BAS §4.3)",
+                detail=versions,
+            )
+        instance = str(browsers[0].get("instance_id"))
+        if session:
+            self.session_id = str(session)
+        else:
+            started = self._cli(["session", "start", "--name", "flow-runner", "--no-focus",
+                                 "--browser", instance])
+            self.session_id = str(started["session_id"])
+        # Invariant 1 for this engine: own one tab and pin it. A tab left on chrome://newtab cannot
+        # be driven, so it is created on about:blank, and --no-active keeps it off the person's face.
+        created = self._cli(["tab", "create", "--no-active", "--url", "about:blank"])
+        self.tab_id = str(created.get("tab_id") or created.get("id") or "")
+        if not self.tab_id:
+            raise RunnerError("BSK_TAB_UNPINNED", "bsk tab create ไม่คืน tab_id — ขับต่อโดยไม่ pin tab ไม่ได้",
+                              detail=created if isinstance(created, dict) else None)
+        self.ready = {"protocol": "bsk-cli", "version": BSK_PINNED_VERSION,
+                      "browser": f"{browsers[0].get('browser_name')} {browsers[0].get('browser_version')}",
+                      "browser_instance": instance,
+                      "session_owned": self.owns_session,
+                      "tab_id": self.tab_id,
+                      "target_id": self.session_id}
+
+    def _cli(self, args: list[str], *, timeout: float | None = None, idempotent: bool = False) -> Any:
+        env = os.environ.copy()
+        env["BSK_AUTO_START"] = "0"   # an auto-started daemon inherits our pipes and never lets go
+        command = [*self.bsk, *args, "--json"]
+        if self.session_id and args[0] != "session":
+            command += ["--session", self.session_id]
+        if self.tab_id and args[0] not in BSK_SESSION_SCOPED:
+            command += ["--tab-id", self.tab_id]
+        self.attempts = 0
+        busy_deadline = time.monotonic() + BSK_BUSY_RETRY_SECONDS
+        while True:
+            self.attempts += 1
+            try:
+                done = self._dispatch(command, env, timeout or self.request_timeout)
+            except subprocess.TimeoutExpired as exc:
+                raise RunnerError("SESSION_TIMEOUT", f"bsk {args[0]} ไม่ตอบภายในเวลาที่กำหนด") from exc
+            except LeaseTimeout as exc:
+                raise RunnerError("BSK_SESSION_BUSY",
+                                  f"bsk session {self.session_id} ถูกใช้งานโดย process อื่นนานเกินไป: {exc}") from exc
+            if done.returncode == 0:
+                break
+            text = (done.stderr or done.stdout).strip()
+            if '"reason":"session_busy"' in text.replace(" ", "").replace("\n", ""):
+                # Rejected before dispatch, so re-sending cannot act twice. Somebody is driving this
+                # session without the lease; wait them out rather than failing a whole run.
+                self.attempts -= 1
+                self.busy_waits += 1
+                if time.monotonic() >= busy_deadline:
+                    raise RunnerError("BSK_SESSION_BUSY",
+                                      f"bsk session {self.session_id} ไม่ว่างภายใน "
+                                      f"{BSK_BUSY_RETRY_SECONDS:.0f}s — มี agent อื่นขับ session เดียวกันอยู่")
+                time.sleep(0.25)
+                continue
+            if "No tab with id" in text:
+                # Our own tab was closed under us. Whatever ran last may or may not have landed.
+                raise RunnerError("BSK_TAB_LOST",
+                                  f"tab ที่ run นี้เป็นเจ้าของถูกปิดระหว่าง {args[0]} — ผลของ action ล่าสุดไม่ทราบ "
+                                  "ห้ามรันซ้ำโดยไม่ตรวจกับ backend ก่อน")
+            if ("session not registered" in text or "no active tab in Agent Window" in text
+                    or "session is stopping" in text
+                    or ('"code":"timeout"' in text.replace(" ", "") and self._session_gone())):
+                # Usually a human closed the Agent Window. Whatever ran last may or may not have
+                # landed. A closed window also shows up as an RPC timeout, so a timeout is checked
+                # against the daemon's own session list before it is blamed on a slow browser.
+                raise RunnerError("BSK_SESSION_LOST",
+                                  f"bsk session หายระหว่าง {args[0]} (Agent Window ถูกปิด?) — ผลของ action ล่าสุด"
+                                  "ไม่ทราบ ห้ามรันซ้ำโดยไม่ตรวจกับ backend ก่อน")
+            if '"effect_state":"unknown"' in text.replace(" ", ""):
+                # The input was dispatched but bsk could not confirm it (e.g. input_cleanup_failed while
+                # the page was already navigating). Re-issuing it could act twice.
+                raise RunnerError("BSK_EFFECT_UNKNOWN",
+                                  f"bsk {args[0]} ถูกส่งแล้วแต่ยืนยันผลไม่ได้ — ให้สังเกตหน้าเว็บ ห้ามสั่งซ้ำ: {text[:300]}")
+            if idempotent and "cdp_failed" in text and self.attempts <= BSK_RETRY_LIMIT:
+                time.sleep(0.5)
+                continue
+            raise RunnerError("BSK_COMMAND_FAILED", f"bsk {args[0]}: {text[:500]}")
+        try:
+            return json.loads(done.stdout)
+        except ValueError as exc:
+            raise RunnerError("INVALID_SESSION_OUTPUT", f"bsk {args[0]} คืนค่าที่ไม่ใช่ JSON") from exc
+
+    def _capture(self, path: str) -> None:
+        """Photograph this run's own tab.
+
+        bsk captures the visible tab only, so the tab is selected first and both calls run under one
+        lease. That is enough against processes that take the lease; a peer that does not (another
+        tool, or the person using the browser) can still activate its tab in between, so the pair is
+        retried — a capture changes nothing on the page, and re-sending it is always safe.
+        """
+        last = ""
+        for attempt in range(1, BSK_CAPTURE_ATTEMPTS + 1):
+            try:
+                with self._critical():
+                    if self.tab_id:
+                        self._run(["tab", "select", self.tab_id], idempotent=True)
+                    self._run(["screenshot", "--out", path], idempotent=True)
+            except RunnerError as exc:
+                # A contended active tab shows up two ways: the engine says the tab is not active,
+                # or the capture waits for a paint that never comes and the RPC times out. A lost
+                # session or tab has already been classified by _cli and must not be retried here.
+                contended = "not active" in str(exc) or '"code":"timeout"' in str(exc).replace(" ", "")
+                if exc.code != "BSK_COMMAND_FAILED" or not contended:
+                    raise
+                last = str(exc)
+                if attempt == BSK_CAPTURE_ATTEMPTS:
+                    raise RunnerError(
+                        "CAPTURE_TAB_CONTENDED",
+                        f"ถ่ายภาพไม่ได้ใน {BSK_CAPTURE_ATTEMPTS} ครั้ง เพราะมีคนอื่นสลับ active tab ของ "
+                        f"Agent Window นี้ตลอด — ให้ run นี้ใช้หน้าต่างของตัวเอง (ไม่ต้องใส่ --bsk-session) "
+                        f"หรือรอให้ peer ทำงานเสร็จก่อน: {last[:200]}") from exc
+                time.sleep(0.4 * attempt)
+                continue
+            if not Path(path).is_file():
+                raise RunnerError("CAPTURE_FAILED", f"bsk ไม่ได้เขียนไฟล์: {path}")
+            return
+
+    def _session_gone(self) -> bool:
+        """Has our Agent Window disappeared? Asked only to explain a failure, never to drive one."""
+        env = os.environ.copy()
+        env["BSK_AUTO_START"] = "0"
+        try:
+            done = subprocess.run([*self.bsk, "status", "--json"], capture_output=True, text=True,
+                                  encoding="utf-8", errors="replace", env=env, timeout=20)
+            sessions = json.loads(done.stdout).get("sessions") or []
+        except (OSError, ValueError, subprocess.SubprocessError):
+            return False                       # cannot tell: leave the original error as it was
+        return self.session_id not in {str(item.get("session_id")) for item in sessions}
+
+    def _dispatch(self, command: list[str], env: dict[str, str],
+                  timeout: float) -> subprocess.CompletedProcess[str]:
+        """One bsk invocation, serialised against every other process on this session."""
+        def run() -> subprocess.CompletedProcess[str]:
+            return subprocess.run(command, capture_output=True, text=True, encoding="utf-8",
+                                  errors="replace", env=env, timeout=timeout)
+
+        if not self.session_id or self.held_lease is not None:
+            return run()     # nothing to share yet, or a _critical() block already holds the lease
+        with SessionLease(self.session_id) as lease:
+            self.lease_wait_ms = round(self.lease_wait_ms + lease.waited_ms, 3)
+            return run()
+
+    @contextlib.contextmanager
+    def _critical(self):
+        """Hold the lease across commands that only make sense as one uninterrupted pair."""
+        if not self.session_id or self.held_lease is not None:
+            yield
+            return
+        with SessionLease(self.session_id) as lease:
+            self.lease_wait_ms = round(self.lease_wait_ms + lease.waited_ms, 3)
+            self.held_lease = lease
+            try:
+                yield
+            finally:
+                self.held_lease = None
+
+    def _evaluate(self, expression: str, *, idempotent: bool = False) -> Any:
+        result = self._run(["evaluate", expression], idempotent=idempotent)
+        if result.get("ok") is not True:   # a script exception still exits 0
+            raise RunnerError("EVAL_FAILED", str(result.get("error") or result)[:500])
+        return result.get("value")
+
+    def _run(self, args: list[str], *, idempotent: bool = False) -> dict[str, Any]:
+        result = self._cli(args, idempotent=idempotent)
+        accepted = []
+        for item in (result.get("dialogs") or []) if isinstance(result, dict) else []:
+            kind, message = str(item.get("type")), str(item.get("message"))
+            answer = "accept" if item.get("handled") == "accepted" else "dismiss"
+            self.dialogs.put({"kind": kind, "message": message, "answer": answer,
+                              "line": f"[dialog] {kind}: {message} -> {answer}"})
+            if answer == "accept" and kind in BSK_MUTATING_DIALOGS:
+                accepted.append(f"{kind}: {message}")
+        if accepted and self.dialog_policy != "accept":
+            raise RunnerError("ENGINE_DIALOG_ACCEPTED",
+                              "bsk ตอบ accept ให้ dialog ที่อาจเปลี่ยน state: " + "; ".join(accepted))
+        return result
+
+    @staticmethod
+    def _css(target: str) -> str:
+        if target.startswith("@"):
+            raise RunnerError("ENGINE_UNSUPPORTED", f"engine bsk รับเฉพาะ CSS selector: {target}")
+        return target
+
+    def _read(self, prop: str, target: str) -> Any:
+        return self._evaluate("(function(){var e=document.querySelector(%s);return e?e.%s:null;})()"
+                              % (json.dumps(self._css(target), ensure_ascii=False), prop), idempotent=True)
+
+    def _guard(self) -> None:
+        kept = getattr(self, "attempts", 0)   # a step's `attempts` describes its action, not this helper
+        try:
+            self._evaluate(BSK_GUARD_JS % json.dumps(self.dialog_policy), idempotent=True)
+        except RunnerError:
+            # A page mid-navigation cannot take the guard; the native-dialog backstop still applies.
+            pass
+        finally:
+            self.attempts = kept
+
+    def _drain_page_dialogs(self) -> None:
+        kept = getattr(self, "attempts", 0)
+        try:
+            value = self._evaluate(BSK_DRAIN_JS, idempotent=True)
+        except RunnerError:
+            return
+        finally:
+            self.attempts = kept
+        if isinstance(value, str):
+            try:
+                items = json.loads(value)
+            except ValueError:
+                return
+        elif isinstance(value, list):
+            items = value
+        else:
+            return
+        if not isinstance(items, list):
+            return
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            kind, message, answer = item.get("type"), item.get("message"), item.get("answer")
+            if (not isinstance(kind, str) or not isinstance(message, str)
+                    or answer not in ("accept", "dismiss")):
+                continue
+            self.dialogs.put({"kind": kind, "message": message, "answer": answer,
+                              "line": f"[dialog] {kind}: {message} -> {answer}"})
+
+    def command(self, command: str, args: list[Any] | None = None) -> dict[str, Any]:
+        args = [str(item) for item in (args or [])]
+        started = time.perf_counter()
+        data: Any = None
+        if command == "nav":
+            data = self._run(["navigate", args[0], "--wait-until", "load", "--timeout", "30s"],
+                             idempotent=True).get("final_url")
+            self._guard()
+        elif command == "click":
+            self._guard()
+            try:
+                self._run(["click", "--selector", self._css(args[0])])
+            finally:
+                self._drain_page_dialogs()
+        elif command == "fill":
+            self._guard()
+            try:
+                self._run(["fill", "--selector", self._css(args[0]), "--value", args[1]])
+            finally:
+                self._drain_page_dialogs()
+        elif command == "pick":   # cdp.py picks by visible text; bsk selects by the option's value
+            self._guard()
+            try:
+                value = self._evaluate(
+                    "(function(){var s=document.querySelector(%s);if(!s)return null;"
+                    "for(var i=0;i<s.options.length;i++){if(s.options[i].text.trim()===%s)return s.options[i].value;}"
+                    "return null;})()" % (json.dumps(self._css(args[0]), ensure_ascii=False),
+                                          json.dumps(args[1], ensure_ascii=False)))
+                if value is None:
+                    raise RunnerError("ELEMENT_MISSING", f"ไม่พบ option \"{args[1]}\" ใน {args[0]}")
+                self._run(["select", "--selector", args[0], "--value", str(value)])
+            finally:
+                self._drain_page_dialogs()
+        elif command == "key":
+            self._guard()
+            try:
+                self._run(["press", args[0]])
+            finally:
+                self._drain_page_dialogs()
+        elif command == "eval":
+            self._guard()
+            try:
+                data = self._evaluate(args[0])
+            finally:
+                self._drain_page_dialogs()
+        elif command == "url":
+            data = self._evaluate("location.href", idempotent=True)
+        elif command == "get":
+            data = self._read({"text": "innerText", "value": "value"}[args[0]], args[1])
+        elif command == "wait":
+            deadline = time.monotonic() + float(args[1])
+            while not self._evaluate(args[0], idempotent=True):
+                if time.monotonic() >= deadline:
+                    raise RunnerError("WAIT_TIMEOUT", f"เงื่อนไขไม่เป็นจริงใน {args[1]}s: {args[0][:200]}")
+                time.sleep(float(args[2]))
+        elif command == "shot":
+            self._capture(args[0])
+        elif command == "console":
+            result = self._run(["console", "--since", str(self.console_since)], idempotent=True)
+            self.console_since = int(result.get("next_since") or self.console_since)
+            data = [item.get("text") for item in result.get("entries", [])
+                    # `log` entries are browser-generated (failed resource loads): that is the
+                    # netlog layer's job, and cdp.py's page collector does not report them either.
+                    if item.get("kind") == "exception"
+                    or (item.get("kind") == "console" and item.get("level") == "error")]
+        else:
+            raise RunnerError("ENGINE_UNSUPPORTED", f"engine bsk ไม่รองรับคำสั่ง {command}")
+        return {"ok": True, "data": data, "attempts": self.attempts,
+                "duration_ms": round((time.perf_counter() - started) * 1000, 3)}
+
+    def drain_dialogs(self) -> list[dict[str, str]]:
+        items: list[dict[str, str]] = []
+        while True:
+            try:
+                items.append(self.dialogs.get_nowait())
+            except queue.Empty:
+                return items
+
+    def close(self, *, force: bool = False) -> None:
+        if not self.session_id:
+            return
+        if self.owns_session:
+            try:
+                self._cli(["session", "stop", self.session_id], timeout=20)
+            except RunnerError:
+                pass
+        elif self.tab_id:
+            # Shared window: close our own tab and leave the session to whoever started it.
+            try:
+                self._cli(["tab", "close", self.tab_id], timeout=20)
+            except RunnerError:
+                pass
+        self.session_id = self.tab_id = None
+
+
 class StepTimings:
     """Runner wall time + authoritative driver timings, split by observable phase."""
 
@@ -568,7 +1064,9 @@ def flow_meta(flow: dict[str, Any], path: Path, *, full: bool = False) -> dict[s
 
 def run_flow(flow: dict[str, Any], path: Path, output_dir: Path, variables: dict[str, Any],
              cdp_script: Path, target_id: str, port: str | None, sink: EventSink,
-             dialog: str = "safe") -> int:
+             dialog: str = "safe", allow_destructive: bool = False,
+             engine: str = "cdp", bsk: list[str] | None = None,
+             bsk_browser: str | None = None, bsk_session: str | None = None) -> int:
     run_started = time.perf_counter()
     output_dir.mkdir(parents=True, exist_ok=True)
     shots = output_dir / "shots"
@@ -576,13 +1074,20 @@ def run_flow(flow: dict[str, Any], path: Path, output_dir: Path, variables: dict
     report_path = output_dir / "qa-report.md"
     report = [f"# QA Report — {flow['story']}", "", f"**Title:** {flow['title']}",
               f"**Target ID:** `{target_id}`", ""]
+    if engine == "bsk":
+        report.insert(3, f"**Engine:** bsk {BSK_PINNED_VERSION} (dialog policy `{dialog}` enforced by "
+                         "an in-page guard; a native dialog that leaks past it is accepted by the "
+                         "engine and fails the step)")
     assertions = sum(1 for scenario in flow["scenarios"] for step in scenario["steps"]
                      if step.get("assert"))
     passed = failures = unverified = dialogs = 0
     perf_total = sum(1 for scenario in flow["scenarios"] for step in scenario["steps"]
                      if step.get("perf_budget_ms") is not None)
     perf_evaluated = perf_passed = 0
-    session: CDPSession | None = None
+    policy = flow_policy(flow)
+    allowed_origins: list[str] = []
+    origin_checks = 0
+    session: CDPSession | BskSession | None = None
 
     def flush_dialogs(scenario_id: str, index: int | None, global_index: int | None) -> None:
         # Every auto-answered dialog is a (possible) mutation: it goes into run-log and report,
@@ -594,6 +1099,7 @@ def run_flow(flow: dict[str, Any], path: Path, output_dir: Path, variables: dict
                        "global_index": global_index, **item})
             report.append(f"- ⚠️ dialog {item['kind']}: \"{item['message']}\" -> {item['answer']}")
     sink.emit({"type": "run_start", "story": flow["story"], "title": flow["title"],
+               "engine": engine,
                "driver_policy": {"protocol": SESSION_PROTOCOL,
                                  "min_version": MIN_SESSION_VERSION,
                                  "input_settle": INPUT_SETTLE_POLICY,
@@ -601,22 +1107,45 @@ def run_flow(flow: dict[str, Any], path: Path, output_dir: Path, variables: dict
                                  "visibility_state": "visible",
                                  "dialog": dialog,
                                  "dialog_evidence": "structured-per-command",
+                                 "dialog_enforcement": "in-page-guard" if engine == "bsk" else "driver",
                                  "navigation": "event-bound-load"},
+               "run_policy": {"allowed_origins": policy["allowed_origins"],
+                              "origin_gate": "enforced" if policy["allowed_origins"] else "not-declared",
+                              "risk_counts": policy["risk_counts"],
+                              "destructive_allowed": allow_destructive},
                "scenarios": [{"id": item["id"], "steps": len(item["steps"])}
                              for item in flow["scenarios"]]})
     startup_started = time.perf_counter()
     startup_ms: float | None = None
     try:
-        session = CDPSession(cdp_script, target_id, port=port, dialog=dialog)
+        allowed_origins = enforce_policy(policy, flow, variables,
+                                         allow_destructive=allow_destructive)
+        if engine == "bsk":
+            session = BskSession(bsk or [], browser=bsk_browser, dialog=dialog,
+                                 session=bsk_session)
+            target_id = str(session.ready["target_id"])
+            # The header was written before the session existed; the bsk session id plus the tab this
+            # run owns is the pin — an unpinned tab is whichever tab a peer left active.
+            report[report.index("**Target ID:** ``")] = (
+                f"**Target ID:** `{target_id}` (bsk session · browser "
+                f"`{session.ready['browser_instance']}` · tab `{session.ready['tab_id']}` · "
+                f"{'own window' if session.ready['session_owned'] else 'shared window'})")
+        else:
+            session = CDPSession(cdp_script, target_id, port=port, dialog=dialog)
         startup_ms = round((time.perf_counter() - startup_started) * 1000, 3)
-        sink.emit({"type": "session_ready", "target_id": target_id,
+        sink.emit({"type": "session_ready", "target_id": target_id, "engine": engine,
                    "cdp_script": str(session.script),
                    "protocol": session.ready.get("protocol"),
                    "version": session.ready.get("version"),
                    "input_settle": session.ready.get("input_settle"),
                    "foreground": session.ready.get("foreground"),
                    "visibility_state": session.ready.get("visibility_state"),
-                   "port": session.ready.get("port"), "duration_ms": startup_ms})
+                   "port": session.ready.get("port"),
+                   **({"browser_instance": session.ready["browser_instance"],
+                       "tab_id": session.ready["tab_id"],
+                       "session_owned": session.ready["session_owned"]}
+                      if engine == "bsk" else {}),
+                   "duration_ms": startup_ms})
         global_index = 0
         for scenario in flow["scenarios"]:
             scenario_failed = False
@@ -632,6 +1161,21 @@ def run_flow(flow: dict[str, Any], path: Path, output_dir: Path, variables: dict
                 try:
                     context = perform_action(session, raw_step, variables, timings)
                     perform_wait(session, raw_step.get("wait"), variables, context, timings)
+                    # The gate runs before the assertion so an escape is reported as an escape.
+                    # Asserting first on a foreign page would surface ASSERTION_FAILED and hide
+                    # the fact that the run had already left its declared origins.
+                    guard_ms = 0.0
+                    if allowed_origins:
+                        guard_started = time.perf_counter()
+                        current_url = str(
+                            timings.command(session, "origin", "url").get("data") or "")
+                        guard_ms = (time.perf_counter() - guard_started) * 1000
+                        problem = origin_violation(current_url, allowed_origins)
+                        if problem:
+                            timings.fail("origin")
+                            raise RunnerError("ORIGIN_NOT_ALLOWED", problem,
+                                              detail={"url": current_url})
+                        origin_checks += 1
                     assertion = raw_step.get("assert")
                     status, detail = "done", ""
                     if assertion:
@@ -646,7 +1190,9 @@ def run_flow(flow: dict[str, Any], path: Path, output_dir: Path, variables: dict
                         status, detail = "unverified", "state-changing step has no explicit assertion"
                     budget_ms = raw_step.get("perf_budget_ms")
                     if budget_ms is not None:
-                        outcome_ms = timings.elapsed_ms()
+                        # The origin gate is policy, not the application's observable outcome,
+                        # so a flow does not get a stricter budget for declaring its origins.
+                        outcome_ms = round(timings.elapsed_ms() - guard_ms, 3)
                         perf_evaluated += 1
                         within_budget = outcome_ms <= budget_ms
                         performance = {
@@ -768,6 +1314,14 @@ def run_flow(flow: dict[str, Any], path: Path, output_dir: Path, variables: dict
     if perf_total:
         summary.insert(3, f"**Performance budgets:** {perf_passed}/{perf_total} passed "
                           f"({perf_evaluated} evaluated)")
+    if policy["allowed_origins"]:
+        summary.insert(0, f"**Allowed origins:** {', '.join(policy['allowed_origins'])} "
+                          f"({origin_checks} step checks passed)")
+    else:
+        summary.insert(0, "**Allowed origins:** none declared — origin gate not enforced")
+    risky = ", ".join(f"{level}={policy['risk_counts'][level]}" for level in RISK_LEVELS)
+    summary.insert(1, f"**Step risk:** {risky} "
+                      f"(destructive {'allowed' if allow_destructive else 'blocked'})")
     report[4:4] = summary
     safe_report = redact("\n".join(report), sink.secrets, variables, truncate=False)
     report_path.write_text(str(safe_report), encoding="utf-8")
@@ -775,9 +1329,16 @@ def run_flow(flow: dict[str, Any], path: Path, output_dir: Path, variables: dict
                "failures": failures, "unverified": unverified, "dialogs": dialogs,
                "performance_budgets": {"passed": perf_passed, "evaluated": perf_evaluated,
                                        "total": perf_total},
+               "origin_gate": {"allowed": policy["allowed_origins"], "checks": origin_checks,
+                               "enforced": bool(policy["allowed_origins"])},
+               "risk_counts": policy["risk_counts"],
                "verdict": verdict,
                "duration_ms": round((time.perf_counter() - run_started) * 1000, 3),
                "startup_ms": startup_ms,
+               # How much of the run was spent queueing behind other processes on a shared session.
+               **({"session_sharing": {"lease_wait_ms": getattr(session, "lease_wait_ms", 0.0),
+                                       "busy_waits": getattr(session, "busy_waits", 0)}}
+                  if engine == "bsk" else {}),
                "report": str(report_path.resolve())})
     return 0 if verdict == "PASS" else 1
 
@@ -803,10 +1364,21 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--target-id", default=os.environ.get("TGT_ID"))
     parser.add_argument("--cdp-port", default=os.environ.get("CDP_PORT"))
     parser.add_argument("--cdp-script")
+    parser.add_argument("--engine", choices=ENGINES, default=os.environ.get("TEIBTO_QA_ENGINE", "bsk"),
+                        help="bsk (default, the primary engine) or cdp for the lens/netlog/stub/diff "
+                             "lanes, CI and the ns-qa coordinator lane")
+    parser.add_argument("--bsk", help="path to the bsk CLI (default: TEIBTO_BSK or PATH)")
+    parser.add_argument("--bsk-browser", default=os.environ.get("TEIBTO_BSK_BROWSER"),
+                        help="bsk browser instance id; required when several are connected")
+    parser.add_argument("--bsk-session", default=os.environ.get("TEIBTO_BSK_SESSION"),
+                        help="attach to an existing bsk session (shared Agent Window) instead of "
+                             "starting one; the run owns only its own tab and never stops the session")
     parser.add_argument("--dialog", choices=DIALOG_POLICIES, default="safe",
                         help="dialog policy handed to cdp.py (default: safe; never inherited from env)")
     parser.add_argument("--stdout", choices=STDOUT_MODES, default="events",
                         help="events (default) or terminal summary only; run-log.jsonl is always complete")
+    parser.add_argument("--allow-destructive", action="store_true",
+                        help="allow steps declared risk: destructive; blocked by default")
     parser.add_argument("--meta", action="store_true")
     parser.add_argument("--full", action="store_true")
     args = parser.parse_args(argv)
@@ -819,9 +1391,12 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if not args.out:
             raise RunnerError("INVALID_ARGS", "ต้องระบุ --out เมื่อสั่ง run")
-        if not args.target_id:
+        bsk = resolve_bsk(args.bsk) if args.engine == "bsk" else None
+        if args.bsk_session and args.engine != "bsk":
+            raise RunnerError("INVALID_ARGS", "--bsk-session ใช้ได้เฉพาะกับ --engine bsk")
+        if args.engine == "cdp" and not args.target_id:
             raise RunnerError("UNPINNED_TARGET", "ต้องระบุ --target-id หรือ TGT_ID")
-        cdp_script = resolve_cdp_script(args.cdp_script)
+        cdp_script = resolve_cdp_script(args.cdp_script) if args.engine == "cdp" else Path(bsk[-1])
         supplied = read_vars(args.vars_json)
         exposed = secret_names(flow).intersection(supplied)
         if exposed and args.vars_json != "-":
@@ -836,7 +1411,10 @@ def main(argv: list[str] | None = None) -> int:
         sink = EventSink(sys.stdout, log_path, secret_names(flow), variables,
                          stdout_mode=args.stdout)
         return run_flow(flow, path, output_dir, variables, cdp_script,
-                        args.target_id or "", args.cdp_port, sink, dialog=args.dialog)
+                        args.target_id or "", args.cdp_port, sink, dialog=args.dialog,
+                        allow_destructive=args.allow_destructive,
+                        engine=args.engine, bsk=bsk, bsk_browser=args.bsk_browser,
+                        bsk_session=args.bsk_session)
     except RunnerError as exc:
         payload = {"type": "fatal", "error": {"code": exc.code, "message": str(exc)}}
         if sink:
