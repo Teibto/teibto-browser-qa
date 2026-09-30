@@ -584,6 +584,182 @@ class OriginAndRiskPolicyTests(RunnerHarness, unittest.TestCase):
         self.assertEqual(1, done["origin_gate"]["checks"])
 
 
+class WaitTimeoutAndConsoleExpectationTests(RunnerHarness, unittest.TestCase):
+    """#101: a step may declare its own wait ceiling, a scenario may declare the errors it expects."""
+
+    NEVER = "fn:window.__never===true"
+
+    def payloads(self, out: Path) -> list[dict]:
+        return [json.loads(line) for line in
+                (out / "run-log.jsonl").read_text(encoding="utf-8").splitlines()]
+
+    def test_wait_action_fails_at_the_declared_timeout_not_the_default(self):
+        process, out, _ = self.run_flow(f"""
+            story: short-wait
+            title: Declared wait timeout
+            scenarios:
+              - id: slow
+                steps:
+                  - {{action: wait, target: "{self.NEVER}", wait_timeout_ms: 500, capture: false}}
+        """)
+        self.assertEqual(1, process.returncode)
+        step = next(item for item in self.payloads(out) if item["type"] == "step_done")
+        self.assertEqual("WAIT_TIMEOUT", step["error"]["code"])
+        self.assertIn("0.5s", step["error"]["message"])
+        # The default would have cost 20 s; anything in this range proves the declared value won.
+        self.assertLess(step["duration_ms"], 5_000)
+        self.assertEqual("wait", step["timings"]["failing_phase"])
+
+    def test_wait_after_an_action_uses_the_declared_timeout(self):
+        process, out, _ = self.run_flow(f"""
+            story: short-wait-after-action
+            title: Declared wait timeout after an action
+            scenarios:
+              - id: slow
+                steps:
+                  - action: open
+                    target: "https://example.test"
+                    wait: "{self.NEVER}"
+                    wait_timeout_ms: 700
+                    capture: false
+        """)
+        self.assertEqual(1, process.returncode)
+        step = next(item for item in self.payloads(out) if item["type"] == "step_done")
+        self.assertEqual("WAIT_TIMEOUT", step["error"]["code"])
+        self.assertIn("0.7s", step["error"]["message"])
+        self.assertLess(step["duration_ms"], 5_000)
+
+    def test_schema_rejects_a_wait_timeout_outside_the_ceiling(self):
+        runner = load_runner()
+        for value in (120_001, 499, 0):
+            with self.subTest(value=value):
+                path = self.workspace() / "bad-timeout.yaml"
+                path.write_text(textwrap.dedent(f"""
+                    story: bad-timeout
+                    title: Out of range wait timeout
+                    scenarios:
+                      - id: smoke
+                        steps:
+                          - {{action: wait, target: "#x", wait_timeout_ms: {value}}}
+                """), encoding="utf-8")
+                with self.assertRaises(runner.RunnerError) as caught:
+                    runner.load_flow(path)
+                self.assertEqual("INVALID_FLOW", caught.exception.code)
+                self.assertIn("wait_timeout_ms", str(caught.exception))
+
+    def test_expected_console_error_does_not_fail_the_scenario(self):
+        process, out, _ = self.run_flow("""
+            story: negative-case
+            title: Expected console error
+            scenarios:
+              - id: missing-record
+                expected_console_errors: ["Cannot read properties of undefined"]
+                steps:
+                  - {action: open, target: "https://example.test/notice", capture: false}
+        """, env_overrides={"FAKE_CDP_CONSOLE":
+                            "TypeError: Cannot read properties of undefined (reading 'appendChild')"})
+        self.assertEqual(0, process.returncode, process.stdout + process.stderr)
+        errors = next(item for item in self.payloads(out) if item["type"] == "errors")
+        self.assertEqual(["Cannot read properties of undefined"], errors["expected"])
+        self.assertEqual([], errors["unexpected"])
+        self.assertEqual([], errors["missing"])
+        self.assertEqual(["TypeError: Cannot read properties of undefined (reading 'appendChild')"],
+                         errors["matched"]["Cannot read properties of undefined"])
+        report = (out / "qa-report.md").read_text(encoding="utf-8")
+        self.assertIn('expected error "Cannot read properties of undefined" matched 1 message(s)',
+                      report)
+        self.assertIn("**Verdict:** PASS", report)
+
+    def test_an_undeclared_console_error_still_fails_the_scenario(self):
+        process, out, _ = self.run_flow("""
+            story: negative-case
+            title: One expected error, one surprise
+            scenarios:
+              - id: missing-record
+                expected_console_errors: ["Cannot read properties of undefined"]
+                steps:
+                  - {action: open, target: "https://example.test/notice", capture: false}
+        """, env_overrides={"FAKE_CDP_CONSOLE":
+                            "TypeError: Cannot read properties of undefined (reading 'appendChild')"
+                            "|Uncaught ReferenceError: nlapiLoadRecord is not defined"})
+        self.assertEqual(1, process.returncode)
+        errors = next(item for item in self.payloads(out) if item["type"] == "errors")
+        self.assertEqual(["Uncaught ReferenceError: nlapiLoadRecord is not defined"],
+                         errors["unexpected"])
+        self.assertEqual([], errors["missing"])
+        done = next(item for item in self.payloads(out) if item["type"] == "run_done")
+        self.assertEqual("FAIL", done["verdict"])
+        self.assertIn("nlapiLoadRecord", (out / "qa-report.md").read_text(encoding="utf-8"))
+
+    def test_a_declared_error_that_never_appears_fails_the_scenario(self):
+        """Otherwise the declaration is a gate that passes whatever the page does."""
+        process, out, _ = self.run_flow("""
+            story: negative-case
+            title: Declared but absent
+            scenarios:
+              - id: missing-record
+                expected_console_errors: ["Cannot read properties of undefined"]
+                steps:
+                  - {action: open, target: "https://example.test/notice", capture: false}
+        """)
+        self.assertEqual(1, process.returncode)
+        errors = next(item for item in self.payloads(out) if item["type"] == "errors")
+        self.assertTrue(errors["empty"])
+        self.assertEqual(["Cannot read properties of undefined"], errors["missing"])
+        self.assertEqual({}, errors["matched"])
+        self.assertIn('expected error "Cannot read properties of undefined" never appeared',
+                      (out / "qa-report.md").read_text(encoding="utf-8"))
+
+    def test_a_scenario_that_declares_nothing_keeps_failing_on_console_errors(self):
+        process, out, _ = self.run_flow("""
+            story: undeclared
+            title: No expectation declared
+            scenarios:
+              - id: smoke
+                steps:
+                  - {action: open, target: "https://example.test", capture: false}
+        """, env_overrides={"FAKE_CDP_CONSOLE": "TypeError: boom"})
+        self.assertEqual(1, process.returncode)
+        errors = next(item for item in self.payloads(out) if item["type"] == "errors")
+        self.assertFalse(errors["empty"])
+        self.assertNotIn("expected", errors)
+        self.assertIn("- ❌ Browser console: ['TypeError: boom']",
+                      (out / "qa-report.md").read_text(encoding="utf-8"))
+
+
+class WaitTimeoutAndConsoleGateHelperTests(unittest.TestCase):
+    """Pure helpers, so the defaults and the matching rules are pinned without starting a run."""
+
+    def setUp(self) -> None:
+        self.runner = load_runner()
+
+    def test_an_undeclared_timeout_keeps_the_previous_hard_coded_values(self):
+        self.assertEqual("20", self.runner.wait_timeout({"action": "wait"},
+                                                        self.runner.DEFAULT_WAIT_TIMEOUT_MS))
+        self.assertEqual("30", self.runner.wait_timeout({"wait": "networkidle"},
+                                                        self.runner.NAVIGATION_WAIT_TIMEOUT_MS))
+
+    def test_a_declared_timeout_is_converted_to_seconds_for_both_engines(self):
+        step = {"action": "wait", "wait_timeout_ms": 500}
+        self.assertEqual("0.5", self.runner.wait_timeout(step, self.runner.DEFAULT_WAIT_TIMEOUT_MS))
+        self.assertEqual("0.5", self.runner.wait_timeout(step,
+                                                         self.runner.NAVIGATION_WAIT_TIMEOUT_MS))
+        self.assertEqual("120", self.runner.wait_timeout({"wait_timeout_ms": 120_000},
+                                                         self.runner.DEFAULT_WAIT_TIMEOUT_MS))
+
+    def test_console_gate_without_expectations_treats_every_error_as_unexpected(self):
+        matched, unexpected, missing = self.runner.console_gate(["TypeError: boom"], [])
+        self.assertEqual(({}, ["TypeError: boom"], []), (matched, unexpected, missing))
+        self.assertEqual(({}, [], []), self.runner.console_gate([], []))
+
+    def test_console_gate_matches_by_substring_and_reports_both_directions(self):
+        matched, unexpected, missing = self.runner.console_gate(
+            ["TypeError: appendChild of undefined", "boom"], ["appendChild", "never-happens"])
+        self.assertEqual({"appendChild": ["TypeError: appendChild of undefined"]}, matched)
+        self.assertEqual(["boom"], unexpected)
+        self.assertEqual(["never-happens"], missing)
+
+
 class OriginHelperTests(unittest.TestCase):
     """Pure helpers, so the parsing rules are pinned without starting a run."""
 

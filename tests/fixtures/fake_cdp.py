@@ -68,9 +68,20 @@ for line in sys.stdin:
         data = ({"href": url, "timeOrigin": 1}
                 if "performance.timeOrigin" in args[0] else True)
     elif command == "wait":
+        # A `__never` condition is never true, so the driver waits exactly the timeout the runner
+        # asked for and then fails — which is what makes the declared timeout observable.
+        if "__never" in args[0]:
+            time.sleep(float(args[1]))
+            print(json.dumps({"type": "result", "id": request["id"], "ok": False,
+                              "command": command, "target_id": target, "duration_ms": 0.1,
+                              "attempts": 1,
+                              "error": {"code": "WAIT_TIMEOUT",
+                                        "message": f"เงื่อนไขไม่เป็นจริงใน {args[1]}s"}}), flush=True)
+            continue
         data = True
     elif command == "console":
-        data = []
+        # FAKE_CDP_CONSOLE=<msg>|<msg> models console errors the page produced.
+        data = [item for item in os.environ.get("FAKE_CDP_CONSOLE", "").split("|") if item]
     elif command == "shot":
         time.sleep(float(os.environ.get("FAKE_CDP_SHOT_DELAY_MS", "0")) / 1000)
         pathlib.Path(args[0]).write_bytes(b"PNG")

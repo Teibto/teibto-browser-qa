@@ -161,6 +161,8 @@ elif command == "evaluate":
         else:
             items = []
         out = {"ok": True, "value": json.dumps(items)}
+    elif "__never" in expression:
+        out = {"ok": True, "value": False}   # a wait condition that never becomes true
     else:
         value = "https://example.test/done" if expression == "location.href" else "saved successfully"
         out = {"ok": True, "value": value}
@@ -191,7 +193,11 @@ elif command == "screenshot":
     pathlib.Path(flag("--out")).write_bytes(b"png")
     out = {}
 elif command == "console":
-    out = {"entries": [{"kind": "log", "level": "error", "text": "favicon 404"}], "next_since": 1}
+    # FAKE_BSK_CONSOLE=<msg>|<msg> models real console errors next to the browser-generated log entry.
+    out = {"entries": [{"kind": "log", "level": "error", "text": "favicon 404"}]
+           + [{"kind": "console", "level": "error", "text": item}
+              for item in os.environ.get("FAKE_BSK_CONSOLE", "").split("|") if item],
+           "next_since": 1}
 else:
     out = {}
 print(json.dumps(out))
