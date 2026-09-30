@@ -244,6 +244,72 @@ class BskEngineTests(unittest.TestCase):
         self.assertEqual(fatal["error"]["code"], "UNPINNED_TARGET")
 
 
+class BskWaitTimeoutAndConsoleTests(unittest.TestCase):
+    """#101: the declared wait ceiling and the console expectation mean the same on this engine."""
+
+    run_flow = BskEngineTests.run_flow
+
+    def test_wait_action_fails_at_the_declared_timeout_not_the_default(self):
+        process, _, events, _ = self.run_flow("""
+            story: engine2-wait
+            title: Declared wait timeout
+            scenarios:
+              - id: slow
+                steps:
+                  - {action: wait, target: "fn:window.__never===true", wait_timeout_ms: 500,
+                     capture: false}
+        """)
+        self.assertEqual(process.returncode, 1)
+        failed = next(event for event in events
+                      if event["type"] == "step_done" and event.get("error"))
+        self.assertEqual(failed["error"]["code"], "WAIT_TIMEOUT")
+        self.assertIn("0.5s", failed["error"]["message"])
+        # The runner's own poll loop would otherwise have spent the hard-coded 20 s here.
+        self.assertLess(failed["duration_ms"], 10_000)
+
+    def test_expected_console_error_passes_and_an_undeclared_one_still_fails(self):
+        flow = """
+            story: engine2-console
+            title: Expected console error
+            scenarios:
+              - id: notice
+                expected_console_errors: ["Cannot read properties of undefined"]
+                steps:
+                  - {action: open, target: "https://example.test/notice", capture: false}
+        """
+        process, out, events, _ = self.run_flow(flow, {
+            "FAKE_BSK_CONSOLE": "TypeError: Cannot read properties of undefined (reading 'x')"})
+        self.assertEqual(events[-1]["verdict"], "PASS")
+        self.assertEqual(process.returncode, 0)
+        errors = next(event for event in events if event["type"] == "errors")
+        self.assertEqual(errors["unexpected"], [])
+        self.assertEqual(errors["missing"], [])
+        self.assertIn("matched 1 message(s)", (out / "qa-report.md").read_text(encoding="utf-8"))
+
+        process, _, events, _ = self.run_flow(flow, {
+            "FAKE_BSK_CONSOLE": "TypeError: Cannot read properties of undefined (reading 'x')"
+                                "|Uncaught ReferenceError: x is not defined"})
+        self.assertEqual(events[-1]["verdict"], "FAIL")
+        self.assertEqual(process.returncode, 1)
+        errors = next(event for event in events if event["type"] == "errors")
+        self.assertEqual(errors["unexpected"], ["Uncaught ReferenceError: x is not defined"])
+
+    def test_a_declared_error_that_never_appears_fails(self):
+        process, _, events, _ = self.run_flow("""
+            story: engine2-console
+            title: Declared but absent
+            scenarios:
+              - id: notice
+                expected_console_errors: ["Cannot read properties of undefined"]
+                steps:
+                  - {action: open, target: "https://example.test/notice", capture: false}
+        """)
+        self.assertEqual(events[-1]["verdict"], "FAIL")
+        self.assertEqual(process.returncode, 1)
+        errors = next(event for event in events if event["type"] == "errors")
+        self.assertEqual(errors["missing"], ["Cannot read properties of undefined"])
+
+
 class BskSessionSharingTests(unittest.TestCase):
     run_flow = BskEngineTests.run_flow
 

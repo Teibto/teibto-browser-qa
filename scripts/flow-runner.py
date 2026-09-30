@@ -55,6 +55,9 @@ DIALOG_POLICIES = ("safe", "accept", "dismiss")
 STDOUT_MODES = ("events", "summary")
 SUMMARY_EVENT_TYPES = {"fatal", "run_done"}
 ALLOWED_SCHEMES = ("http", "https")
+# What a step inherits when it declares no wait_timeout_ms — the values the runner used to hard-code.
+DEFAULT_WAIT_TIMEOUT_MS = 20_000
+NAVIGATION_WAIT_TIMEOUT_MS = 30_000
 RISK_LEVELS = ("read", "write", "destructive")
 DEFAULT_RISK = "read"
 ENGINES = ("cdp", "bsk")
@@ -925,6 +928,33 @@ class StepTimings:
         return round((time.perf_counter() - self.started) * 1000, 3)
 
 
+def wait_timeout(step: dict[str, Any], default_ms: int) -> str:
+    """Seconds for one wait: the step's declared ceiling, or the default it used to be given.
+
+    Both engines read the same string, so a declared timeout means the same wall time whether the
+    wait is polled by cdp.py or by the runner's own loop on bsk.
+    """
+    declared = step.get("wait_timeout_ms")
+    milliseconds = default_ms if declared is None else int(declared)
+    return f"{milliseconds / 1000:g}"
+
+
+def console_gate(messages: list[Any], expected: list[str]) -> tuple[dict[str, list[str]],
+                                                                    list[str], list[str]]:
+    """Split console errors into declared and undeclared, and name declarations that never appeared.
+
+    A declared substring that never matches fails too: an expectation nobody has to meet turns
+    this gate into one that passes whatever the page does. With nothing declared every error is
+    undeclared, which is exactly the previous behaviour.
+    """
+    texts = [str(item) for item in messages]
+    matched = {pattern: [text for text in texts if pattern in text] for pattern in expected}
+    unexpected = [text for text in texts
+                  if not any(pattern in text for pattern in expected)]
+    missing = [pattern for pattern, hits in matched.items() if not hits]
+    return {pattern: hits for pattern, hits in matched.items() if hits}, unexpected, missing
+
+
 def js_selector(selector: str) -> str:
     return json.dumps(selector, ensure_ascii=False)
 
@@ -978,15 +1008,17 @@ def perform_action(session: CDPSession, step: dict[str, Any], variables: dict[st
     elif action == "wait":
         if target:
             expression = target[3:] if target.startswith("fn:") else selector_wait(target)
-            timings.command(session, "wait", "wait", [expression, "20", "0.05"])
+            timings.command(session, "wait", "wait",
+                            [expression, wait_timeout(step, DEFAULT_WAIT_TIMEOUT_MS), "0.05"])
     else:  # schema should make this unreachable
         timings.fail("action")
         raise RunnerError("INVALID_ACTION", f"action ไม่รองรับ: {action}")
     return context
 
 
-def perform_wait(session: CDPSession, wait: Any, variables: dict[str, Any],
+def perform_wait(session: CDPSession, step: dict[str, Any], variables: dict[str, Any],
                  context: dict[str, Any], timings: StepTimings) -> None:
+    wait = step.get("wait")
     if wait is None:
         return
     if wait == "networkidle":
@@ -1000,13 +1032,15 @@ def perform_wait(session: CDPSession, wait: Any, variables: dict[str, Any],
                  json.dumps(before.get("timeOrigin")))
         else:
             expression = "document.readyState === 'complete'"
-        timings.command(session, "wait", "wait", [expression, "30", "0.05"])
+        timings.command(session, "wait", "wait",
+                        [expression, wait_timeout(step, NAVIGATION_WAIT_TIMEOUT_MS), "0.05"])
     elif isinstance(wait, int):
         timings.sleep("wait", wait / 1000)
     elif isinstance(wait, str):
         rendered = substitute(wait, variables)
         expression = rendered[3:] if rendered.startswith("fn:") else selector_wait(rendered)
-        timings.command(session, "wait", "wait", [expression, "20", "0.05"])
+        timings.command(session, "wait", "wait",
+                        [expression, wait_timeout(step, DEFAULT_WAIT_TIMEOUT_MS), "0.05"])
 
 
 def perform_assert(session: CDPSession, assertion: dict[str, Any],
@@ -1140,7 +1174,7 @@ def run_flow(flow: dict[str, Any], path: Path, output_dir: Path, variables: dict
                 performance: dict[str, Any] | None = None
                 try:
                     context = perform_action(session, raw_step, variables, timings)
-                    perform_wait(session, raw_step.get("wait"), variables, context, timings)
+                    perform_wait(session, raw_step, variables, context, timings)
                     # The gate runs before the assertion so an escape is reported as an escape.
                     # Asserting first on a foreign page would surface ASSERTION_FAILED and hide
                     # the fact that the run had already left its declared origins.
@@ -1247,6 +1281,9 @@ def run_flow(flow: dict[str, Any], path: Path, output_dir: Path, variables: dict
                     console = console_result.get("data")
                     messages = console if isinstance(console, list) else ([] if console in (None, [], "[]") else console)
                     empty = not messages
+                    expected = list(scenario.get("expected_console_errors") or [])
+                    matched, unexpected, missing = console_gate(
+                        messages if isinstance(messages, list) else [messages], expected)
                     console_timing = {
                         "wall_ms": round((time.perf_counter() - console_started) * 1000, 3),
                         "driver_ms": console_result.get("duration_ms"),
@@ -1254,13 +1291,23 @@ def run_flow(flow: dict[str, Any], path: Path, output_dir: Path, variables: dict
                     }
                     sink.emit({"type": "errors", "scenario": scenario["id"], "empty": empty,
                                "timing": console_timing,
-                               **({"msgs": messages} if not empty else {})})
-                    if not empty:
+                               **({"msgs": messages} if not empty else {}),
+                               **({"expected": expected, "matched": matched,
+                                   "unexpected": unexpected, "missing": missing}
+                                  if expected else {})})
+                    for pattern, hits in matched.items():
+                        report.append(f'- ✅ Browser console: expected error "{pattern}" '
+                                      f"matched {len(hits)} message(s)")
+                    for pattern in missing:
+                        report.append(f'- ❌ Browser console: expected error "{pattern}" '
+                                      "never appeared")
+                    if unexpected:
+                        report.append(f"- ❌ Browser console: {unexpected}")
+                    elif not expected:
+                        report.append("- ✅ Browser console collector is empty")
+                    if unexpected or missing:
                         failures += 1
                         scenario_failed = True
-                        report.append(f"- ❌ Browser console: {messages}")
-                    else:
-                        report.append("- ✅ Browser console collector is empty")
                 except RunnerError as exc:
                     failures += 1
                     scenario_failed = True

@@ -29,6 +29,12 @@ $env:TEIBTO_CDP_SCRIPT = 'D:\path\to\teibto-dev-standards\scripts\cdp.py'
 - artifact อยู่ที่ `<out>/run-log.jsonl`, `<out>/qa-report.md`, `<out>/shots/`
 - `--stdout summary` ลด output เข้า agent context แต่ `run-log.jsonl` ยังเก็บ event เต็มเหมือนเดิม
 - `perf_budget_ms` ระดับ step วัด action → explicit wait → assertion; ไม่รวม startup/capture
+- `wait_timeout_ms` ระดับ step (500–120000) กำหนดเพดานเวลาของ wait ทั้งสองแบบใน step นั้น: wait หลัง action
+  (`wait:` selector/`fn:`/`networkidle`) และ action `wait` · ไม่ประกาศ = ค่าเดิมทุกประการ (20 s, และ 30 s สำหรับ
+  `networkidle`) · ไม่มีผลกับ `wait: <ms>` ซึ่งเป็นการ sleep ไม่ใช่เพดานเวลา
+- `expected_console_errors` ระดับ scenario ประกาศ substring ของ console error ที่ *คาดว่าจะเจอ*; error ที่ตรง
+  substring ไม่ทำให้ scenario ล้ม แต่ error อื่นยังล้มเหมือนเดิม และ substring ที่ประกาศแล้วไม่พบ = ล้มด้วย
+  (ไม่ประกาศ = พฤติกรรมเดิม)
 - `allowed_origins` ระดับ story เปิด origin gate: ตรวจทั้งเป้าหมายที่ประกาศไว้ (ก่อนเปิดเบราว์เซอร์)
   และ URL จริงหลังทุก step (จับ redirect); หลุด = `ORIGIN_NOT_ALLOWED` และหยุด scenario
 - `risk: read|write|destructive` ระดับ step; `destructive` ต้องสั่ง `--allow-destructive` ไม่งั้น
@@ -97,12 +103,15 @@ scenarios:
     requirement: <PROJ-123>      # (team) requirement ที่ scenario นี้ยืนยัน (override story.ticket)
     acceptance: >               # (team) Acceptance Criteria — Given/When/Then ที่ steps ต้องพิสูจน์
       Given ผู้ใช้ login แล้ว When กด Checkout Then ไปหน้า step-one
+    expected_console_errors:     # optional; console error ที่ scenario นี้คาดว่าจะเจอ (substring)
+      - "Cannot read properties of undefined"
     steps:
       - intent: "<คำอธิบายคน — ขึ้นเป็น step ใน guide>"
         action: open|fill|click|select|press|scrollintoview|eval|wait
         target: "<selector | @eN | {{var}} | url>"
         value: "<ค่า/ข้อความ (สำหรับ fill/select) — รองรับ {{var}}>"
         wait: networkidle | <ms> | "<selector>" | "fn:<js>"  # รอหลัง action
+        wait_timeout_ms: 5000      # optional 500–120000; เพดานของ wait ใน step นี้ (default 20000 / networkidle 30000)
         perf_budget_ms: 3000       # optional; เกินแล้ว PERF_BUDGET_EXCEEDED + FAIL
         risk: read|write|destructive   # optional (default read); destructive ต้อง --allow-destructive
         capture: true|false        # override screenshot policy ของ scenario นี้
@@ -167,6 +176,23 @@ step ที่ผ่านด่าน · `qa-report.md` ขึ้นสอง�
 req ไหน* และ *req นี้ครอบด้วย scenario ไหน*. 1 acceptance criterion → 1 scenario (map 1:1) →
 qa-report + user-guide อ้าง req เดียวกัน = ปิด loop req→test→doc. ดู playbook ทีมใน repo:
 `docs/TEAM-PROCESS.md`.
+
+## เพดานเวลาของ wait และ console error ที่คาดหวัง
+
+**`wait_timeout_ms` (step, 500–120000 ms):** เพดานเดิมถูกฝังในโค้ด — wait 20 s และ `networkidle` 30 s —
+คลิกที่แอปทิ้งเงียบจึงมีราคา 20 s ทุกครั้ง และหน้าที่ช้ากว่านั้นประกาศไม่ได้เลย · ค่าที่ประกาศถูกส่งเป็นวินาที
+ให้ด่าน wait ของ engine ที่ใช้ (cdp.py หรือ loop ของ runner เองบน `bsk`) จึงหมายถึงเวลาเท่ากันทั้งสอง engine ·
+เพดานบน 120 s เพราะ wait ที่นานกว่านั้นคือการถือ Agent Window/session ที่แชร์กันค้างไว้ ไม่ใช่การรอหน้าเว็บ
+(นานกว่า nav timeout 30 s ของ `open` สี่เท่าแล้ว) · ขั้นต่ำ 500 ms เพราะ poll ทุก 50 ms — ต่ำกว่านี้เหลือไม่ถึง
+สิบรอบ แยก "หน้าไม่ขึ้น" กับ "จังหวะไม่ดี" ไม่ออก
+
+**`expected_console_errors` (scenario, รายการ substring):** negative case ที่ตั้งใจเปิดหน้า error ของแอป
+มักทำให้หน้านั้น throw เอง — assert ผ่านครบแต่ verdict เป็น FAIL เพราะ console gate · ประกาศ substring ไว้แล้ว
+error ที่ตรงจะไม่ทำให้ล้ม แต่ด่านยังปิดอยู่สองทาง: error อื่นที่ไม่ได้ประกาศยัง FAIL และ substring ที่ประกาศแล้ว
+**ไม่พบ** ก็ FAIL (ไม่งั้นการประกาศจะกลายเป็นด่านที่ผ่านทุกกรณีที่หน้าเว็บทำ) · หลักฐานอยู่ครบใน event `errors`
+(`expected` / `matched` / `unexpected` / `missing`) และใน `qa-report.md` เป็นบรรทัด
+`✅ Browser console: expected error "<substring>" matched <n> message(s)` หรือ
+`❌ Browser console: expected error "<substring>" never appeared`
 
 ---
 

@@ -12,6 +12,13 @@
 
 ### Added
 
+- **flow: `wait_timeout_ms` ต่อ step และ `expected_console_errors` ต่อ scenario** — เพดานเวลาของ wait
+  ไม่ถูกฝังในโค้ดอีกต่อไป: ประกาศ `wait_timeout_ms` (500–120000 ms) แล้วใช้ได้ทั้งกับ wait หลัง action และ
+  action `wait` บนทั้งสอง engine (ไม่ประกาศ = 20 s และ 30 s สำหรับ `networkidle` เหมือนเดิม) · scenario ที่
+  ตั้งใจเปิดหน้า error ประกาศ substring ของ console error ที่คาดไว้ได้ — ที่ตรงไม่ทำให้ล้ม, error อื่นยัง FAIL,
+  และประกาศแล้วไม่พบก็ FAIL เพื่อไม่ให้ด่านนี้ fail open · หลักฐาน `expected`/`matched`/`unexpected`/`missing`
+  อยู่ใน event `errors` และ `qa-report.md` · รายละเอียดใน `references/flow-spec.md` (#101)
+
 - **`scripts/bsk-account.py`: daemon แยกต่อ account ลูกค้า** — `ensure <account>` เปิด (หรือใช้ตัวเดิม) daemon
   ที่มี `BSK_HOME` และ port ของตัวเอง (เริ่ม 52810 ทีละ 10 · ไม่แจก 52800) · `env` พิมพ์ `BSK_HOME` /
   `BSK_AUTO_START` / `TEIBTO_BSK_SESSION_ROOT` สำหรับ bash · PowerShell · JSON · `status` บอกว่า browser ต่ออยู่หรือยัง
