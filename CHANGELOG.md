@@ -10,6 +10,18 @@
 
 ## [Unreleased]
 
+### Added
+
+- **flow: `action: eval` ต้องประกาศตัว และทุก eval ที่รันกลายเป็นหลักฐาน (#153, BAS-7 / pain D4)** —
+  step ที่ `action: eval` ต้องมี `eval_reason` (สตริงไม่ว่าง) และ `risk` ของตัวเอง โดย **ห้ามรับค่า default
+  `read`** เพราะ default คือรูปร่างของการเปลี่ยน state ของแอปแบบไม่มีใครรู้ บน profile ที่ login ค้างไว้ ·
+  ขาดอย่างใดอย่างหนึ่ง = `EVAL_NOT_DECLARED` ตั้งแต่ **ก่อนเปิด browser** (session ไม่ถูก start เลย) ·
+  eval ที่ประกาศแล้วออกเป็น event `eval` ใน `run-log.jsonl` และบรรทัด
+  `🧪 eval (risk: …) — state set by eval, not trusted input: <reason>` + สรุป `**Eval steps:**` ใน
+  `qa-report.md`, สรุปรวมที่ `run_done.eval_steps` · flow ที่ไม่มี `eval` ได้รายงานและ event ชุดเดิมทุกบรรทัด ·
+  ช่อง 🔴 สุดท้ายของ pain inventory (D4) ปิดแล้ว → 🟢 15 · 🟡 12 · 🔴 0 และ BAS-7 เลื่อน `proposed` → `partial`
+  (ad-hoc mode ยังไม่มีด่าน)
+
 ### Changed
 
 - **BAS coverage สะท้อนของจริงที่ driver `v0.88.0` ให้ (#76):** child ฝั่ง driver ทั้งสี่ใบ

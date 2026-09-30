@@ -18,5 +18,7 @@ scenarios:
       - action: eval
         target: "document.title"
         intent: "the page under this run is still its own"
+        risk: read
+        eval_reason: "read the title of the page this run owns; changes nothing"
         assert: {url_contains: "w={{worker}}"}
         capture: true

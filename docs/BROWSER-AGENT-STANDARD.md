@@ -117,15 +117,15 @@ page-state receipt, ไม่มี download ledger และไม่มีต�
 | D1 | BAS-5 | 🟡 invariant 8 บังคับแล้ว · ซอง `<<<PAGE_DATA>>>` **ถูกปฏิเสธ** ที่ canonical PR #300 จะไม่มา | ทุก engine |
 | D2 | BAS-5 | 🟡 `get text --visible-only` ตัดข้อความซ่อนครบเจ็ดท่า (opt-in) · `a11y` ตั้งใจยังเห็น sr-only/นอกจอ | cdp |
 | D3 | BAS-6 | 🟡 `cookies` ไม่คืนค่า และ `console`/`lens netlog` ผ่านตัว redact **เป็นค่าตั้งต้น** | cdp |
-| D4 | BAS-7 | 🔴 ยังไม่มีด่าน | ทุก engine |
+| D4 | BAS-7 | 🟡 flow ที่มี `action: eval` ต้องประกาศ `eval_reason` + `risk` ไม่งั้นถูกปฏิเสธก่อนเปิด browser และทุก eval ที่รันถูกบันทึกเป็นหลักฐาน · ad-hoc mode ยังไม่มีด่าน | ทุก engine |
 | E1 | BAS-1 · BAS-3 | 🟢 บังคับแล้ว | ทุก engine |
 | E2 | BAS-3 | 🟡 `--stdout summary` แก้ฝั่ง runner แล้ว | ทุก engine |
 | E3 | BAS-3 · BAS-2 | 🟡 ad-hoc mode มีใบเสร็จให้สั่งแล้ว · ยังไม่มีอะไรบังคับว่าต้องสั่ง | cdp |
 
-นับได้ 🟢 15 · 🟡 11 · 🔴 1 จาก 27 รายการ (ก่อน #291–#294: 🟢 15 · 🟡 6 · 🔴 6).
-ช่อง 🔴 ที่เหลือคือ D4 ซึ่ง **ไม่ใช่งานฝั่ง driver** — เป็นด่านฝั่งสกิลที่ยังไม่มีใครทำ.
-ไม่มีช่องไหนขึ้นเป็น 🟢 เพราะทั้งสี่ฟีเจอร์เป็น opt-in หรืออยู่บนเลนเดียว: จะขึ้น 🟢 ได้ต่อเมื่อ runner
-สั่งให้เองและมีเทสด้านลบในรีโปนี้.
+นับได้ 🟢 15 · 🟡 12 · 🔴 0 จาก 27 รายการ (ก่อน #291–#294: 🟢 15 · 🟡 6 · 🔴 6 · ก่อน #153: 🟡 11 · 🔴 1).
+ไม่มีช่องไหนเหลือ 🔴 แล้ว: D4 ซึ่งเป็นช่องสุดท้ายและ **ไม่ใช่งานฝั่ง driver** ได้ด่านฝั่งสกิลแล้วที่ #153.
+ช่อง 🟡 ที่เหลือจะขึ้น 🟢 ได้ต่อเมื่อ runner สั่งความสามารถนั้นให้เอง (ไม่ใช่ opt-in ของผู้เขียน flow)
+และมีเทสด้านลบในรีโปนี้.
 
 ---
 
@@ -281,7 +281,7 @@ ref ที่ stale ต้องคืน **ข้อความที่บอ
 
 ### BAS-7 — eval เป็นเครื่องมืออ่าน ไม่ใช่ทางลัดในการเปลี่ยน state
 
-**Status.** `proposed` — กฎมีอยู่ใน `SKILL.md` invariant 2 และ `cdp-limits.md` §2 แต่ยังไม่มีด่านที่จับการใช้ `eval` เปลี่ยน state · ติดตามที่ #76
+**Status.** `partial` — ด่าน: `scripts/flow-runner.py` (`EVAL_NOT_DECLARED`, ปฏิเสธก่อนเปิด browser) + `tests/test_flow_runner.py` (`EvalDeclarationTests`) · บังคับแล้วใน flow ทั้งสอง engine: `action: eval` ต้องประกาศ `eval_reason` และ `risk` ของตัวเอง และทุก eval ที่รันถูกบันทึกลง run-log + `qa-report.md` ว่า `state set by eval, not trusted input` · **ยังไม่มี:** ad-hoc mode (`cdp.py eval` ตรง ๆ) ไม่มีด่าน และด่านนี้ไม่ตัดสินแทนคนว่า expression นั้นเปลี่ยน state จริงหรือไม่ — ติดตามที่ #76
 
 **กฎ.** `eval`/`evalf` ใช้เพื่อ **อ่าน/assert** และตั้ง test-only state ที่ตั้งใจเท่านั้น. การใช้ `eval` เปลี่ยน state
 ของแอปแทน trusted action **เป็น finding ไม่ใช่ทางแก้** (กฎนี้มีอยู่แล้ว — เอกสารนี้เพิ่ม *เหตุผล*: มันคือทางเลี่ยง
@@ -291,8 +291,15 @@ trusted input และคือรัศมีระเบิดของ injec
 **ทำไม.** เอกสาร Anthropic บอกให้เปิด `javascript_exec` เฉพาะ session ที่ **ไม่มี credential** — ซึ่งตรงข้ามกับ
 ค่าตั้งต้นของเรา (profile ถาวรที่ login ค้างเพื่อเลี่ยง 2FA). ความตึงนี้ต้องถูกเขียนไว้ ไม่ใช่ปล่อยให้ไม่มีใครรู้
 
-**ปิด.** D4 + ย้ำ B2 (สูตรที่ถูกคือกดปุ่มจริง ไม่ใช่ `setAttribute` เอง) · **ลงที่.** `SKILL.md`, `configure.md` ·
-**Gate.** แถว ledger สถานะ `principle` + คำเตือนในเอกสาร
+**ด่านที่บังคับจริงวันนี้ (flow mode).** `eval` ไม่ถูกห้าม แต่ห้าม *เงียบ*: step ที่ `action: eval` ต้องประกาศ
+`eval_reason: "<ทำไมต้องใช้ eval>"` และ `risk:` ของตัวเอง (ห้ามรับค่า default `read` มาเงียบ ๆ เพราะนั่นคือ
+รูปร่างของการเปลี่ยน state แบบไม่มีใครรู้) · ขาดอย่างใดอย่างหนึ่ง = `EVAL_NOT_DECLARED` ตั้งแต่ก่อนเปิด browser ·
+ทุก eval ที่รันออกเป็น event `eval` ใน run-log และบรรทัด `🧪 eval (risk: …) — state set by eval, not trusted input`
+ใน `qa-report.md` เพื่อให้ผู้อ่านรายงานแยก state ที่มาจาก trusted input ออกจาก state ที่ flow ตั้งเอง
+
+**ปิด.** D4 + ย้ำ B2 (สูตรที่ถูกคือกดปุ่มจริง ไม่ใช่ `setAttribute` เอง) · **ลงที่.** `SKILL.md`, `configure.md`,
+`schemas/flow.schema.json` + runner · **Gate.** flow ที่มี `action: eval` โดยไม่ประกาศต้องถูกปฏิเสธก่อน session
+เริ่ม และ eval ที่ประกาศแล้วต้องปรากฏในทั้ง run-log และ report (`EvalDeclarationTests`)
 
 ### BAS-8 — คำศัพท์ verdict ชุดเดียว + ชั้นของหลักฐาน
 
@@ -405,15 +412,17 @@ download ledger (A10) ส่งมาแล้วที่ v0.88.0 เป็น 
 | 5 | BAS-3 receipt + download ledger | `Teibto/teibto-dev-standards#292` | ใช่ | ✅ ส่งแล้วใน driver v0.88.0 — เลน cdp, opt-in |
 | 6 | BAS-5 ตัวกรอง hidden text | `Teibto/teibto-dev-standards#293` | ใช่ | ✅ ส่งแล้วใน driver v0.88.0 — ซองครอบ output ถูกปฏิเสธ (PR #300) |
 | 7 | BAS-6 redaction ของ `cookies`/`console` | `Teibto/teibto-dev-standards#294` | ใช่ | ✅ ส่งแล้วใน driver v0.88.0 — ค่าตั้งต้น |
-| 8 | ต่อ `intent:`/`--observe` เข้า runner และหาด่านของ D4 | รีโปนี้ | ไม่ | ยังไม่เริ่ม |
+| 8 | ด่านของ D4: `action: eval` ต้องประกาศตัวและถูกบันทึก | รีโปนี้ (#153) | ไม่ | ✅ merged |
+| 9 | ต่อ `expect:`/`--observe` เข้า runner บนเลน cdp | รีโปนี้ (#154) | ไม่ | ยังไม่เริ่ม |
 
 ลำดับ 1–3 merge แล้วในรีโปนี้; ลำดับ 4–7 ผ่าน canonical driver ตาม `cdp-limits.md` §4.2
 (ห้ามเขียน driver ตัวที่สองในสกิล) และปิดครบแล้วที่ `Teibto/teibto-dev-standards` เมื่อ 2026-09-19 —
 รีโปนี้ pin `v0.88.0` ผ่าน `TEIBTO_DEV_STANDARDS_REF` ใน `.github/workflows/ci.yml`.
 
 **ช่องว่างที่ปิดไปแล้ว:** C4 (origin escape) และ C2 ฝั่งนโยบาย ปิดด้วย BAS-4 · D1 ฝั่งกฎของ agent ปิดด้วย
-invariant ข้อ 8 · A8 ฝั่งการรายงานปิดด้วย `PASS(visual)` · A9, A10, D2, D3 และ E3 มีของจริงบนเลน cdp แล้ว.
-**ที่ยังเปิดอยู่:** D4 (`eval` เปลี่ยน state — ไม่มีด่าน และไม่ใช่งานฝั่ง driver) · การบังคับให้ runner
+invariant ข้อ 8 · A8 ฝั่งการรายงานปิดด้วย `PASS(visual)` · A9, A10, D2, D3 และ E3 มีของจริงบนเลน cdp แล้ว ·
+D4 ได้ด่านฝั่งสกิลแล้วที่ #153 (flow mode).
+**ที่ยังเปิดอยู่:** ad-hoc mode ของ D4 (`cdp.py eval` ตรง ๆ ยังไม่มีด่าน) · การบังคับให้ runner
 สั่ง `--expect`/`--observe` เอง · และของเทียบเท่าทั้งสี่อย่างบน engine ตั้งต้น `bsk` ซึ่ง **ยังไม่มี**
 
 ---

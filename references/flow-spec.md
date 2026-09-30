@@ -41,6 +41,8 @@ $env:TEIBTO_CDP_SCRIPT = 'D:\path\to\teibto-dev-standards\scripts\cdp.py'
   และ URL จริงหลังทุก step (จับ redirect); หลุด = `ORIGIN_NOT_ALLOWED` และหยุด scenario
 - `risk: read|write|destructive` ระดับ step; `destructive` ต้องสั่ง `--allow-destructive` ไม่งั้น
   runner ปฏิเสธ flow ตั้งแต่ก่อนเริ่ม (`DESTRUCTIVE_NOT_ALLOWED`)
+- `action: eval` ต้องประกาศ `eval_reason` + `risk` ของตัวเอง ไม่งั้น `EVAL_NOT_DECLARED` ก่อนเปิด browser
+  และ eval ที่รันแล้วถูกบันทึกเป็นหลักฐานทั้งใน run-log และ report (BAS-7 · ดูหัวข้อด้านล่าง)
 
 Engine (ค่าตั้งต้น `bsk`; `--engine cdp` หรือ `TEIBTO_QA_ENGINE=cdp` เพื่อใช้ `cdp.py` — มติอยู่ที่ `docs/BROWSER-AGENT-STANDARD.md` §4):
 
@@ -116,6 +118,8 @@ scenarios:
         wait_timeout_ms: 5000      # optional 500–120000; เพดานของ wait ใน step นี้ (default 20000 / networkidle 30000)
         perf_budget_ms: 3000       # optional; เกินแล้ว PERF_BUDGET_EXCEEDED + FAIL
         risk: read|write|destructive   # optional (default read); destructive ต้อง --allow-destructive
+                                       # **บังคับ** เมื่อ action: eval (ห้ามรับ default)
+        eval_reason: "<ทำไมต้องใช้ eval>"  # บังคับเมื่อ action: eval; ห้ามว่าง
         capture: true|false        # override screenshot policy ของ scenario นี้
         assert:                  # พิสูจน์ผล (ตาม gotchas: อย่าเชื่อ ✓Done)
           url_contains: "/inventory.html"
@@ -184,6 +188,31 @@ step ที่ผ่านด่าน · `qa-report.md` ขึ้นสอง�
 req ไหน* และ *req นี้ครอบด้วย scenario ไหน*. 1 acceptance criterion → 1 scenario (map 1:1) →
 qa-report + user-guide อ้าง req เดียวกัน = ปิด loop req→test→doc. ดู playbook ทีมใน repo:
 `docs/TEAM-PROCESS.md`.
+
+## `action: eval` ต้องประกาศตัว (BAS-7 / pain D4)
+
+**ทำไม:** `eval` รันด้วยสิทธิ์ของหน้าเว็บ บน profile ที่ปกติ login ค้างไว้ — มันจึงเปลี่ยน state ของแอปได้
+โดยไม่ต้องแตะ control จริงสักตัว และรายงานที่ออกมาจะดูเหมือน state นั้นมาจากการใช้งานปกติ. ด่านนี้
+**ไม่ห้าม** `eval` (การอ่าน/assert ด้วย `eval` ยังเป็นเรื่องปกติ) แต่ห้าม `eval` แบบ *เงียบ*
+
+**กติกา:** step ที่ `action: eval` ต้องมีครบสองอย่าง
+- `eval_reason: "<ทำไมถึงต้องใช้ eval ตรงนี้>"` — สตริงว่างไม่ผ่าน schema
+- `risk: read|write|destructive` ของตัวเอง — **ห้ามรับค่า default `read`** เพราะ default คือรูปร่างของ
+  การเปลี่ยน state แบบไม่มีใครรู้ · `risk: destructive` ยังต้อง `--allow-destructive` เหมือน action อื่น
+
+ขาดอย่างใดอย่างหนึ่ง = `EVAL_NOT_DECLARED` ตั้งแต่ **ก่อน** session/บราวเซอร์เริ่ม (เหมือน
+`ORIGIN_NOT_ALLOWED` และ `DESTRUCTIVE_NOT_ALLOWED`) ไม่ใช่ล้มกลางทางหลังจาก eval รันไปแล้ว
+
+**หลักฐาน:** ทุก eval ที่รันออกเป็น event
+`{"type":"eval","scenario","index","global_index","target","reason","risk","evidence"}` ใน `run-log.jsonl`
+โดย `evidence` คือ `state set by eval, not trusted input` · `qa-report.md` ได้บรรทัด
+`🧪 eval (risk: <level>) — state set by eval, not trusted input: <reason>` ต่อ eval หนึ่งครั้ง
+บวกบรรทัดสรุป `**Eval steps:** <executed>/<declared> executed — …` · event ถูก emit **ก่อน** รัน
+เพราะ eval ที่ throw ก็เปลี่ยนสิ่งที่มันเปลี่ยนไปแล้ว · `run_done.eval_steps` สรุป declared/executed ·
+flow ที่ไม่มี eval เลยได้รายงานและ event ชุดเดิมทุกบรรทัด
+
+**ยังไม่ครอบ:** ad-hoc mode (`cdp.py eval` ที่พิมพ์เอง) ไม่มีด่านนี้ และด่านนี้ไม่ตัดสินแทนคนว่า
+expression นั้นเปลี่ยน state จริงหรือไม่ — มันบังคับให้ *มีคนประกาศ* และให้ *มีหลักฐาน* เท่านั้น
 
 ## เพดานเวลาของ wait และ console error ที่คาดหวัง
 

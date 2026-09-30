@@ -727,6 +727,120 @@ class WaitTimeoutAndConsoleExpectationTests(RunnerHarness, unittest.TestCase):
                       (out / "qa-report.md").read_text(encoding="utf-8"))
 
 
+class EvalDeclarationTests(RunnerHarness, unittest.TestCase):
+    """BAS-7/D4: an `action: eval` step declares itself or the run never opens a browser."""
+
+    DECLARED = """
+        story: declared-eval
+        title: Declared eval
+        scenarios:
+          - id: probe
+            steps:
+              - {action: open, target: "https://example.test", capture: false}
+              - action: eval
+                target: "window.__feature = 'on'"
+                risk: write
+                eval_reason: "seed the feature flag the UI cannot set yet"
+                assert: {target: "#notice", contains: "saved"}
+                capture: false
+    """
+
+    def payloads(self, out: Path) -> list[dict]:
+        return [json.loads(line) for line in
+                (out / "run-log.jsonl").read_text(encoding="utf-8").splitlines()]
+
+    def test_eval_without_a_reason_is_rejected_before_the_browser_opens(self):
+        process, out, counter = self.run_flow("""
+            story: silent-eval
+            title: Undeclared eval
+            scenarios:
+              - id: probe
+                steps:
+                  - {action: open, target: "https://example.test", capture: false}
+                  - {action: eval, target: "window.__feature = 'on'", risk: write, capture: false}
+        """)
+        self.assertEqual(1, process.returncode)
+        self.assertFalse(counter.exists(), "the session must not start once the flow is rejected")
+        fatal = next(item for item in self.payloads(out) if item["type"] == "fatal")
+        self.assertEqual("EVAL_NOT_DECLARED", fatal["error"]["code"])
+        self.assertIn("probe#2 (ขาด: eval_reason)", fatal["error"]["message"])
+
+    def test_eval_that_inherits_the_default_risk_is_rejected(self):
+        """`risk` defaults to read, which is exactly the silent state change this gate is for."""
+        process, out, counter = self.run_flow("""
+            story: default-risk-eval
+            title: Eval without its own risk class
+            scenarios:
+              - id: probe
+                steps:
+                  - action: eval
+                    target: "document.querySelector('#save').click()"
+                    eval_reason: "shortcut the save button"
+                    capture: false
+        """)
+        self.assertEqual(1, process.returncode)
+        self.assertFalse(counter.exists())
+        fatal = next(item for item in self.payloads(out) if item["type"] == "fatal")
+        self.assertEqual("EVAL_NOT_DECLARED", fatal["error"]["code"])
+        self.assertIn("probe#1 (ขาด: risk)", fatal["error"]["message"])
+
+    def test_a_declared_eval_is_evidence_in_the_run_log_and_the_report(self):
+        process, out, _ = self.run_flow(self.DECLARED)
+        self.assertEqual(0, process.returncode, process.stdout + process.stderr)
+        payloads = self.payloads(out)
+        declaration = next(item for item in payloads if item["type"] == "eval")
+        self.assertEqual({"scenario": "probe", "index": 2, "global_index": 2, "risk": "write",
+                          "reason": "seed the feature flag the UI cannot set yet",
+                          "evidence": "state set by eval, not trusted input"},
+                         {key: declaration[key] for key in
+                          ("scenario", "index", "global_index", "risk", "reason", "evidence")})
+        start = next(item for item in payloads if item["type"] == "run_start")
+        self.assertEqual("declared", start["run_policy"]["eval_gate"])
+        done = next(item for item in payloads if item["type"] == "run_done")
+        self.assertEqual({"declared": 1, "executed": 1,
+                          "evidence": "state set by eval, not trusted input"},
+                         done["eval_steps"])
+        report = (out / "qa-report.md").read_text(encoding="utf-8")
+        self.assertIn("**Eval steps:** 1/1 executed — state set by eval, not trusted input", report)
+        self.assertIn("- 🧪 eval (risk: write) — state set by eval, not trusted input: "
+                      "seed the feature flag the UI cannot set yet", report)
+
+    def test_a_flow_without_eval_keeps_the_previous_report_and_events(self):
+        process, out, _ = self.run_flow("""
+            story: no-eval
+            title: No eval anywhere
+            scenarios:
+              - id: smoke
+                steps:
+                  - {action: open, target: "https://example.test", capture: false}
+        """)
+        self.assertEqual(0, process.returncode, process.stdout + process.stderr)
+        payloads = self.payloads(out)
+        self.assertEqual([], [item for item in payloads if item["type"] == "eval"])
+        done = next(item for item in payloads if item["type"] == "run_done")
+        self.assertEqual({"declared": 0, "executed": 0,
+                          "evidence": "state set by eval, not trusted input"}, done["eval_steps"])
+        report = (out / "qa-report.md").read_text(encoding="utf-8")
+        self.assertNotIn("Eval steps", report)
+        self.assertNotIn("state set by eval", report)
+
+    def test_schema_rejects_an_empty_eval_reason(self):
+        runner = load_runner()
+        path = self.workspace() / "empty-reason.yaml"
+        path.write_text(textwrap.dedent("""
+            story: empty-reason
+            title: Empty reason
+            scenarios:
+              - id: probe
+                steps:
+                  - {action: eval, target: "1", risk: read, eval_reason: ""}
+        """), encoding="utf-8")
+        with self.assertRaises(runner.RunnerError) as caught:
+            runner.load_flow(path)
+        self.assertEqual("INVALID_FLOW", caught.exception.code)
+        self.assertIn("eval_reason", str(caught.exception))
+
+
 class WaitTimeoutAndConsoleGateHelperTests(unittest.TestCase):
     """Pure helpers, so the defaults and the matching rules are pinned without starting a run."""
 
