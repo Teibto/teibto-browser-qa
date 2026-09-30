@@ -2,7 +2,9 @@
 
 ไฟล์นี้เป็นของ `bsk` เท่านั้น. เงื่อนไขว่า **ใช้ได้เมื่อใด** อยู่ที่ `docs/BROWSER-AGENT-STANDARD.md` §4;
 กับดักใน [`gotchas.md`](gotchas.md) เป็นของ direct CDP และไม่ได้ย้ายตามมาเอง. ทุกตัวเลขข้างล่างวัดกับ
-`bsk` 0.3.0 + Chrome 152 บน Windows และมีแถวใน `docs/CLAIMS-AUDIT.md` — ขยับรุ่นแล้วต้องวัดใหม่.
+`bsk` 0.3.0 + Chrome 152 บน Windows (เว้นแต่แถวที่ระบุรุ่นอื่น) และมีแถวใน `docs/CLAIMS-AUDIT.md` — ขยับรุ่นแล้วต้องวัดใหม่.
+รุ่นที่ runner รับ (`BSK_VERIFIED_VERSIONS`): **0.3.0 และ 0.3.2** — daemon กับ extension ต้องเป็นรุ่นเดียวกัน;
+0.3.1 ไม่ได้ตรวจ จึงไม่รับ (daemon 0.3.2 อัปเดตตัวเองได้ แต่ extension ในโปรไฟล์ที่ไม่ได้เปิดค้างจะตามหลังจน Chrome restart).
 
 ## การเลือก engine และการอัปเดต
 
@@ -16,11 +18,13 @@ engine ระบุหรือเมื่อผู้ใช้เลือก.
 อัปเดตแพ็กเกจ `teibto-browser-qa` จาก commit ที่ตรวจสอบแล้วของ `main` เมื่อต้องการ fixes
 ที่ใหม่กว่า release. ติดตั้งทั้ง `SKILL.md`, references, scripts, examples และ schemas พร้อมกัน;
 การคัดลอกเฉพาะ SKILL.md ทำให้คำสั่งเรียก runtime ที่ยังเก่า. เก็บ SHA ของแหล่งที่ติดตั้ง.
-แยกเวอร์ชันแพ็กเกจนี้ออกจาก `bsk` CLI/extension ซึ่ง runner pin ไว้ที่ 0.3.0.
+แยกเวอร์ชันแพ็กเกจนี้ออกจาก `bsk` CLI/extension ซึ่ง runner รับเฉพาะรุ่นที่ผ่าน dialog-test แล้ว (0.3.0, 0.3.2).
 
 ## 1. ตั้งเครื่อง (ครั้งเดียว)
 
-1. ติดตั้ง CLI แบบ pin รุ่น: รัน `install.ps1` ของ upstream โดยตั้ง `BSK_VERSION=0.3.0` (รุ่นที่ runner pin)
+1. ติดตั้ง CLI แบบ pin รุ่น: รัน `install.ps1` ของ upstream โดยตั้ง `BSK_VERSION=0.3.2` (รุ่นล่าสุดที่ runner รับ)
+   · เพิ่มรุ่นใหม่ในรายการได้เมื่อ `dialog-test.sh` (นโยบายตรง), `runner-test.sh` และ `contention-matrix.py` ผ่านกับรุ่นนั้น
+   · extension ของโปรไฟล์ทดสอบอัปเดตจาก Web Store แต่ใช้ผลหลังปิด-เปิด Chrome โปรไฟล์นั้น — ดูรุ่นด้วย `bsk browsers --json`
 2. เจ้าของ browser ลง extension เองแล้วเปิดสวิตช์ connection ใน popup; agent ไม่ลง extension ให้
 3. ให้ host เป็นคน start daemon (`bsk daemon start --foreground` ใน terminal ที่เปิดค้าง)
 4. ทุกคำสั่งจาก agent/สคริปต์: `BSK_AUTO_START=0` + `timeout` + เขียน output ลงไฟล์ **ห้าม pipe** —

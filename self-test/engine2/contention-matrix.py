@@ -390,7 +390,10 @@ def serve_fixtures() -> tuple[str, socketserver.TCPServer]:
     handler = type("Fixtures", (QuietHandler,),
                    {"__init__": lambda self, *a, **k: QuietHandler.__init__(
                        self, *a, directory=str(HERE), **k)})
-    server = socketserver.TCPServer(("127.0.0.1", 0), handler)
+    # Threaded, daemon handlers: Chrome opens preconnect sockets that never send a request, and a
+    # single-threaded server blocks on one of them forever, so shutdown() at exit never returns.
+    server = socketserver.ThreadingTCPServer(("127.0.0.1", 0), handler)
+    server.daemon_threads = True
     threading.Thread(target=server.serve_forever, daemon=True).start()
     return f"http://127.0.0.1:{server.server_address[1]}", server
 
