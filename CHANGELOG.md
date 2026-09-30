@@ -10,6 +10,27 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **BAS coverage สะท้อนของจริงที่ driver `v0.88.0` ให้ (#76):** child ฝั่ง driver ทั้งสี่ใบ
+  (`teibto-dev-standards` #291 `--expect`/`--expect-count` · #292 page-state receipt + download ledger ·
+  #293 ตัวกรอง hidden text · #294 redaction ของ `cookies`/`console`/netlog) ปิดแล้วและอยู่ใน driver ที่รีโปนี้ pin ·
+  ยืนยันสดกับ Chrome 153 บน headless instance + fixture ของตัวเอง แล้วบันทึกเป็นแถว ledger ใหม่พร้อม `cdp.py` file:line ·
+  ช่อง 🔴 ของ pain inventory ลดจาก 6 → 1 (🟢 15 · 🟡 11 · 🔴 1) · BAS-2, BAS-3, BAS-6 เลื่อนจาก `proposed` → `partial`
+  และ BAS-5 ระบุขอบเขตใหม่ · **ไม่มีข้อไหนขึ้น `adopted`** เพราะทั้งสี่ฟีเจอร์เป็น opt-in บน **เลน `--engine cdp` เท่านั้น**,
+  `flow-runner.py` ยังไม่สั่งให้เอง และ engine ตั้งต้น `bsk` ไม่มีของเทียบเท่า · ช่อง 🔴 ที่เหลือคือ D4 (`eval` เปลี่ยน state)
+  ซึ่งไม่ใช่งานฝั่ง driver
+- **ถอนคำกล่าวอ้างเรื่องซอง `<<<PAGE_DATA … >>>`:** canonical PR #300 ปฏิเสธซองครอบ output ตอนปิด #293
+  (default-on พังทุก consumer · opt-in ไม่มีใครเปิด · delimiter ที่ปลอมได้ไม่มีค่า) · BAS-5 ข้อ 1 จึงเหลือ
+  invariant 8 ฝั่ง agent เป็นด่านเดียว และแถวนี้ถูกบันทึกใน `docs/CLAIMS-AUDIT.md` § Withdrawn claims
+
+### Added
+
+- **`references/commands.md`: flag ใหม่ของเลน CDP** — `--expect` / `--expect-count`, `--observe` +
+  `downloads on`, และ `get text --visible-only` พร้อมกับดักที่วัดได้จริง: ใบเสร็จคืนสตริง `"unwatched"`
+  ไม่ใช่ `0` เมื่อไม่ได้เฝ้า, `--expect` เทียบชื่อแบบ equality ไม่ใช่ contains, และ `a11y` **ตั้งใจ**
+  ไม่ตัด sr-only/ข้อความนอกจอ จึงไม่ใช่ตัวแทนของ `--visible-only`
+
 ### Fixed
 
 - **runner รับ bsk 0.3.2 แล้ว (#144):** เดิม pin 0.3.0 ตัวเดียว เครื่องที่อัปเดต bsk จึงล้ม `DRIVER_INCOMPATIBLE`
