@@ -10,6 +10,8 @@
 
 ## [Unreleased]
 
+## [4.0.0] - 2026-09-30
+
 ### Changed
 
 - **BREAKING — flow: `action: eval` ต้องประกาศตัว และทุก eval ที่รันกลายเป็นหลักฐาน (#153, BAS-7 / pain D4)** —
