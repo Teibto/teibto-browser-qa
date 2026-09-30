@@ -27,6 +27,14 @@
 
 ### Added
 
+- **`references/engine2-bsk.md` §4 เพิ่มกับดัก 3 ข้อจากงานจริงบน SB2:** session NetSuite หลุดเงียบเมื่อมี browser อีกตัวของ user เดียวกัน
+  (POST ได้ 500 เป็น HTML `Your connection has timed out` ไม่ใช่ server error) · `click`/`fill` ตอบ `IPC read timed out` /
+  `Renderer did not become ready for input` ขณะ daemon ยุ่ง (ไม่มี input ถูกส่ง จึง retry ได้) · จังหวะของ login อัตโนมัติและช่อง 2FA ที่ id เปลี่ยน (#146)
+
+- **`scripts/profile-sweep.py` — กวาด `.qa-profiles` เก่าได้แล้วโดยไม่ต้องรื้อคำสั่งมือ:** dry-run เป็นค่าเริ่มต้น,
+  ไม่แตะ profile ที่ Chrome กำลังใช้ (อ่าน `--user-data-dir=` จาก CommandLine เอง), เก็บ profile ที่แตะภายใน
+  `--keep-days` (default 3) และ profile ที่มี `.keep` · `--only … --force` ใช้เป็น post-run hook ได้ (#132)
+
 - **`self-test/engine2/contention-matrix.py`:** ด่านจำลองสถานการณ์หลาย agent บน browser จริงสิบแบบ
   (สอง/หก run ใน window เดียว · peer เปิด tab แบบ focus · peer สลับ tab ทุก 150 ms · หน้าต่างถูกปิดกลางคัน ·
   registry ชี้ session ที่ถูกเก็บ · registry พัง · env ค้าง · lease holder ถูก kill · tab ตัวเองถูกปิด) และ

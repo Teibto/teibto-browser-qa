@@ -220,6 +220,32 @@ Get-CimInstance Win32_Process -Filter "Name='chrome.exe'" |
   ที่เหลือลบได้
 - artifact dir ของงาน (`.runtime-*/`) มักฝัง chrome profile ไว้ข้างใน — ตัด `chrome-*profile*` ออกก่อน archive
 
+### กวาดด้วยสคริปต์ (ไม่ต้องรื้อคำสั่งมือ)
+
+`scripts/profile-sweep.py` ทำตามเกณฑ์ข้างบนให้อัตโนมัติ — **dry-run เป็นค่าเริ่มต้น** และ
+**ไม่แตะ profile ที่ Chrome กำลังใช้** (ดึง `--user-data-dir=` จาก CommandLine เอง ไม่ต้อง
+`taskkill`):
+
+```bash
+python scripts/profile-sweep.py --profiles-dir .qa-profiles                      # รายงานก่อน ไม่ลบ
+python scripts/profile-sweep.py --profiles-dir .qa-profiles --apply              # กวาดจริง (เก่ากว่า 3 วัน)
+python scripts/profile-sweep.py --profiles-dir .qa-profiles --only run-x --apply --force  # post-run hook
+```
+
+- `--keep-days N` เก็บ profile ที่แตะภายใน N วัน (default 3) · `--protect 'sb2*'` กันชื่อที่ต้องเก็บ
+- วางไฟล์ `.keep` ใน profile ที่ login ไว้ (`.qa-profiles/<customer>/.keep`) ให้รอดทุกโหมด รวม `--force`
+- `--strict-probe` = ถ้าดึงรายการ process ไม่ได้ให้ล้มทันที แทนที่จะถือว่า "ไม่มีใครใช้"
+
+**ลดการโตตั้งแต่ต้น** — flags ตอนเปิด Chrome ของงาน (inferred: ยังไม่ได้ A/B ในรีโปนี้):
+
+```bash
+chrome --user-data-dir=... --disable-features=OptimizationGuideModelDownloading \
+       --disable-component-update --disable-background-networking about:blank
+```
+
+`OptGuideOnDeviceModel` (~4 GB) และ component crx cache (~37 MB/component) คือก้อนที่โตโดยไม่เกี่ยวกับ
+งาน QA; ปิดสองอย่างนี้ตัดการโตได้ — แต่รัน `self-test/smoke-test.sh` ยืนยันก่อนเลื่อนเป็นค่าเริ่มต้น
+
 ---
 
 ## 11. ใช้ event-bound navigation; positional `<n>` เป็น legacy fixed drain [HIGH]

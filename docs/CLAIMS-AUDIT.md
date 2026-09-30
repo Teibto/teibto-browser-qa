@@ -44,6 +44,8 @@ Status terms:
 | A flow that declares no `allowed_origins` keeps its previous behaviour and pays no extra round trip | verified | no-policy run asserting `origin_gate: not-declared` |
 | Missing/old driver fails as `DRIVER_INCOMPATIBLE` rather than using a silent fallback | verified | `tests/test_flow_runner.py` |
 | Success/failure screenshots follow scenario/step capture policy | verified | runner unit tests and live fixture |
+| `scripts/profile-sweep.py` keeps a profile that Chrome is using, one touched within `--keep-days`, or one with a `.keep` marker, and defaults to dry-run | verified | `tests/test_profile_sweep.py` (in-use/age/marker/protect/dry-run/apply cases) |
+| Chrome `--disable-features=OptimizationGuideModelDownloading` + `--disable-component-update` cut `.qa-profiles` growth | inferred | mitigation documented in `gotchas.md` §10; not A/B-verified in this repository, so do not use alone for a verdict |
 
 ## Performance evidence
 
@@ -132,6 +134,10 @@ than pinning a tokenizer-specific absolute count.
 | lens `theme`/`focus` read the light DOM and the custom-element host, so shadow-DOM components can yield `text-invisible`/`no-focus-ring` false positives | measured, version-pinned | TBT-DS 1.46.1 page, 2026-09-08; confirm with `shot <sel>` and a `shadowRoot` probe before reporting |
 | `el.focus()` on some custom-element hosts leaves `activeElement` on `BODY`; only keyboard Tab focuses the host | measured, version-pinned | `tbt-button`, TBT-DS 1.46.1, 2026-09-08 |
 | `lens focus` reports `focus-stuck`/`unreachable-controls` on `<input type=date>` because Tab walks its date fields | measured, version-pinned | observed 2026-09-08; verify by pressing Tab 4–5 more times |
+| A Slack composer (`[data-qa="texty_input"]`, Quill) only sends when the content is in Quill's model: `fill` on an empty composer leaves the DOM text but Enter and the send button do nothing, while a `ts-mention` inserted through Slack's own autocomplete is sendable | verified | team Slack `#ai-new`, bsk 0.3.1 + Chrome 153, 2026-09-24: empty-composer fill → `fill could not verify the expected value` and Enter cleared the box without posting; `fill --no-clear @Teib` → `press Enter` → real mention → sendable. No fixture — needs a logged-in Slack session |
+| Slack syncs drafts and the open thread panel across tabs, so a fresh tab can restore a thread draft and its first `[data-qa="texty_input"]` may be the panel's composer; `press Enter` sends from the channel composer but not from the thread reply box (nor its send button) | verified, version-pinned | same run, same day: three Enter presses and one `[data-qa="texty_send_button"]` click left the thread text unsent, while the channel composer posted `@TeibTalk What does the ops repo do?` (ts 1790231591.404229) and the bot answered in English (ts 1790231607.239599). Scope the channel composer with `.p-message_pane_input_inner_main` |
+| A Slack message is deletable through `bsk` without hover: the row's `aria-label="More actions"` button is already in the DOM, then `[data-qa="delete_message"]` and `[data-qa="dialog_go"]` | verified, version-pinned | same run, same day: the stray test message (ts 1790231253.918069) was removed; `[data-qa="message_actions"]` never rendered from hover alone |
+| In Windows Git Bash (MINGW64) a `/` argument reaches a Windows binary as the Git root path, so `bsk press … /` fails with `press: unknown key "C:/Program Files/Git/"`; `MSYS_NO_PATHCONV=1` restores the literal key | verified, version-pinned | bsk 0.3.1, Git Bash MINGW64, 2026-09-24: `bsk press … /` exit 1 with that key error vs `MSYS_NO_PATHCONV=1 bsk press … /` → `press ok … key=/`; mechanism shown separately by `python -c "import sys;print(sys.argv[1:])" /` → `['C:/Program Files/Git/']`. The error only appears once the session resolves — a fake session returns `session not registered` instead (#142) |
 
 ## NetSuite live-run findings
 
