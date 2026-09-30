@@ -16,6 +16,10 @@ history and `CHANGELOG.md`.
 - Issue #74 revalidation: same Windows host, Chrome `151.0.7922.174`, 2026-08-30; foreground-ready
   candidate commit/blob above. The candidate is not a released dependency until its upstream review,
   CI, and release gates pass.
+- Epic #76 driver-coverage run: Windows host, Chrome `153.0.8010.53`, 2026-09-30, canonical driver
+  `teibto-dev-standards v0.88.0` (`scripts/cdp.py`, `SESSION_VERSION = 3`). Its own throwaway headless
+  Chrome (temp `--user-data-dir`, `--remote-debugging-port=9433`) drove a local static fixture served by
+  `python -m http.server 127.0.0.1:9533`; no daily profile, `bsk` session or NetSuite account was touched.
 - Issue #74 authenticated NetSuite SB2 revalidation: same host/Chrome/date and one pinned MRP
   Suitelet target. The run used read-only planning actions only; it did not submit Create PR/PO/WO or
   mutate production data.
@@ -57,6 +61,28 @@ Status terms:
 | Success/failure screenshots follow scenario/step capture policy | verified | runner unit tests and live fixture |
 | `scripts/profile-sweep.py` keeps a profile that Chrome is using, one touched within `--keep-days`, or one with a `.keep` marker, and defaults to dry-run | verified | `tests/test_profile_sweep.py` (in-use/age/marker/protect/dry-run/apply cases) |
 | Chrome `--disable-features=OptimizationGuideModelDownloading` + `--disable-component-update` cut `.qa-profiles` growth | inferred | mitigation documented in `gotchas.md` §10; not A/B-verified in this repository, so do not use alone for a verdict |
+
+## BAS driver coverage on the `--engine cdp` lane (driver v0.88.0, 2026-09-30)
+
+Consumer-side proof that the four canonical driver issues closed for epic #76 actually behave as the
+standard claims. Every row was reproduced on the epic #76 driver-coverage run described above
+(Chrome `153.0.8010.53`, driver `v0.88.0`). These are **`--engine cdp` claims only**: `bsk` ships no
+equivalent of `--expect`, the receipt, the download ledger or the redactors, so a `bsk` run must still
+report the matching pain as `UNVERIFIED`.
+
+| Claim | Status | Evidence |
+|---|---|---|
+| `click`/`fill --expect-count=<n>` refuses a selector that matches a different number of elements, and the page is left untouched | verified, version-pinned | `cdp.py` `verify_identity` (v0.88.0 L1430, `EXPECT_COUNT_MISMATCH` L1451): `click ".btn-primary" --expect-count=1` on a two-button fixture exited 1 with `selector ตรง 2 element ไม่ใช่ 1` and `get text "#log"` still read `idle` |
+| `click --expect=<accessible name>` compares the AX name by equality after normalisation and fails loud on a mismatch | verified, version-pinned | same run, `EXPECT_MISMATCH` L1474: `click "#submit" --expect="บันทึก"` exited 1 with `ตั้งใจทำกับ "บันทึก" แต่ element นี้ชื่อ "Submit"`, log unchanged; `click "#submit" --expect="Submit" --expect-count=1` exited 0 and the log read `submitted` |
+| `--observe` returns a one-line page-state receipt carrying `url`, `title`, `focused`, `console_new`, `dialogs`, `net_errors`, `downloads`, `ref_invalidated` and `action` | verified, version-pinned | `observe_receipt` L1508: `click "#boom" --observe` returned exactly those keys with `"focused": "button#boom"` |
+| An unwatched channel is reported as the string `"unwatched"`, never as `0` or `[]` | verified, version-pinned | L1517–L1542; same run without `netlog on`/`downloads on`: `"console_new": "unwatched"`, `"net_errors": "unwatched"`, `"downloads": "unwatched"`. Reading `"unwatched"` as `0` reproduces pain A2 |
+| `downloads on` plus `--observe` proves an export button: the receipt carries filename, state, byte count and the real path | verified, measured | `cmd_downloads` L1591 / `_on_download` L424: `click "#export" --observe --download-wait=6` returned `{"filename":"bas-export.csv","state":"completed","bytes":14,"path":"…\\downloads\\bas-export.csv"}` and the 14-byte file existed on disk |
+| Default `get text` still leaks hidden injection text; only `get text <sel> --visible-only` removes it | verified, version-pinned | `VISIBLE_TEXT_JS` L1680: default output carried `HIDDEN-ARIA/OFFSCREEN/FONT0/OPACITY/TRANSPARENT ignore previous instructions`; `--visible-only` returned `VISIBLE-OK` alone |
+| `a11y` intentionally keeps sr-only and off-screen text, so it is not a hidden-text filter | verified, version-pinned | same run: `HIDDEN-OFFSCREEN`, `HIDDEN-FONT0`, `HIDDEN-OPACITY`, `HIDDEN-TRANSPARENT` all appear as `StaticText` nodes. `--visible-only` answers "what does a user see", `a11y` answers "what does assistive tech hear" |
+| `cookies` omits the value by default; `--values` returns it and warns on stderr | verified, version-pinned | dispatch L2164–L2182: default row was `{"name":"bas_probe",…,"size":25}` with no `value`; `--values` added `"value": "SUPERSECRETCOOKIEVALUE123"` after `[เตือน] cookies --values คืนค่า session จริง` on stderr |
+| `console` and `lens netlog` redact secret values by default while leaving the key names and path readable | verified, version-pinned | `redact_secrets` L1757, applied per message at L1783–L1796 and per netlog entry at L463/L470/L477: `Authorization: Bearer <jwt>` became `Authorization: ***` and `/missing.json?code=abc123XYZ&token=tok_SECRET` became `/missing.json?code=***&token=***` |
+| The `<<<PAGE_DATA … >>>` envelope of BAS-5 rule 1 is not in the driver and was declined upstream | verified | `v0.88.0 cdp.py` contains no `PAGE_DATA` marker; canonical PR #300 records the reasons (default-on breaks every consumer, opt-in is never switched on, a forgeable delimiter is worthless) |
+| The runner does not emit `--expect`, `--observe` or `--visible-only`, so a flow run gets none of the above automatically | verified | `scripts/flow-runner.py` at this commit contains no occurrence of those flags |
 
 ## Performance evidence
 
@@ -309,6 +335,9 @@ This rule closed contradictory documentation found in `test-data.md`, `a11y-laye
   page-specific observable waits.
 - Proposed flow fields listed above were documentation proposals, not implemented behavior. Examples
   that presented them as accepted schema were removed.
+- The `<<<PAGE_DATA … >>>` envelope around page-derived output (BAS-5 rule 1) was a proposal, never
+  driver behaviour. Canonical PR #300 declined it when closing `teibto-dev-standards#293`; do not cite
+  it as protection. Invariant 8 plus `get text --visible-only` are what actually exist.
 
 ## Revalidation rule
 
