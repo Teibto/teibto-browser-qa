@@ -28,6 +28,9 @@ import sys
 import time
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from bsk_lease import LeaseTimeout, SessionLease  # noqa: E402
+
 try:
     sys.stdout.reconfigure(encoding="utf-8")
     sys.stderr.reconfigure(encoding="utf-8")
@@ -65,7 +68,14 @@ def load_registry() -> dict:
 def save_registry(data: dict) -> None:
     path = registry_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, indent=2, sort_keys=True), encoding="utf-8")
+    tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
+    tmp.write_text(json.dumps(data, indent=2, sort_keys=True), encoding="utf-8")
+    os.replace(tmp, path)   # a reader never sees a half-written registry
+
+
+def registry_lock() -> SessionLease:
+    """Serialise read-allocate-write: two agents running `ensure` at once must not pick the same port."""
+    return SessionLease("bsk-accounts-registry", root=teibto_root() / "locks", wait=60.0)
 
 
 def check_name(name: str) -> str:
@@ -129,8 +139,12 @@ def account_env(entry: dict) -> dict[str, str]:
 
 def daemon_status(bsk: list[str], entry: dict) -> dict | None:
     """`bsk status` under the account's BSK_HOME; None when no daemon answers there."""
-    done = subprocess.run([*bsk, "status", "--json"], capture_output=True, text=True, encoding="utf-8",
-                          errors="replace", env=account_env(entry), timeout=20)
+    try:
+        done = subprocess.run([*bsk, "status", "--json"], capture_output=True, text=True, encoding="utf-8",
+                              errors="replace", env=account_env(entry), timeout=20)
+    except subprocess.TimeoutExpired as exc:
+        raise AccountError("DAEMON_UNRESPONSIVE", f"bsk status ใต้ {entry['bsk_home']} ไม่ตอบใน 20s: "
+                                                  "daemon ค้าง — ดู daemon.log ใน BSK_HOME นั้น") from exc
     try:
         data = json.loads(done.stdout) if done.stdout.strip() else {}
     except ValueError:
@@ -167,8 +181,11 @@ def summarize(name: str, entry: dict, status: dict | None) -> dict:
 
 
 def ensure(bsk: list[str], name: str, port: int | None, wait: float, bsk_home: str | None = None) -> dict:
-    registry = load_registry()
-    entry = allocate(name, registry, port, bsk_home)
+    try:
+        with registry_lock():
+            entry = allocate(name, load_registry(), port, bsk_home)
+    except LeaseTimeout as exc:
+        raise AccountError("REGISTRY_BUSY", f"registry ของ account ถูกถือค้างเกิน 60s: {exc}") from exc
     status = daemon_status(bsk, entry)
     if status and int(status.get("ws_port") or 0) != int(entry["port"]):
         raise AccountError("PORT_MISMATCH", f"daemon ของ {name} ฟังอยู่ที่ port {status.get('ws_port')} "

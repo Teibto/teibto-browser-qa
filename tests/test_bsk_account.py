@@ -135,6 +135,18 @@ class AccountDaemonTests(unittest.TestCase):
         self.assertEqual("HOME_CONFLICT", self.error_code(self.run_accounts(
             "ensure", "foodstar", "--bsk-home", str(self.root / "elsewhere"), check=False)))
 
+    def test_parallel_ensures_never_share_a_port_or_lose_an_entry(self):
+        names = [f"acct{i}" for i in range(4)]
+        procs = [subprocess.Popen([sys.executable, str(ACCOUNTS), "ensure", name, "--bsk", str(FAKE_BSK)],
+                                  stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=self.env())
+                 for name in names]
+        for proc in procs:
+            out, err = proc.communicate(timeout=120)
+            self.assertEqual(0, proc.returncode, out.decode("utf-8", "replace") + err.decode("utf-8", "replace"))
+        registry = json.loads((self.root / "teibto" / "bsk-accounts.json").read_text(encoding="utf-8"))
+        self.assertEqual(sorted(names), sorted(registry))
+        self.assertEqual(4, len({entry["port"] for entry in registry.values()}))
+
     def test_the_registry_holds_no_secret(self):
         self.run_accounts("ensure", "foodstar", "--port", str(FREE_PORT))
         text = (self.root / "teibto" / "bsk-accounts.json").read_text(encoding="utf-8").lower()
