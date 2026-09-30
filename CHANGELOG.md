@@ -31,6 +31,13 @@
   ไม่ใช่ `0` เมื่อไม่ได้เฝ้า, `--expect` เทียบชื่อแบบ equality ไม่ใช่ contains, และ `a11y` **ตั้งใจ**
   ไม่ตัด sr-only/ข้อความนอกจอ จึงไม่ใช่ตัวแทนของ `--visible-only`
 
+### Added
+
+- **บทเรียนภาคสนามที่ค้างในสำเนาที่ติดตั้งขึ้น main แล้ว (#149):** `engine2-bsk.md` — idle-stop ของ daemon ปิด Agent Window
+  ทั้งบาน (ต้อง keep-alive ping ถ้าเปิดหน้าค้างให้ผู้ใช้ดู) และ 7 แถว §4 (click บน tab พื้นหลังโดน overlay, รูปแบบ
+  `fill --value`, `evaluate --timeout`, shared session สลับ busy/lost, `wait-ms` ไม่รับ `--session`, option ใน dialog React,
+  ย้าย secret ผ่าน stdin) · `gotchas.md` ข้อ 23 ข้อความ inline ล้น grid cell ที่ด่าน overflow ไม่เห็น
+
 ### Fixed
 
 - **runner รับ bsk 0.3.2 แล้ว (#144):** เดิม pin 0.3.0 ตัวเดียว เครื่องที่อัปเดต bsk จึงล้ม `DRIVER_INCOMPATIBLE`
