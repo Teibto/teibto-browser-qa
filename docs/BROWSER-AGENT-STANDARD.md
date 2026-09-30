@@ -94,7 +94,7 @@ page-state receipt, ไม่มี download ledger และไม่มีต�
 
 | Pain | ปิดด้วย | สถานะวันนี้ | เลน |
 |---|---|---|---|
-| A1 | BAS-3 | 🟡 `--observe` คืนใบเสร็จต่อ action แล้ว (opt-in) · runner ยังไม่สั่งให้ | cdp |
+| A1 | BAS-3 | 🟢 runner สั่ง `--observe` ให้ทุก action ที่เปลี่ยน state เอง และ "ไม่มีใบเสร็จ = `UNVERIFIED`" | cdp |
 | A2 | BAS-3 | 🟡 `console_new` อยู่ในใบเสร็จ และคืน `"unwatched"` เมื่อไม่ได้เฝ้า ไม่ใช่ `0` | cdp |
 | A3 | BAS-8 | 🟢 บังคับแล้ว | ทุก engine |
 | A4 | BAS-8 · BAS-9 | 🟢 บังคับแล้ว | ทุก engine |
@@ -102,7 +102,7 @@ page-state receipt, ไม่มี download ledger และไม่มีต�
 | A6 | BAS-8 | 🟢 บังคับแล้ว | ทุก engine |
 | A7 | BAS-3 | 🟡 `--observe` ไม่ครอบ `shot`/`pdf` — path ที่เขียนไฟล์ไม่ได้ยังไม่มีด่าน | cdp |
 | A8 | BAS-1 · BAS-8 | 🟢 บังคับแล้ว | ทุก engine |
-| A9 | BAS-2 | 🟡 `--expect`/`--expect-count` มีแล้ว (opt-in) · `intent:` ของ flow ยังไม่ต่อเข้า flag | cdp |
+| A9 | BAS-2 | 🟡 runner ส่ง `--expect`/`--expect-count` ให้ click/fill เมื่อ step ประกาศ `expect:` · ยัง opt-in ต่อ step (flow ที่ไม่ประกาศยังคลิกผิด element ได้เงียบ) | cdp |
 | A10 | BAS-3 | 🟡 `downloads on` + `downloads` ในใบเสร็จพิสูจน์ปุ่ม export ได้แล้ว | cdp |
 | B1 | BAS-9 | 🟢 มีสูตร + ด่านเอกสาร | ทุก engine |
 | B2 | BAS-7 · BAS-9 | 🟡 กฎมีแล้ว ยังไม่มีด่าน | ทุก engine |
@@ -122,8 +122,13 @@ page-state receipt, ไม่มี download ledger และไม่มีต�
 | E2 | BAS-3 | 🟡 `--stdout summary` แก้ฝั่ง runner แล้ว | ทุก engine |
 | E3 | BAS-3 · BAS-2 | 🟡 ad-hoc mode มีใบเสร็จให้สั่งแล้ว · ยังไม่มีอะไรบังคับว่าต้องสั่ง | cdp |
 
-นับได้ 🟢 15 · 🟡 12 · 🔴 0 จาก 27 รายการ (ก่อน #291–#294: 🟢 15 · 🟡 6 · 🔴 6 · ก่อน #153: 🟡 11 · 🔴 1).
+นับจากตารางข้างบนได้ 🟢 15 · 🟡 12 · 🔴 0 จาก 27 รายการ — ก่อน #153/#154 ตารางเดียวกันนับได้
+🟢 14 · 🟡 12 · 🔴 1 (บรรทัดสรุปเดิมเขียน 🟢 15 · 🟡 11 · 🔴 1 ซึ่ง **ไม่ตรงกับตารางของตัวเอง**;
+แก้ให้ตรงแล้วที่ #154 · จำนวนก่อน #291–#294 ที่เคยบันทึกไว้คือ 🟢 15 · 🟡 6 · 🔴 6 และไม่ได้นับใหม่).
 ไม่มีช่องไหนเหลือ 🔴 แล้ว: D4 ซึ่งเป็นช่องสุดท้ายและ **ไม่ใช่งานฝั่ง driver** ได้ด่านฝั่งสกิลแล้วที่ #153.
+A1 ขึ้น 🟢 ที่ #154 เพราะ runner สั่งใบเสร็จให้เองทุก action ที่เปลี่ยน state ไม่ใช่รอให้ผู้เขียน flow สั่ง
+(และไม่มีใบเสร็จ = `UNVERIFIED` ไม่ใช่ผ่านเงียบ) · A9 ยัง 🟡 เพราะ `expect:` ยังเป็น opt-in ต่อ step:
+flow ที่ไม่ประกาศยังคลิกผิด element ได้เงียบเหมือนเดิม.
 ช่อง 🟡 ที่เหลือจะขึ้น 🟢 ได้ต่อเมื่อ runner สั่งความสามารถนั้นให้เอง (ไม่ใช่ opt-in ของผู้เขียน flow)
 และมีเทสด้านลบในรีโปนี้.
 
@@ -168,9 +173,7 @@ page-state receipt, ไม่มี download ledger และไม่มีต�
 
 ### BAS-2 — Target identity guard: intent ต้องผูกกับ element
 
-**Status.** `partial` — driver ส่งของแล้ว (`Teibto/teibto-dev-standards#291`, v0.88.0) · ด่าน: canonical `tests/test-cdp.sh` T25a–T25p ·
-อ้างได้เฉพาะ run ที่สั่ง `--expect`/`--expect-count` บน `--engine cdp` เอง · **ยังไม่มี:** `intent:` ของ `flow.yaml` ยังไม่ต่อเข้า flag
-และ `bsk` ไม่มีคำสั่งเทียบเท่า — ติดตามที่ #76
+**Status.** `partial` — ด่าน: `scripts/flow-runner.py` (ส่ง `--expect`/`--expect-count` ให้ click/fill เมื่อ step ประกาศ `expect:`) + `tests/test_flow_runner.py` (`IdentityGuardAndReceiptTests`) + `tests/test-flow-runner-live.sh` (เคส mismatch สด) · driver: `Teibto/teibto-dev-standards#291` v0.88.0, canonical `tests/test-cdp.sh` T25a–T25p · **ยังไม่มี:** `expect:` ยังเป็น opt-in ต่อ step (flow ที่ไม่ประกาศยังคลิกผิด element ได้เงียบ) และ `bsk` ไม่มีคำสั่งเทียบเท่า — flow ที่ประกาศบนเลนนั้นถูกปฏิเสธด้วย `EXPECT_UNSUPPORTED_ENGINE` — ติดตามที่ #76
 
 **กฎ.** ทุก action ที่เปลี่ยน state **ต้องพก identity ที่ตั้งใจไปด้วย** และ **ต้องล้มดัง ๆ เมื่อไม่ตรง**:
 
@@ -179,7 +182,13 @@ AB click "@42"  --expect="Submit"                 # เทียบ accessible n
 AB click ".btn-primary" --expect="บันทึก" --expect-count=1   # >1 match = FAIL ไม่ใช่หยิบตัวแรก
 ```
 
-`intent:` ใน `flow.yaml` ที่วันนี้ไหลไป guide อย่างเดียว กลายเป็นที่มาของ `--expect` โดยอัตโนมัติ.
+**การต่อเข้า `flow.yaml` (#154):** identity มาจากฟิลด์ `expect:` / `expect_count:` ที่ประกาศตรง ๆ ที่ step
+**ไม่ใช่** เดาจาก `intent:` — `intent` เป็นร้อยแก้วที่เขียนไว้ให้คนอ่านรายงาน ("Click Login → land on the
+products page") ส่วน driver เทียบ accessible name แบบ **equality หลัง normalise** (`verify_identity`,
+cdp.py v0.88.0 L1472) · การแปลง `intent` เป็น `--expect` จึงจะทำให้ flow ที่มีอยู่ทุกไฟล์ล้มทันที
+และจะสอนให้คนเขียน `intent` ให้ตรงชื่อปุ่มแทนที่จะเขียนให้คนอ่านรู้เรื่อง · ประกาศได้เฉพาะ `click`/`fill`
+เพราะเป็นสองคำสั่งเดียวที่ driver ตรวจ identity ก่อนยิง input (`EXPECT_NOT_SUPPORTED` ถ้าประกาศที่อื่น)
+
 ref ที่ stale ต้องคืน **ข้อความที่บอก agent ว่าให้ทำอะไรต่อ** ("ref หมดอายุ — `a11y` ใหม่เพื่อขอ ref ปัจจุบัน")
 ไม่ใช่ error ลอย ๆ ตามแบบ Anthropic.
 
@@ -192,9 +201,7 @@ ref ที่ stale ต้องคืน **ข้อความที่บอ
 
 ### BAS-3 — หนึ่ง action หนึ่งใบเสร็จ (ผลสังเกตต้องแนบมา ไม่ใช่ต้องจำเอง)
 
-**Status.** `partial` — driver ส่งของแล้ว (`Teibto/teibto-dev-standards#292`, v0.88.0) · ด่าน: canonical `tests/test-cdp.sh` T28a–T28n ·
-อ้างได้เฉพาะ run ที่สั่ง `--observe` (และ `downloads on` สำหรับ A10) บน `--engine cdp` เอง · **ยังไม่มี:** "ไม่มี receipt = `UNVERIFIED`"
-ยังไม่ถูกบังคับที่ไหน และ `bsk` ไม่มีใบเสร็จ — ติดตามที่ #76
+**Status.** `partial` — ด่าน: `scripts/flow-runner.py` (สั่ง `--observe` ให้ทุก action ที่เปลี่ยน state บนเลน cdp และนับ "ไม่มี receipt" เป็น `UNVERIFIED`) + `tests/test_flow_runner.py` (`IdentityGuardAndReceiptTests`) + `tests/test-flow-runner-live.sh` · driver: `Teibto/teibto-dev-standards#292` v0.88.0, canonical `tests/test-cdp.sh` T28a–T28n · **ยังไม่มี:** `downloads on` (A10) ยังต้องสั่งเอง, ad-hoc mode ยังไม่มีอะไรบังคับว่าต้องสั่ง `--observe` และ `bsk` ไม่มีใบเสร็จเลย — ติดตามที่ #76
 
 **กฎ.** action ที่เปลี่ยน state คืน **page-state receipt** ก้อนสั้น:
 
@@ -413,7 +420,7 @@ download ledger (A10) ส่งมาแล้วที่ v0.88.0 เป็น 
 | 6 | BAS-5 ตัวกรอง hidden text | `Teibto/teibto-dev-standards#293` | ใช่ | ✅ ส่งแล้วใน driver v0.88.0 — ซองครอบ output ถูกปฏิเสธ (PR #300) |
 | 7 | BAS-6 redaction ของ `cookies`/`console` | `Teibto/teibto-dev-standards#294` | ใช่ | ✅ ส่งแล้วใน driver v0.88.0 — ค่าตั้งต้น |
 | 8 | ด่านของ D4: `action: eval` ต้องประกาศตัวและถูกบันทึก | รีโปนี้ (#153) | ไม่ | ✅ merged |
-| 9 | ต่อ `expect:`/`--observe` เข้า runner บนเลน cdp | รีโปนี้ (#154) | ไม่ | ยังไม่เริ่ม |
+| 9 | ต่อ `expect:`/`--observe` เข้า runner บนเลน cdp | รีโปนี้ (#154) | ไม่ | ✅ merged |
 
 ลำดับ 1–3 merge แล้วในรีโปนี้; ลำดับ 4–7 ผ่าน canonical driver ตาม `cdp-limits.md` §4.2
 (ห้ามเขียน driver ตัวที่สองในสกิล) และปิดครบแล้วที่ `Teibto/teibto-dev-standards` เมื่อ 2026-09-19 —
@@ -421,9 +428,9 @@ download ledger (A10) ส่งมาแล้วที่ v0.88.0 เป็น 
 
 **ช่องว่างที่ปิดไปแล้ว:** C4 (origin escape) และ C2 ฝั่งนโยบาย ปิดด้วย BAS-4 · D1 ฝั่งกฎของ agent ปิดด้วย
 invariant ข้อ 8 · A8 ฝั่งการรายงานปิดด้วย `PASS(visual)` · A9, A10, D2, D3 และ E3 มีของจริงบนเลน cdp แล้ว ·
-D4 ได้ด่านฝั่งสกิลแล้วที่ #153 (flow mode).
-**ที่ยังเปิดอยู่:** ad-hoc mode ของ D4 (`cdp.py eval` ตรง ๆ ยังไม่มีด่าน) · การบังคับให้ runner
-สั่ง `--expect`/`--observe` เอง · และของเทียบเท่าทั้งสี่อย่างบน engine ตั้งต้น `bsk` ซึ่ง **ยังไม่มี**
+D4 ได้ด่านฝั่งสกิลแล้วที่ #153 (flow mode) · A1 ปิดแล้วที่ #154 (runner สั่งใบเสร็จเอง).
+**ที่ยังเปิดอยู่:** ad-hoc mode ของ D4 (`cdp.py eval` ตรง ๆ ยังไม่มีด่าน) · A9 ที่ `expect:` ยังเป็น
+opt-in ต่อ step · และของเทียบเท่าทั้งสี่อย่างบน engine ตั้งต้น `bsk` ซึ่ง **ยังไม่มี**
 
 ---
 

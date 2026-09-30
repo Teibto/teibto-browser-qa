@@ -104,7 +104,7 @@ python scripts/bsk-account.py status                   # ทุก account: port
 
 | ทาง | ใช้เมื่อ | ข้อจำกัด |
 |---|---|---|
-| `flow-runner.py` (ค่าตั้งต้นคือ `bsk`) | QA และงานเปลี่ยนข้อมูลที่ต้องได้ `run-log.jsonl` / `qa-report.md` / `shots/` | นโยบาย `--dialog` ถูกบังคับด้วยด่านในหน้าเว็บ; `destructive` ต้อง `--allow-destructive`; CSS selector เท่านั้น; ไม่มี `lens`/`netlog`/`stub`/`diff` |
+| `flow-runner.py` (ค่าตั้งต้นคือ `bsk`) | QA และงานเปลี่ยนข้อมูลที่ต้องได้ `run-log.jsonl` / `qa-report.md` / `shots/` | นโยบาย `--dialog` ถูกบังคับด้วยด่านในหน้าเว็บ; `destructive` ต้อง `--allow-destructive`; CSS selector เท่านั้น; ไม่มี `lens`/`netlog`/`stub`/`diff`; **ไม่มีของเทียบเท่า `--expect` และไม่มีใบเสร็จต่อ action** |
 | เรียก `bsk` CLI ตรงจากสคริปต์ของงาน | งานที่เจ้าของระบบสั่งให้เปลี่ยนข้อมูลบน **sandbox** | อยู่นอกด่านของ runner ทั้งหมด — สคริปต์ต้องมีด่านของตัวเองครบตาม §3 |
 
 ## 3. ด่านขั้นต่ำของสคริปต์ที่เปลี่ยนข้อมูลผ่าน `bsk`
@@ -122,6 +122,13 @@ python scripts/bsk-account.py status                   # ทุก account: port
    และ RPC timeout ที่ตรวจแล้วว่า session หายจาก `bsk status` จริง; ถ้า **tab ของ run เอง** ถูกปิดจะเป็น
    `BSK_TAB_LOST` (ความหมายเดียวกัน: ผลของ action ล่าสุดไม่ทราบ ห้ามสั่งซ้ำ)
 5. ยืนยันผลจากช่องทางที่ไม่ใช่ DOM เดิม (NetSuite: `fetch('<record>.nl?id=N&xml=T')`)
+
+> **ไม่มีด่าน identity และไม่มีใบเสร็จบนเลนนี้ (BAS-2 / BAS-3):** `bsk` ไม่มีของเทียบเท่า `--expect`/
+> `--expect-count` และไม่คืน page-state receipt ต่อ action · flow ที่ประกาศ `expect:` ถูกปฏิเสธด้วย
+> `EXPECT_UNSUPPORTED_ENGINE` ตั้งแต่ก่อนเปิด session (ปล่อยให้รันต่อ = รายงานจะแสดงด่านที่ไม่เคยทำงาน) ·
+> `qa-report.md` ของเลนนี้ระบุไว้บนบรรทัด `**Engine:**` เอง และ `run_start.driver_policy.identity_guard`
+> / `.action_receipt` เป็น `unavailable` · run บน `bsk` จึง **อ้าง coverage ของ A1/A9 ไม่ได้**
+> ข้อ 1–5 ข้างบนคือสิ่งที่ต้องทำแทน
 
 ## 4. กับดักที่เจอจริง
 

@@ -12,10 +12,13 @@ scenarios:
         capture: false
       - action: fill
         target: "#name"
-        value: "{{tester}}"
+        expect: "Name"
         capture: false
+        value: "{{tester}}"
       - action: click
         target: "#save"
+        expect: "Save"
+        expect_count: 1
         wait: "fn:document.querySelector('#status').textContent.startsWith('saved')"
         assert: {target: "#status", contains: "saved"}
         perf_budget_ms: 10000

@@ -19,8 +19,20 @@
   eval ที่ประกาศแล้วออกเป็น event `eval` ใน `run-log.jsonl` และบรรทัด
   `🧪 eval (risk: …) — state set by eval, not trusted input: <reason>` + สรุป `**Eval steps:**` ใน
   `qa-report.md`, สรุปรวมที่ `run_done.eval_steps` · flow ที่ไม่มี `eval` ได้รายงานและ event ชุดเดิมทุกบรรทัด ·
-  ช่อง 🔴 สุดท้ายของ pain inventory (D4) ปิดแล้ว → 🟢 15 · 🟡 12 · 🔴 0 และ BAS-7 เลื่อน `proposed` → `partial`
+  ช่อง 🔴 สุดท้ายของ pain inventory (D4) ปิดแล้ว และ BAS-7 เลื่อน `proposed` → `partial`
   (ad-hoc mode ยังไม่มีด่าน)
+- **flow: `expect:`/`expect_count:` ต่อเข้า `--expect` ของ driver และทุก action ที่เปลี่ยน state ขอใบเสร็จ
+  (#154, BAS-2/BAS-3 · pain A9/A1 · เลน `--engine cdp` เท่านั้น)** — step `click`/`fill` ที่ประกาศ `expect:`
+  ส่ง `--expect`/`--expect-count` ให้ `cdp.py` v0.88.0 ซึ่งตรวจ accessible name **ก่อน** dispatch input event:
+  ไม่ตรง = step FAIL ด้วย `EXPECT_MISMATCH`/`EXPECT_COUNT_MISMATCH` โดยหน้าเว็บไม่ถูกแตะเลย (พิสูจน์สดใน
+  `tests/test-flow-runner-live.sh`) · identity มาจากฟิลด์ที่ประกาศตรง ๆ **ไม่ใช่เดาจาก `intent:`** ซึ่งเป็น
+  ร้อยแก้วสำหรับคนอ่านรายงาน ขณะที่ driver เทียบแบบ equality — การเดาจะทำให้ flow เดิมล้มทุกไฟล์ ·
+  runner สั่ง `--observe` ให้ `click`/`fill`/`select`/`press` **เองทุกครั้งโดยไม่ต้องประกาศ** และ
+  "ไม่มีใบเสร็จ = `UNVERIFIED`" ตาม BAS-3 · ใบเสร็จอยู่ที่ `step_done.receipt`, บรรทัด `🧾 receipt:` ในรายงาน
+  และ `run_done.action_receipts` · **`bsk` ไม่มีของเทียบเท่าและไม่อ้าง coverage:** flow ที่ประกาศ `expect`
+  บนเลนนั้นถูกปฏิเสธด้วย `EXPECT_UNSUPPORTED_ENGINE` ก่อนเปิด session · A1 ขึ้น 🟢, A9 ยัง 🟡 (opt-in ต่อ step) →
+  ตารางนับได้ 🟢 15 · 🟡 12 · 🔴 0 และบรรทัดสรุปเดิมที่เขียน 🟢 15 · 🟡 11 · 🔴 1 ทั้งที่ตารางเป็น 14/12/1
+  ถูกแก้ให้ตรงกับตารางแล้ว
 
 ### Changed
 

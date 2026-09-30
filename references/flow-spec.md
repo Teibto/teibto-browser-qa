@@ -43,6 +43,10 @@ $env:TEIBTO_CDP_SCRIPT = 'D:\path\to\teibto-dev-standards\scripts\cdp.py'
   runner ปฏิเสธ flow ตั้งแต่ก่อนเริ่ม (`DESTRUCTIVE_NOT_ALLOWED`)
 - `action: eval` ต้องประกาศ `eval_reason` + `risk` ของตัวเอง ไม่งั้น `EVAL_NOT_DECLARED` ก่อนเปิด browser
   และ eval ที่รันแล้วถูกบันทึกเป็นหลักฐานทั้งใน run-log และ report (BAS-7 · ดูหัวข้อด้านล่าง)
+- `expect:` / `expect_count:` ที่ step (`click`/`fill`, เลน `--engine cdp`) ส่งต่อเป็น `--expect`/`--expect-count`
+  ของ driver ซึ่งตรวจ **ก่อน** ยิง input; ไม่ตรง = step FAIL ด้วย `EXPECT_MISMATCH`/`EXPECT_COUNT_MISMATCH`
+  โดยหน้าเว็บไม่ถูกแตะเลย · บนเลน cdp ทุก action ที่เปลี่ยน state ขอ page-state receipt เสมอ
+  (ดูหัวข้อด้านล่าง)
 
 Engine (ค่าตั้งต้น `bsk`; `--engine cdp` หรือ `TEIBTO_QA_ENGINE=cdp` เพื่อใช้ `cdp.py` — มติอยู่ที่ `docs/BROWSER-AGENT-STANDARD.md` §4):
 
@@ -120,6 +124,8 @@ scenarios:
         risk: read|write|destructive   # optional (default read); destructive ต้อง --allow-destructive
                                        # **บังคับ** เมื่อ action: eval (ห้ามรับ default)
         eval_reason: "<ทำไมต้องใช้ eval>"  # บังคับเมื่อ action: eval; ห้ามว่าง
+        expect: "<accessible name ที่ตั้งใจจะโดน>"  # optional; เฉพาะ click/fill บน --engine cdp
+        expect_count: 1            # optional; จำนวน element ที่ selector ต้องตรงพอดี
         capture: true|false        # override screenshot policy ของ scenario นี้
         assert:                  # พิสูจน์ผล (ตาม gotchas: อย่าเชื่อ ✓Done)
           url_contains: "/inventory.html"
@@ -188,6 +194,32 @@ step ที่ผ่านด่าน · `qa-report.md` ขึ้นสอง�
 req ไหน* และ *req นี้ครอบด้วย scenario ไหน*. 1 acceptance criterion → 1 scenario (map 1:1) →
 qa-report + user-guide อ้าง req เดียวกัน = ปิด loop req→test→doc. ดู playbook ทีมใน repo:
 `docs/TEAM-PROCESS.md`.
+
+## Identity guard และใบเสร็จต่อ action — เลน `--engine cdp` เท่านั้น (BAS-2 / BAS-3 · pain A9, A1)
+
+**`expect:` / `expect_count:` (step, เฉพาะ `click` และ `fill`):** ส่งต่อเป็น `--expect=<ชื่อ>` /
+`--expect-count=<n>` ของ `cdp.py` v0.88.0 · driver เทียบ **accessible name แบบ equality หลัง normalise**
+และนับจำนวน element ที่ selector ตรง **ก่อน** จะ dispatch input event — ไม่ตรง = `EXPECT_MISMATCH` /
+`EXPECT_COUNT_MISMATCH` และ **หน้าเว็บไม่ถูกแตะเลย** (`click ".btn-primary"` ที่ไปโดนปุ่มอื่นหลัง re-render
+คือช่อง A9 ที่เดิม exit 0 เงียบ ๆ)
+
+**ทำไมต้องประกาศเอง ไม่ใช่เดาจาก `intent:`** — `intent` เป็นร้อยแก้วสำหรับคนอ่านรายงาน
+("Click Login → land on the products page" / ประโยคภาษาไทย) ส่วน driver เทียบชื่อแบบ equality
+การเดาจาก `intent` จะทำให้ flow ที่มีอยู่ทุกไฟล์ล้มทันที และจะบีบให้คนเขียน `intent` ให้ตรงชื่อปุ่มแทนที่จะ
+เขียนให้คนอ่านรู้เรื่อง · ประกาศที่ action อื่น = `EXPECT_NOT_SUPPORTED` ตั้งแต่ก่อนเปิด browser (driver
+ตรวจ identity เฉพาะ `click`/`fill`) · ค่าใน `expect` รองรับ `{{var}}`
+
+**ใบเสร็จต่อ action (`--observe`):** บนเลน cdp runner สั่งใบเสร็จให้ `click`/`fill`/`select`/`press`
+**ทุกครั้ง ไม่ต้องประกาศอะไร** · ใบเสร็จเข้า `step_done.receipt`
+(`url`, `title`, `focused`, `console_new`, `dialogs`, `net_errors`, `downloads`, `ref_invalidated`)
+และขึ้นในรายงานเป็นบรรทัด `🧾 receipt: …` ใต้ step · `run_done.action_receipts` สรุป requested/received ·
+ค่าที่เป็นสตริง `"unwatched"` แปลว่า **ไม่ได้เฝ้า** ไม่ใช่ศูนย์ (อ่านเป็น 0 คือ false PASS แบบ A2) ·
+action ที่เปลี่ยน state แล้ว **ไม่ได้** ใบเสร็จกลับมา = `UNVERIFIED` เท่ากับไม่มี assert ตาม BAS-3
+
+**`bsk` ไม่มีของเทียบเท่าทั้งสองอย่าง:** flow ที่ประกาศ `expect` แล้วรันด้วย `--engine bsk` ถูกปฏิเสธด้วย
+`EXPECT_UNSUPPORTED_ENGINE` ก่อนเปิด session (ปล่อยผ่าน = รายงานจะโชว์ด่านที่ไม่เคยทำงาน) ·
+`run_start.driver_policy.identity_guard` / `.action_receipt` ของเลนนั้นเป็น `unavailable` และ
+`qa-report.md` เขียนไว้บนบรรทัด `**Engine:**` เอง — run บน `bsk` อ้าง coverage ของ A1/A9 ไม่ได้
 
 ## `action: eval` ต้องประกาศตัว (BAS-7 / pain D4)
 

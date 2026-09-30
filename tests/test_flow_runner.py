@@ -841,6 +841,212 @@ class EvalDeclarationTests(RunnerHarness, unittest.TestCase):
         self.assertIn("eval_reason", str(caught.exception))
 
 
+class IdentityGuardAndReceiptTests(RunnerHarness, unittest.TestCase):
+    """BAS-2/BAS-3 on the `--engine cdp` lane: aim on purpose, and keep the driver's receipt."""
+
+    def payloads(self, out: Path) -> list[dict]:
+        return [json.loads(line) for line in
+                (out / "run-log.jsonl").read_text(encoding="utf-8").splitlines()]
+
+    def run_with_actions(self, yaml_text: str, **kwargs):
+        """Same as run_flow, but the fake driver also logs every action it actually performed."""
+        root = self.workspace()
+        actions = root / "actions.txt"
+        overrides = dict(kwargs.pop("env_overrides", None) or {})
+        overrides["FAKE_CDP_ACTIONS"] = str(actions)
+        process, out, counter = self.run_flow(yaml_text, env_overrides=overrides, **kwargs)
+        return process, out, actions
+
+    def test_expect_mismatch_fails_the_step_and_sends_no_input(self):
+        process, out, actions = self.run_with_actions("""
+            story: wrong-button
+            title: Intent does not match the element
+            scenarios:
+              - id: save
+                steps:
+                  - {action: open, target: "https://example.test", capture: false}
+                  - action: click
+                    target: ".btn-primary"
+                    expect: "Submit"
+                    capture: false
+        """, env_overrides={"FAKE_CDP_AX_NAME": "Delete everything"})
+        self.assertEqual(1, process.returncode)
+        step = [item for item in self.payloads(out) if item["type"] == "step_done"][-1]
+        self.assertEqual("EXPECT_MISMATCH", step["error"]["code"])
+        self.assertIn("Delete everything", step["error"]["message"])
+        self.assertFalse(actions.exists(), "a refused click must never reach the page")
+        self.assertIn("EXPECT_MISMATCH", (out / "qa-report.md").read_text(encoding="utf-8"))
+
+    def test_expect_count_mismatch_fails_before_the_input(self):
+        process, out, actions = self.run_with_actions("""
+            story: ambiguous
+            title: Selector matches more than one element
+            scenarios:
+              - id: save
+                steps:
+                  - action: click
+                    target: ".btn-primary"
+                    expect_count: 1
+                    capture: false
+        """, env_overrides={"FAKE_CDP_MATCH_COUNT": "2"})
+        self.assertEqual(1, process.returncode)
+        step = [item for item in self.payloads(out) if item["type"] == "step_done"][-1]
+        self.assertEqual("EXPECT_COUNT_MISMATCH", step["error"]["code"])
+        self.assertFalse(actions.exists())
+
+    def test_a_matching_expect_lets_the_step_through_and_is_reported(self):
+        process, out, actions = self.run_with_actions("""
+            story: right-button
+            title: Intent matches the element
+            scenarios:
+              - id: save
+                steps:
+                  - action: click
+                    target: "#save"
+                    expect: "Save"
+                    expect_count: 1
+                    assert: {target: "#notice", contains: "saved"}
+                    capture: false
+        """)
+        self.assertEqual(0, process.returncode, process.stdout + process.stderr)
+        self.assertEqual(["click #save"], actions.read_text(encoding="utf-8").splitlines())
+        start = next(item for item in self.payloads(out) if item["type"] == "run_start")
+        self.assertEqual("expect-when-declared", start["driver_policy"]["identity_guard"])
+        self.assertEqual([{"step": "save#1", "action": "click", "expect": "Save",
+                           "expect_count": 1}], start["run_policy"]["identity_steps"])
+        done = next(item for item in self.payloads(out) if item["type"] == "run_done")
+        self.assertEqual({"declared": 1, "engine_supported": True}, done["identity_guard"])
+
+    def test_every_state_changing_action_carries_a_receipt(self):
+        process, out, _ = self.run_with_actions("""
+            story: receipts
+            title: One action, one receipt
+            scenarios:
+              - id: save
+                steps:
+                  - {action: open, target: "https://example.test/app", capture: false}
+                  - {action: fill, target: "#name", value: "Ada", capture: false}
+                  - action: click
+                    target: "#save"
+                    assert: {target: "#notice", contains: "saved"}
+                    capture: false
+        """)
+        self.assertEqual(0, process.returncode, process.stdout + process.stderr)
+        steps = [item for item in self.payloads(out) if item["type"] == "step_done"]
+        self.assertNotIn("receipt", steps[0], "open is a navigation, not an observed action")
+        for step in steps[1:]:
+            self.assertEqual("https://example.test/app", step["receipt"]["url"])
+            self.assertEqual("unwatched", step["receipt"]["net_errors"])
+        done = next(item for item in self.payloads(out) if item["type"] == "run_done")
+        self.assertEqual({"requested": 2, "received": 2, "engine_supported": True},
+                         done["action_receipts"])
+        report = (out / "qa-report.md").read_text(encoding="utf-8")
+        self.assertIn("**Action receipts:** 2/2 received", report)
+        self.assertIn("🧾 receipt: url=https://example.test/app", report)
+
+    def test_a_driver_without_receipts_reports_unverified_instead_of_pass(self):
+        """BAS-3: an observed action that came back without a receipt is not a PASS."""
+        process, out, _ = self.run_with_actions("""
+            story: no-receipt
+            title: Driver returns no receipt
+            scenarios:
+              - id: save
+                steps:
+                  - action: click
+                    target: "#save"
+                    assert: {target: "#notice", contains: "saved"}
+                    capture: false
+        """, env_overrides={"FAKE_CDP_NO_RECEIPT": "1"})
+        self.assertEqual(1, process.returncode)
+        payloads = self.payloads(out)
+        step = [item for item in payloads if item["type"] == "step_done"][-1]
+        self.assertEqual("unverified", step["status"])
+        self.assertIsNone(step["receipt"])
+        self.assertIn("no page-state receipt", step["detail"])
+        done = next(item for item in payloads if item["type"] == "run_done")
+        self.assertEqual("UNVERIFIED", done["verdict"])
+        self.assertEqual({"requested": 1, "received": 0, "engine_supported": True},
+                         done["action_receipts"])
+
+    def test_expect_on_an_action_the_driver_cannot_guard_is_rejected(self):
+        process, out, counter = self.run_flow("""
+            story: wrong-action
+            title: expect on an action without an identity check
+            scenarios:
+              - id: probe
+                steps:
+                  - {action: select, target: "#country", value: "TH", expect: "Country"}
+        """)
+        self.assertEqual(1, process.returncode)
+        self.assertFalse(counter.exists())
+        fatal = next(item for item in self.payloads(out) if item["type"] == "fatal")
+        self.assertEqual("EXPECT_NOT_SUPPORTED", fatal["error"]["code"])
+        self.assertIn("probe#1 (action: select)", fatal["error"]["message"])
+
+    def test_a_flow_without_expect_keeps_its_previous_behaviour(self):
+        process, out, _ = self.run_flow("""
+            story: plain
+            title: No identity guard declared
+            scenarios:
+              - id: save
+                steps:
+                  - action: click
+                    target: "#save"
+                    assert: {target: "#notice", contains: "saved"}
+                    capture: false
+        """)
+        self.assertEqual(0, process.returncode, process.stdout + process.stderr)
+        start = next(item for item in self.payloads(out) if item["type"] == "run_start")
+        self.assertEqual([], start["run_policy"]["identity_steps"])
+        done = next(item for item in self.payloads(out) if item["type"] == "run_done")
+        self.assertEqual({"declared": 0, "engine_supported": True}, done["identity_guard"])
+        self.assertEqual("PASS", done["verdict"])
+
+    def test_schema_rejects_a_zero_expect_count(self):
+        runner = load_runner()
+        path = self.workspace() / "zero-count.yaml"
+        path.write_text(textwrap.dedent("""
+            story: zero-count
+            title: Zero expect_count
+            scenarios:
+              - id: save
+                steps:
+                  - {action: click, target: "#save", expect_count: 0}
+        """), encoding="utf-8")
+        with self.assertRaises(runner.RunnerError) as caught:
+            runner.load_flow(path)
+        self.assertEqual("INVALID_FLOW", caught.exception.code)
+        self.assertIn("expect_count", str(caught.exception))
+
+
+class IdentityGuardHelperTests(unittest.TestCase):
+    """Pure helpers: which flags each lane gets, and what counts as a receipt."""
+
+    def setUp(self) -> None:
+        self.runner = load_runner()
+
+    def test_the_bsk_lane_is_given_no_identity_or_receipt_flags(self):
+        step = {"action": "click", "target": "#save", "expect": "Save"}
+        self.assertEqual([], self.runner.driver_flags(step, {}, "bsk"))
+
+    def test_the_cdp_lane_substitutes_variables_into_expect(self):
+        step = {"action": "fill", "target": "#name", "expect": "{{label}}", "expect_count": 2}
+        self.assertEqual(["--expect=Full name", "--expect-count=2", "--observe"],
+                         self.runner.driver_flags(step, {"label": "Full name"}, "cdp"))
+
+    def test_navigation_and_eval_are_not_observed_actions(self):
+        for action in ("open", "eval", "wait", "scrollintoview"):
+            with self.subTest(action=action):
+                self.assertEqual([], self.runner.driver_flags({"action": action}, {}, "cdp"))
+
+    def test_a_partial_payload_is_not_a_receipt(self):
+        full = {key: None for key in self.runner.RECEIPT_KEYS}
+        self.assertEqual(full, self.runner.action_receipt({"data": full}))
+        self.assertIsNone(self.runner.action_receipt({"data": "clicked #save @ 1,2"}))
+        self.assertIsNone(self.runner.action_receipt({"data": {"url": "x", "title": "y"}}))
+        self.assertIsNone(self.runner.action_receipt({}))
+
+
 class WaitTimeoutAndConsoleGateHelperTests(unittest.TestCase):
     """Pure helpers, so the defaults and the matching rules are pinned without starting a run."""
 

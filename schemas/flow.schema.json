@@ -89,6 +89,8 @@
         "perf_budget_ms": {"type": "integer", "minimum": 1, "maximum": 600000},
         "risk": {"enum": ["read", "write", "destructive"]},
         "eval_reason": {"type": "string", "minLength": 1},
+        "expect": {"type": "string", "minLength": 1},
+        "expect_count": {"type": "integer", "minimum": 1},
         "assert": {"$ref": "#/$defs/assertion"},
         "capture": {"type": "boolean"}
       },
