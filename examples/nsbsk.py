@@ -22,6 +22,8 @@ Built-in rules (do not bypass them in scenario code):
     Trusted clicks land in hidden tabs (measured 9/9); timers are throttled there, so waits run slower.
   * Every command on a shared session goes through scripts/bsk_lease.py: a bsk session runs one
     command at a time and refuses the second with `session_busy`, so processes take turns.
+  * ns_open() that lands on a NetSuite Login page (no session yet, or it expired mid-run) hands this
+    tab to scripts/bsk-login.py: project `.env` credentials for NSBSK_COMPANY, else wait for a person.
 """
 import importlib.util
 import json
@@ -50,18 +52,45 @@ class EffectUnknown(RuntimeError):
     """bsk sent the input but could not confirm it. Observe the page; never re-issue the action."""
 
 
-def _load_lease():
-    """The lease lives with the runner so both entry points take turns the same way."""
-    path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts", "bsk_lease.py")
-    spec = importlib.util.spec_from_file_location("bsk_lease", path)
+def _load_script(filename, name):
+    """The lease and the login gate live with the runner so every entry point behaves the same way."""
+    path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts", filename)
+    spec = importlib.util.spec_from_file_location(name, path)
     if spec is None or spec.loader is None:
-        raise SystemExit(f"cannot load {path}: copy scripts/bsk_lease.py next to this harness")
+        raise SystemExit(f"cannot load {path}: copy scripts/{filename} next to this harness")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
 
 
-_lease = _load_lease()
+_lease = _load_script("bsk_lease.py", "bsk_lease")
+_login = _load_script("bsk-login.py", "bsk_login")
+
+
+class _LoginDriver:
+    """scripts/bsk-login.py drives this Session's own tab through the same lease and retry rules."""
+
+    def __init__(self, session):
+        self.s = session
+
+    def navigate(self, url):
+        self.s.nav(url)
+
+    def evaluate(self, js):
+        return self.s.ev(js, idempotent=True)
+
+    def fill(self, selector, value):
+        self.s.fill(selector, value)
+
+    def click(self, selector):
+        self.s.click(selector)
+
+    def press(self, key, selector):
+        self.s.press(key, selector)
+
+    def bring_to_front(self):
+        if self.s.tab_id:
+            self.s.run(["tab", "select", self.s.tab_id], idempotent=True)
 
 
 class _NoLock:
@@ -201,8 +230,17 @@ class Session:
             raise SystemExit(f"IDENTITY GATE: expected record type {record_type}, got {state}")
         return state
 
+    def ensure_login(self, wait_seconds=900):
+        """Existing session, else `.env` credentials for COMPANY, else wait for a person on this tab."""
+        gate = _login.Gate(_LoginDriver(self), COMPANY, env_file=_login.resolve_env_file(None),
+                           wait_seconds=wait_seconds)
+        return gate.run()
+
     def ns_open(self, path, record_type=None, form=True):
         self.nav(path)
+        if _login.classify(json.loads(self.ev(_login.PROBE_JS, idempotent=True))) in (_login.LOGIN, _login.OTP, _login.FOREIGN):
+            self.ensure_login()
+            self.nav(path)
         if form:
             self.wait_true(INITED_JS, 45)      # touching a form before this silently drops sourcing
         return self.guard(record_type)

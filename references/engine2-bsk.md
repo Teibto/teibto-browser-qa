@@ -12,8 +12,9 @@ BrowserSkill เป็นค่าเริ่มต้นสำหรับ int
 คำสั่งเก่าที่บังคับ `cdp.py` ไม่ใช่เหตุผลให้สลับ engine; ใช้ CDP เฉพาะ capability ที่ตาราง
 engine ระบุหรือเมื่อผู้ใช้เลือก. สำหรับ NetSuite อ่าน §3 และ §6 ก่อนเปลี่ยนข้อมูล:
 ตรวจ account/environment/role, ติดตั้ง dialog guard และยืนยันผล save จากแหล่งอิสระ.
-ถ้า browser ยังไม่ login ให้เจ้าของทำ login/MFA ใน browser ที่เลือก ไม่เปิด profile ใหม่หรือ
-เรียก CDP login อัตโนมัติ. ห้ามรบกวนงาน CDP ที่ยังรันอยู่ระหว่างย้าย.
+เข้า NetSuite ผ่านด่าน login ตัวเดียวเสมอ (§6.9): ใช้ session เดิม → credential ใน `.env` ของโปรเจกต์ →
+รอคน login ใน tab เดิม. ไม่เปิด profile ใหม่ ไม่เรียก CDP login และไม่กรอก credential เอง.
+ห้ามรบกวนงาน CDP ที่ยังรันอยู่ระหว่างย้าย.
 
 อัปเดตแพ็กเกจ `teibto-browser-qa` จาก commit ที่ตรวจสอบแล้วของ `main` เมื่อต้องการ fixes
 ที่ใหม่กว่า release. ติดตั้งทั้ง `SKILL.md`, references, scripts, examples และ schemas พร้อมกัน;
@@ -295,6 +296,44 @@ parameter ที่ขาดของกลไกอนุมัติตัว�
 | record เดียวอาจมี **กลไกอนุมัติมากกว่าหนึ่งตัว** — ก่อนสรุปว่า "อนุมัติแล้ว" อ่านทุก field ที่ชื่อมี `approval` จาก `xml=T` | APC = 3 (Approved) ขณะที่ `custbody_soa_approval_status = Pending Approval` และ script อีกตัวปฏิเสธ fulfillment |
 | สคริปต์ที่เปลี่ยนข้อมูลต้องตรวจ precondition ของตัวเองก่อนคลิก (ปุ่มอยู่ + label ตรง + สถานะฝั่ง server) | รันซ้ำหลังสคริปต์ตายกลางทาง: ด่านปฏิเสธ (`Approve button not clickable`) แทนการอนุมัติซ้ำ; ขั้น invoice ปฏิเสธเมื่อเจอสองปุ่ม (`nextbill`, `billremaining`) จนกว่าจะระบุปุ่ม |
 | field สถานะที่เป็น `input[type=hidden]` และถูกเขียนโดย `beforeSubmit` เท่านั้น **ไม่ใช่ affordance** — เก็บหลักฐานแล้วหยุด; ทางแก้คือ config ที่ script เองบอกว่าขาด | `custscript_soa_thb_currency_id` ไม่ถูกตั้ง → SO ทุกใบถูกพัก; ตั้งเป็น id ของ THB แล้ว SO ใหม่ได้ `Approved` ตอนสร้าง |
+
+### 6.9 ด่าน login: session เดิม → `.env` → คน
+
+```powershell
+$env:BSK_AUTO_START = '0'
+$sid = python scripts/bsk-shared.py ensure
+python scripts/bsk-login.py ensure --session $sid --company 4089685_SB2   # รันจาก root ของโปรเจกต์ที่มี .env
+```
+
+ลำดับการทำงาน และแต่ละขั้นทำเฉพาะเมื่อขั้นก่อนหน้าไปต่อไม่ได้:
+
+1. เปิด `https://<account>.app.netsuite.com/app/center/card.nl` ใน tab ของตัวเอง. ถ้ามี `nlapiGetContext` อยู่แล้ว จะได้ `via=existing`
+2. หา credential ตามลำดับ `--env-file` → `TEIBTO_LOGIN_ENV` → `./.env` (ไม่ไล่ขึ้นไปหาใน parent dir). ใช้ได้เมื่อ
+   `NS_ACCOUNT_ID` เท่ากับ `--company` และเป็น sandbox (`_SB<n>`); ถ้าเป็น production ต้องตั้ง
+   `NS_AUTO_LOGIN_PRODUCTION=1` ในไฟล์เดียวกันด้วย. จากนั้นเข้าทาง native `system.netsuite.com/pages/customerlogin.jsp?c=<id>`
+   (ข้าม SSO) → `fill #email`/`#password` → trusted click `#login-submit` แล้วได้ `via=env`
+3. หน้า 2FA: ติ๊ก *Trust this device* ด้วย trusted click แล้วกรอก TOTP (RFC 6238, stdlib) เมื่อรหัสเหลือเวลาอย่างน้อย 12 s
+4. ถ้าทางอื่นไม่สำเร็จ: ยก tab ขึ้นหน้า แล้วพิมพ์ `ACTION REQUIRED: …` ลง stderr แล้ว poll ทุก 5 s (อ่านอย่างเดียว ไม่ navigate
+   ระหว่างที่คนอยู่บนหน้า login/2FA) จนถึง `--wait-seconds` (ค่าเริ่มต้น 900) เมื่อคน login เสร็จจะได้ `via=user`
+5. ทุกเส้นทางจบที่ด่านเดียวกัน คือ company และ environment ต้องตรง. ถ้าไม่ตรงจะ exit 4 และไม่สลับ account/role ให้เอง
+
+| exit | ความหมาย | agent ทำต่ออย่างไร |
+|---|---|---|
+| 0 | พร้อม (`via` บอกว่าเข้าทางไหน) | ทำงานต่อ · cookie ใช้ร่วมทั้ง profile ทุก tab จึง login แล้ว |
+| 2 | config ผิด เช่นไม่มี `--session` | แก้คำสั่ง |
+| 3 | ไม่มีใคร login ทันเวลา | ส่ง notification ถึงเจ้าของ แล้วไปหยิบงานอื่นที่ไม่ต้องใช้ browser |
+| 4 | login อยู่ แต่เป็น account/environment อื่น | หยุด และรายงาน |
+| 5 | `bsk` ล้ม | ตรวจ daemon (`bsk-daemon-ops`) ห้ามสลับไป CDP |
+
+| กฎ | เหตุผล |
+|---|---|
+| login ล้ม 1 ครั้ง = เลิกใช้ credential ทันที แล้วรอคน | ถ้าลองรหัสผิดซ้ำ account จะถูกล็อก · คลิกซ้ำได้เฉพาะเมื่อหน้ายังไม่ได้ส่ง request เลย (marker ในหน้ายังอยู่) |
+| กรอก credential เฉพาะบน `https` + `*.netsuite.com` และตรวจซ้ำก่อนกรอกทุกครั้ง | redirect ไป IdP หรือ host อื่นต้องไม่ได้รับรหัสผ่าน |
+| ค่า credential ไม่ถูกพิมพ์ออกมา และข้อความ error ทุกอันถูก redact | `bsk fill` 0.3.2 รับค่าผ่าน `--value` เท่านั้น (ไม่มี stdin) ค่าจึงอยู่ใน argv ของ process ลูกระหว่างคำสั่งนั้นสั้น ๆ · daemon log ระดับ INFO ไม่บันทึกค่า fill |
+| `authenticaterole.nl` หลังส่ง 2FA คือหน้าทางผ่าน ไม่ใช่หน้าเลือก role | ถ้า navigate ทับระหว่างนั้น login จะไม่สำเร็จ · หน้าที่ถือว่าเป็นหน้าเลือก role คือ `chooserole` เท่านั้น |
+| ใช้ user automation แยกถ้าทำได้ | browser ใช้ cookie ร่วมกับคน: ถ้า `.env` เป็น user อื่น tab NetSuite ของคนจะกลายเป็น user นั้นไปด้วย · ถ้าเป็น user เดียวกันจะเตะ session กัน (§4) |
+
+`examples/nsbsk.py` เรียกด่านนี้เองเมื่อ `ns_open()` เจอหน้า Login/2FA/SSO กลางงาน แล้วเปิดหน้าเดิมซ้ำ.
 
 ## 7. สถานะความพร้อมใช้งาน
 

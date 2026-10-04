@@ -10,6 +10,13 @@
 
 ## [Unreleased]
 
+### Added
+
+- **ด่าน login ของ NetSuite บน `bsk` (#158)** — `scripts/bsk-login.py ensure --session <sid> --company <id>`:
+  ใช้ session เดิมถ้ามี → login อัตโนมัติครั้งเดียวด้วย `.env` ของโปรเจกต์ (เฉพาะเมื่อ `NS_ACCOUNT_ID` ตรง,
+  รองรับ TOTP + trust device, production ต้องตั้ง `NS_AUTO_LOGIN_PRODUCTION=1`) → ไม่งั้นยก tab ขึ้นแล้วรอคน login
+  และจบที่ด่าน identity เสมอ · `examples/nsbsk.py` เรียกเองเมื่อ session หลุดกลางงาน · `engine2-bsk.md` §6.9
+
 ## [4.0.0] - 2026-09-30
 
 ### Changed
