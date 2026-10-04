@@ -279,6 +279,14 @@ than pinning a tokenizer-specific absolute count.
 | `input_cleanup_failed` is reproducible per button, and the navigation still happens | measured | `#process` 3/3, `#nextbill` 1/1 |
 | A SuiteScript rejection lands on a `Notice` page that the save probe could not see | verified | `SOA_FULFILL_BLOCKED` run burned the full save limit; the harness now returns `rejected` with the page text |
 
+## NetSuite login gate (`scripts/bsk-login.py`, bsk 0.3.2, 2026-10-04)
+
+| Claim | Status | Evidence/limit |
+|---|---|---|
+| The gate reuses a live session, logs in once from a matching `.env`, otherwise waits for a person; a rejected password is never resubmitted; credentials are never typed off https `*.netsuite.com` or for another account; production needs an explicit opt-in | verified | `tests/test_bsk_login.py` against a scripted fake NetSuite, incl. a mutation check on the TOTP window. Live 2026-10-04: `existing` on 4089685_SB2 and 8158655_SB1 (exit 0, ~18 s), wait-for-person on an account with no session (`enterpriselogin.nl`, exit 3, own tab closed). The `.env` path is NOT yet run live: both accounts already held sessions and the gate never logs out |
+| `bsk fill` takes its value only through `--value` (argv); the daemon's INFO log does not record fill values | verified, version-pinned | `bsk fill --help` 0.3.2; no fill or password entries in `~/.bsk/daemon.log.*` 2026-09-19…10-04 |
+| A TOTP code submitted with 1–2 s of validity stalls on `authenticaterole.nl` and the login times out | inferred | carried from the CDP lane (`netsuite-qa-browser` troubleshooting); the gate waits for ≥12 s left |
+
 ## Engine policy
 
 | Claim | Status | Evidence/limit |
