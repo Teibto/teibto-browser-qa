@@ -1,0 +1,207 @@
+# แจ้งเหตุการณ์สำคัญของ repo เข้า Slack — โพสต์ในนาม TeibTalk
+# (org secrets: SLACK_NOTIFY_BOT_TOKEN + SLACK_NOTIFY_CHANNEL · ไฟล์นี้เหมือนกันทุก repo ของทีม)
+#
+# issue ที่บอทเปิดให้จาก Slack จะมีบรรทัด "สร้างจากบทสนทนาใน Slack: <permalink>" อยู่ในเนื้อ
+# permalink นั้น *คือ* ตัวชี้กลับ ไม่ต้องมีฐานข้อมูล mapping ที่ไหน — แกะเป็น channel + thread_ts
+# แล้ว reply ใต้ thread เดิมได้เลย · issue ที่คนเปิดเองใน GitHub ไม่มีลิงก์ ก็ตกไปโพสต์เข้าห้องรวม
+#
+# runner นี้อยู่ใน OCI private subnet และ runner group จำกัดไว้ที่ workflow นี้บน main เท่านั้น
+# host ไม่มี credential ของทีม; แต่ละ job รันใน container ใหม่และล้าง workspace เมื่อจบ
+# (เจตนาเดิมของ teibto-slack-ops#26 ยังอยู่ — ย้ายไป runner คนละเครื่อง ไม่ใช่เครื่องที่ถือ credential)
+name: slack-notify
+
+on:
+  issues:
+    types: [closed]
+  # `release: published` ไม่ใช้แล้ว — event นี้รันบน ref ของ tag ซึ่ง runner group teibto-notify ไม่อนุญาต
+  # job จึงค้างคิวเงียบ · job announce-releases ข้างล่างไล่ประกาศจาก default branch แทน (Teibto/teibto-slack-ops#163)
+  # (Release ที่ CI สร้างด้วย GITHUB_TOKEN ก็ไม่ trigger event นี้อยู่แล้ว — publish-release จึงสั่ง dispatch · #160)
+  schedule:
+    - cron: "*/30 0-14 * * *" # 07:00–21:30 ICT
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "ประกาศ release ตัวนี้ (ว่าง = ทุกตัวที่ยังไม่ได้ประกาศใน 3 วันล่าสุด)"
+        required: false
+
+permissions: {}
+
+jobs:
+  notify:
+    if: github.event_name == 'issues'
+    runs-on:
+      group: teibto-notify
+      labels: teibto-notify
+    container:
+      # Multi-architecture Ubuntu 24.04 index pinned for reproducible ARM64 pulls.
+      image: ubuntu:24.04@sha256:33ceb71981b602c1a7443a53469e4dba065f7503eab3078a2d7a57a2ab987517
+      # The pinned minimal image has no trust store, so HTTPS-only apt cannot
+      # install ca-certificates to bootstrap itself (#160). Expose only the host's
+      # non-secret CA bundle, read-only — same as every other repo on this runner group.
+      volumes:
+        - /etc/ssl/certs/ca-certificates.crt:/etc/ssl/certs/ca-certificates.crt:ro
+    steps:
+      - name: install notification tools
+        run: |
+          set -eu
+          # OCI permits public HTTPS only; do not reopen port 80 for apt.
+          sed -i 's|http://|https://|g' /etc/apt/sources.list 2>/dev/null || true
+          sed -i 's|http://|https://|g' /etc/apt/sources.list.d/*.sources 2>/dev/null || true
+          apt-get update
+          # The CA bundle is a read-only host mount. Reinstalling its package
+          # would try to replace that mounted file and fail with EBUSY.
+          apt-get install -y --no-install-recommends curl jq
+          rm -rf /var/lib/apt/lists/*
+
+      - name: post to slack
+        # ค่าจาก event เข้าเป็น env เท่านั้น — ห้าม interpolate ลง script ตรง ๆ
+        # (title/body ของ issue เป็นข้อความจากคนนอก workflow ถือเป็น untrusted input)
+        env:
+          TOKEN: ${{ secrets.SLACK_NOTIFY_BOT_TOKEN }}
+          CHANNEL: ${{ secrets.SLACK_NOTIFY_CHANNEL }}
+          EV: ${{ github.event_name }}
+          REPO: ${{ github.repository }}
+          NUM: ${{ github.event.issue.number }}
+          TITLE: ${{ github.event.issue.title }}
+          IURL: ${{ github.event.issue.html_url }}
+          BODY: ${{ github.event.issue.body }}
+          ACTOR: ${{ github.actor }}
+          TAG: ${{ github.event.release.tag_name }}
+          RNAME: ${{ github.event.release.name }}
+          RURL: ${{ github.event.release.html_url }}
+        run: |
+          set -eu
+          THREAD_CH=""
+          THREAD_TS=""
+          if [ "$EV" = "issues" ]; then
+            SAFE_TITLE=$(printf '%s' "$TITLE" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g')
+            TEXT="✅ ปิด issue ${REPO}#${NUM} — ${SAFE_TITLE} (โดย ${ACTOR})
+          ${IURL}"
+            # รับเฉพาะรูปแบบ permalink ของ Slack เท่านั้น และเอาอันแรกอันเดียว
+            # เนื้อ issue เป็น untrusted input: กรณีเลวร้ายที่สุดของลิงก์ปลอมคือแจ้งผิด thread
+            # ซึ่งรับได้ เพราะข้อความที่โพสต์เป็นข้อความตายตัวของเราเอง ไม่ใช่เนื้อจาก issue
+            LINK=$(printf '%s' "$BODY" \
+              | grep -oE 'https://[a-z0-9.-]+\.slack\.com/archives/[A-Z0-9]+/p[0-9]{16}' \
+              | head -1 || true)
+            if [ -n "$LINK" ]; then
+              THREAD_CH=$(printf '%s' "$LINK" | sed -E 's#.*/archives/([A-Z0-9]+)/p[0-9]+$#\1#')
+              THREAD_TS=$(printf '%s' "$LINK" | sed -E 's#.*/p([0-9]{10})([0-9]{6})$#\1.\2#')
+            fi
+          else
+            SAFE_TAG=$(printf '%s' "$TAG" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g')
+            SAFE_RNAME=$(printf '%s' "$RNAME" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g')
+            TEXT="🚀 Release ${REPO} ${SAFE_TAG}${SAFE_RNAME:+ — ${SAFE_RNAME}}
+          ${RURL}"
+          fi
+
+          post() {
+            jq -n --arg ch "$1" --arg t "$TEXT" --arg ts "${2-}" \
+              '{channel: $ch, text: $t, unfurl_links: false}
+               + (if $ts == "" then {} else {thread_ts: $ts} end)' \
+              | curl -sf -X POST https://slack.com/api/chat.postMessage \
+                  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d @-
+          }
+
+          if [ -n "$THREAD_TS" ]; then
+            # thread เดิมอาจถูกลบ หรือบอทอาจไม่ได้อยู่ในห้องนั้นแล้ว — พลาดแล้วต้องไม่เงียบหาย
+            # จึงตกไปโพสต์เข้าห้องรวมแทน ไม่ใช่ปล่อยให้ job แดงแล้วไม่มีใครรู้ว่า issue ปิดไปแล้ว
+            if post "$THREAD_CH" "$THREAD_TS" | jq -e '.ok' >/dev/null; then
+              echo "reply ใต้ thread $THREAD_CH/$THREAD_TS แล้ว"
+              exit 0
+            fi
+            echo "reply ใต้ thread ไม่สำเร็จ — โพสต์เข้าห้องรวมแทน" >&2
+            TEXT="$TEXT
+          (reply ใต้ thread เดิมไม่สำเร็จ · $LINK)"
+          fi
+
+          post "$CHANNEL" | jq -e '.ok' >/dev/null
+
+  # ประกาศ release — `release: published` รันบน ref ของ tag ซึ่ง runner group teibto-notify ไม่อนุญาต
+  # (อนุญาตเฉพาะ refs/heads/<branch>) job จึงค้างคิวเงียบไม่มีวันรัน (Teibto/teibto-slack-ops#163)
+  # job นี้รันจาก default branch แทน: ไล่ดู release ที่ publish ใน 3 วันล่าสุด แล้วข้ามตัวที่มีลิงก์อยู่ใน
+  # ห้องแล้ว — cron ช้า รันซ้ำ หรือสั่งมือ ก็ไม่ประกาศซ้ำ และ release ที่ตกหล่นจะถูกประกาศย้อนหลังเอง
+  announce-releases:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on:
+      group: teibto-notify
+      labels: teibto-notify
+    permissions:
+      contents: read # อ่านรายการ release ของ repo private
+    container:
+      image: ubuntu:24.04@sha256:33ceb71981b602c1a7443a53469e4dba065f7503eab3078a2d7a57a2ab987517
+      # image เปล่าไม่มี trust store — mount CA bundle ของ host แบบอ่านอย่างเดียว (Teibto/teibto-slack-ops#160)
+      volumes:
+        - /etc/ssl/certs/ca-certificates.crt:/etc/ssl/certs/ca-certificates.crt:ro
+    steps:
+      - name: install notification tools
+        run: |
+          set -eu
+          # OCI permits public HTTPS only; do not reopen port 80 for apt.
+          sed -i 's|http://|https://|g' /etc/apt/sources.list 2>/dev/null || true
+          sed -i 's|http://|https://|g' /etc/apt/sources.list.d/*.sources 2>/dev/null || true
+          apt-get update
+          # CA bundle เป็น host mount แบบอ่านอย่างเดียว — ติดตั้ง ca-certificates ซ้ำจะชนไฟล์นั้น (EBUSY)
+          apt-get install -y --no-install-recommends curl jq
+          rm -rf /var/lib/apt/lists/*
+
+      - name: announce new releases
+        env:
+          TOKEN: ${{ secrets.SLACK_NOTIFY_BOT_TOKEN }}
+          CHANNEL: ${{ secrets.SLACK_NOTIFY_CHANNEL }}
+          GH_TOKEN: ${{ github.token }}
+          API: ${{ github.api_url }}
+          REPO: ${{ github.repository }}
+          WANT: ${{ inputs.tag }}
+        run: |
+          set -eu
+          now=$(date +%s)
+          since=$((now - 259200)) # release ที่ publish ใน 3 วันล่าสุด
+
+          # ประวัติห้อง 4 วัน (ยาวกว่าหน้าต่างของ release) — ห้องนี้ข้อความเยอะ ต้องไล่ cursor ให้ครบ
+          hist=$(mktemp)
+          cursor=""
+          while :; do
+            page=$(curl -sf -G https://slack.com/api/conversations.history \
+              -H "Authorization: Bearer $TOKEN" \
+              --data-urlencode "channel=$CHANNEL" --data-urlencode "oldest=$((now - 345600))" \
+              --data-urlencode "limit=200" --data-urlencode "cursor=$cursor")
+            # อ่านประวัติไม่ได้ = ไม่รู้ว่าเคยประกาศหรือยัง → หยุด ดีกว่าประกาศซ้ำทั้งหน้าต่าง
+            printf '%s' "$page" | jq -e '.ok' >/dev/null
+            printf '%s' "$page" | jq -r '.messages[].text // empty' >> "$hist"
+            cursor=$(printf '%s' "$page" | jq -r '.response_metadata.next_cursor // empty')
+            [ -n "$cursor" ] || break
+          done
+
+          # dispatch ระบุ tag ได้ (เช่นจาก job publish-release) · ไม่ระบุ = ทุกตัวในหน้าต่าง · เก่าก่อนใหม่
+          curl -sf -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+            "$API/repos/$REPO/releases?per_page=30" \
+          | jq -c --argjson since "$since" --arg want "$WANT" '
+              [ .[] | select(.draft | not) | select(.published_at != null)
+                    | select(if $want != "" then .tag_name == $want
+                             else (.published_at | fromdateiso8601) >= $since end) ]
+              | sort_by(.published_at) | .[]
+              # ชื่อ release มักขึ้นต้นด้วย tag อยู่แล้ว ("2026.9.2 — ...") ตัดออกไม่ให้เลขซ้ำในข้อความ
+              | .tag_name as $t
+              | {tag: $t, url: .html_url, name: ((.name // "") | ltrimstr($t) | sub("^[ —-]+"; ""))}' \
+            > releases.jsonl
+
+          esc() { printf '%s' "$1" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g'; }
+          while IFS= read -r rel; do
+            TAG=$(printf '%s' "$rel" | jq -r .tag)
+            RNAME=$(printf '%s' "$rel" | jq -r .name)
+            RURL=$(printf '%s' "$rel" | jq -r .url)
+            if grep -qF "$RURL" "$hist"; then
+              echo "ประกาศแล้ว: $TAG"
+              continue
+            fi
+            SAFE_TAG=$(esc "$TAG")
+            SAFE_RNAME=$(esc "$RNAME")
+            [ "$SAFE_RNAME" = "$SAFE_TAG" ] && SAFE_RNAME=""
+            TEXT="🚀 Release ${REPO} ${SAFE_TAG}${SAFE_RNAME:+ — ${SAFE_RNAME}}
+          ${RURL}"
+            jq -n --arg ch "$CHANNEL" --arg t "$TEXT" '{channel: $ch, text: $t, unfurl_links: false}' \
+              | curl -sf -X POST https://slack.com/api/chat.postMessage \
+                  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d @- \
+              | jq -e '.ok' >/dev/null
+            echo "ประกาศ: $TAG"
+          done < releases.jsonl
