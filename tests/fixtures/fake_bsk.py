@@ -119,11 +119,18 @@ if command == "status":
     sessions = [dict(zip(("session_id", "browser_instance_id"), item.split(":")))
                 for item in items]
     out = {"daemon_version": version, "pid": 1, "sessions": sessions}
+    if "FAKE_BSK_PROTOCOL" in os.environ:
+        out["protocol_version"] = os.environ["FAKE_BSK_PROTOCOL"]
 elif command == "browsers":
     # FAKE_BSK_BROWSERS=<id>,<id> models several connected browsers.
     out = [{"instance_id": item, "browser_name": "chrome", "browser_version": "152.0.0.0",
             "extension_version": os.environ.get("FAKE_BSK_EXTENSION_VERSION", version)}
            for item in os.environ.get("FAKE_BSK_BROWSERS", "only-one").split(",")]
+    for browser in out:
+        if "FAKE_BSK_EXTENSION_PROTOCOL" in os.environ:
+            browser["extension_protocol_version"] = os.environ["FAKE_BSK_EXTENSION_PROTOCOL"]
+        if "FAKE_BSK_VERSION_SKEW" in os.environ:
+            browser["version_skew"] = json.loads(os.environ["FAKE_BSK_VERSION_SKEW"])
 elif command == "session":
     if args[1] == "start":
         session_id = os.environ.get("FAKE_BSK_SESSION_ID", "fake-session")

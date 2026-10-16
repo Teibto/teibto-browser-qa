@@ -383,7 +383,7 @@ trusted input และคือรัศมีระเบิดของ injec
 
 ข้อเท็จจริงของ `bsk` ตรวจกับ v0.3.0 (`fa953dc`, MIT) และนโยบาย dialog ตรวจซ้ำกับ v0.3.2 (#144) — เป็น `version-pinned`;
 โครงการออกรุ่นถี่ ต้องรัน `self-test/engine2/dialog-test.sh`, `runner-test.sh` และ `contention-matrix.py` ก่อนเพิ่มรุ่นใน
-`BSK_VERIFIED_VERSIONS` ของ runner.
+`BSK_COMPATIBLE_PAIRS` ของ runner (contract และสถานะ qualification ใน `references/engine2-bsk.md`).
 
 ### 4.4 เส้นทางอื่นที่ยังเป็นข้อยกเว้น
 

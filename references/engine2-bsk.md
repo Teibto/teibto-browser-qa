@@ -3,8 +3,16 @@
 ไฟล์นี้เป็นของ `bsk` เท่านั้น. เงื่อนไขว่า **ใช้ได้เมื่อใด** อยู่ที่ `docs/BROWSER-AGENT-STANDARD.md` §4;
 กับดักใน [`gotchas.md`](gotchas.md) เป็นของ direct CDP และไม่ได้ย้ายตามมาเอง. ทุกตัวเลขข้างล่างวัดกับ
 `bsk` 0.3.0 + Chrome 152 บน Windows (เว้นแต่แถวที่ระบุรุ่นอื่น) และมีแถวใน `docs/CLAIMS-AUDIT.md` — ขยับรุ่นแล้วต้องวัดใหม่.
-รุ่นที่ runner รับ (`BSK_VERIFIED_VERSIONS`): **0.3.0 และ 0.3.2** — daemon กับ extension ต้องเป็นรุ่นเดียวกัน;
-0.3.1 ไม่ได้ตรวจ จึงไม่รับ (daemon 0.3.2 อัปเดตตัวเองได้ แต่ extension ในโปรไฟล์ที่ไม่ได้เปิดค้างจะตามหลังจน Chrome restart).
+คู่ daemon/extension ที่ runner ระบุใน `BSK_COMPATIBLE_PAIRS`: **0.3.0/0.3.0**, **0.3.2/0.3.2**
+และ **0.3.2/0.3.3** (#163). คู่ต่างรุ่นต้องรายงาน `status.protocol_version="1.3"`,
+`browsers[].extension_protocol_version="1.3"` และ `browsers[].version_skew=false` (boolean จริง)
+จาก browser ที่เลือก; ขาดค่า/ไม่ตรงให้หยุดก่อนสร้าง tab. คู่ที่ไม่ระบุยังถูกปฏิเสธ แม้ protocol ตรง.
+คู่ 0.3.2/0.3.3 ผ่าน native dialog 20 รอบ, runner read/confirm และ shared-session 6 flows
+(3 workers × 2 รอบ), screenshot ownership 12/12 เมื่อ 2026-10-16; ดู `self-test/README.md`
+และ `qa/issue163/qualification.json`. ไม่ใช่ original contention matrix 10 กรณี (ไม่ทดสอบทำลาย shared session). คู่เดิมคง contract ที่ตรวจแล้ว ไม่บังคับ field ที่รุ่นเดิมไม่รายงาน.
+`session_ready.bsk_versions` และรายงานเก็บ daemon, extension, protocol ทั้งสองฝั่ง และ version skew;
+`version` เดิมยังเป็น daemon version เพื่อไม่เปลี่ยน consumer contract. CLI version ไม่ได้อนุมานจาก daemon:
+บันทึก `bsk --version` แยกใน live qualification.
 
 ## การเลือก engine และการอัปเดต
 
@@ -19,7 +27,7 @@ engine ระบุหรือเมื่อผู้ใช้เลือก.
 อัปเดตแพ็กเกจ `teibto-browser-qa` จาก commit ที่ตรวจสอบแล้วของ `main` เมื่อต้องการ fixes
 ที่ใหม่กว่า release. ติดตั้งทั้ง `SKILL.md`, references, scripts, examples และ schemas พร้อมกัน;
 การคัดลอกเฉพาะ SKILL.md ทำให้คำสั่งเรียก runtime ที่ยังเก่า. เก็บ SHA ของแหล่งที่ติดตั้ง.
-แยกเวอร์ชันแพ็กเกจนี้ออกจาก `bsk` CLI/extension ซึ่ง runner รับเฉพาะรุ่นที่ผ่าน dialog-test แล้ว (0.3.0, 0.3.2).
+แยกเวอร์ชันแพ็กเกจนี้ออกจาก `bsk` CLI/extension ซึ่ง runner ตรวจคู่เวอร์ชันและ protocol ตาม contract ด้านบน.
 
 ## 1. ตั้งเครื่อง (ครั้งเดียว)
 
