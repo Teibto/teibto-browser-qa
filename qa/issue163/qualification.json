@@ -1,0 +1,141 @@
+{
+  "issue": "Teibto/teibto-browser-qa#163",
+  "date": "2026-10-16",
+  "platform": "Windows",
+  "cli_version": "0.3.2",
+  "daemon_version": "0.3.2",
+  "daemon_protocol": "1.3",
+  "extension_version": "0.3.3",
+  "extension_protocol": "1.3",
+  "version_skew": false,
+  "browser": "Chrome 155.0.0.0",
+  "native": {
+    "rounds": 20,
+    "checks": 100,
+    "passed": 100,
+    "daemon_pid_unchanged": true
+  },
+  "runner": [
+    {
+      "name": "read",
+      "exit": 0,
+      "summary": "{\"type\":\"run_done\",\"passed\":2,\"total\":2,\"failures\":0,\"unverified\":0,\"dialogs\":1,\"performance_budgets\":{\"passed\":0,\"evaluated\":0,\"total\":0},\"origin_gate\":{\"allowed\":[\"http://127.0.0.1:8931\"],\"checks\":2,\"enforced\":true},\"risk_counts\":{\"read\":2,\"write\":0,\"destructive\":0},\"eval_steps\":{\"declared\":0,\"executed\":0,\"evidence\":\"state set by eval, not trusted input\"},\"fn_waits\":{\"declared\":0,\"gated_by_eval_rule\":false},\"action_receipts\":{\"requested\":0,\"received\":0,\"engine_supported\":false},\"identity_guard\":{\"declared\":0,\"engine_supported\":false},\"verdict\":\"PASS\",\"duration_ms\":1897.189,\"startup_ms\":361.197,\"session_sharing\":{\"lease_wait_ms\":0.0,\"busy_waits\":0},\"report\":\"D:\\\\Claude\\\\TEIBOS-ERP-AI-First\\\\.runtime-bsk-qualification\\\\read\\\\qa-report.md\"}",
+      "bsk_versions": {
+        "daemon": "0.3.2",
+        "extension": "0.3.3",
+        "daemon_protocol": "1.3",
+        "extension_protocol": "1.3",
+        "version_skew": false
+      },
+      "run_log_sha256": "5a6456d350ccc68f727bf5b74158f79a7fb8cf6ebabfe1a5c8382076f88e7815"
+    },
+    {
+      "name": "confirm",
+      "exit": 0,
+      "summary": "{\"type\":\"run_done\",\"passed\":1,\"total\":1,\"failures\":0,\"unverified\":0,\"dialogs\":1,\"performance_budgets\":{\"passed\":0,\"evaluated\":0,\"total\":0},\"origin_gate\":{\"allowed\":[],\"checks\":0,\"enforced\":false},\"risk_counts\":{\"read\":2,\"write\":0,\"destructive\":0},\"eval_steps\":{\"declared\":0,\"executed\":0,\"evidence\":\"state set by eval, not trusted input\"},\"fn_waits\":{\"declared\":0,\"gated_by_eval_rule\":false},\"action_receipts\":{\"requested\":0,\"received\":0,\"engine_supported\":false},\"identity_guard\":{\"declared\":0,\"engine_supported\":false},\"verdict\":\"PASS\",\"duration_ms\":2473.315,\"startup_ms\":548.896,\"session_sharing\":{\"lease_wait_ms\":0.0,\"busy_waits\":0},\"report\":\"D:\\\\Claude\\\\TEIBOS-ERP-AI-First\\\\.runtime-bsk-qualification\\\\confirm\\\\qa-report.md\"}",
+      "bsk_versions": {
+        "daemon": "0.3.2",
+        "extension": "0.3.3",
+        "daemon_protocol": "1.3",
+        "extension_protocol": "1.3",
+        "version_skew": false
+      },
+      "run_log_sha256": "61a0a6029f095da5e2e0cb0c2298a87c9144a014640d42fbc5595360ee04f026"
+    },
+    {
+      "name": "contention-0-A",
+      "exit": 0,
+      "summary": "{\"type\":\"run_done\",\"passed\":2,\"total\":2,\"failures\":0,\"unverified\":0,\"dialogs\":0,\"performance_budgets\":{\"passed\":0,\"evaluated\":0,\"total\":0},\"origin_gate\":{\"allowed\":[],\"checks\":0,\"enforced\":false},\"risk_counts\":{\"read\":3,\"write\":0,\"destructive\":0},\"eval_steps\":{\"declared\":1,\"executed\":1,\"evidence\":\"state set by eval, not trusted input\"},\"fn_waits\":{\"declared\":1,\"gated_by_eval_rule\":false},\"action_receipts\":{\"requested\":0,\"received\":0,\"engine_supported\":false},\"identity_guard\":{\"declared\":0,\"engine_supported\":false},\"verdict\":\"PASS\",\"duration_ms\":1887.377,\"startup_ms\":385.855,\"session_sharing\":{\"lease_wait_ms\":110.0,\"busy_waits\":0},\"report\":\"D:\\\\Claude\\\\TEIBOS-ERP-AI-First\\\\.runtime-bsk-qualification\\\\contention-0-A\\\\qa-report.md\"}",
+      "screenshotOwnerVerified": "A",
+      "bsk_versions": {
+        "daemon": "0.3.2",
+        "extension": "0.3.3",
+        "daemon_protocol": "1.3",
+        "extension_protocol": "1.3",
+        "version_skew": false
+      },
+      "run_log_sha256": "8535a0f9409ac5a75478234b870069114b8dcfff89a58460bf09b77786c0c854"
+    },
+    {
+      "name": "contention-0-B",
+      "exit": 0,
+      "summary": "{\"type\":\"run_done\",\"passed\":2,\"total\":2,\"failures\":0,\"unverified\":0,\"dialogs\":0,\"performance_budgets\":{\"passed\":0,\"evaluated\":0,\"total\":0},\"origin_gate\":{\"allowed\":[],\"checks\":0,\"enforced\":false},\"risk_counts\":{\"read\":3,\"write\":0,\"destructive\":0},\"eval_steps\":{\"declared\":1,\"executed\":1,\"evidence\":\"state set by eval, not trusted input\"},\"fn_waits\":{\"declared\":1,\"gated_by_eval_rule\":false},\"action_receipts\":{\"requested\":0,\"received\":0,\"engine_supported\":false},\"identity_guard\":{\"declared\":0,\"engine_supported\":false},\"verdict\":\"PASS\",\"duration_ms\":5154.955,\"startup_ms\":153.171,\"session_sharing\":{\"lease_wait_ms\":3531.0,\"busy_waits\":0},\"report\":\"D:\\\\Claude\\\\TEIBOS-ERP-AI-First\\\\.runtime-bsk-qualification\\\\contention-0-B\\\\qa-report.md\"}",
+      "screenshotOwnerVerified": "B",
+      "bsk_versions": {
+        "daemon": "0.3.2",
+        "extension": "0.3.3",
+        "daemon_protocol": "1.3",
+        "extension_protocol": "1.3",
+        "version_skew": false
+      },
+      "run_log_sha256": "6b118df4d95e084d8bcca6dc52f512306d86a73f3955d1f13fe7e9d9d92b4cdd"
+    },
+    {
+      "name": "contention-0-C",
+      "exit": 0,
+      "summary": "{\"type\":\"run_done\",\"passed\":2,\"total\":2,\"failures\":0,\"unverified\":0,\"dialogs\":0,\"performance_budgets\":{\"passed\":0,\"evaluated\":0,\"total\":0},\"origin_gate\":{\"allowed\":[],\"checks\":0,\"enforced\":false},\"risk_counts\":{\"read\":3,\"write\":0,\"destructive\":0},\"eval_steps\":{\"declared\":1,\"executed\":1,\"evidence\":\"state set by eval, not trusted input\"},\"fn_waits\":{\"declared\":1,\"gated_by_eval_rule\":false},\"action_receipts\":{\"requested\":0,\"received\":0,\"engine_supported\":false},\"identity_guard\":{\"declared\":0,\"engine_supported\":false},\"verdict\":\"PASS\",\"duration_ms\":3488.991,\"startup_ms\":1901.609,\"session_sharing\":{\"lease_wait_ms\":1703.0,\"busy_waits\":0},\"report\":\"D:\\\\Claude\\\\TEIBOS-ERP-AI-First\\\\.runtime-bsk-qualification\\\\contention-0-C\\\\qa-report.md\"}",
+      "screenshotOwnerVerified": "C",
+      "bsk_versions": {
+        "daemon": "0.3.2",
+        "extension": "0.3.3",
+        "daemon_protocol": "1.3",
+        "extension_protocol": "1.3",
+        "version_skew": false
+      },
+      "run_log_sha256": "ff06100596bb094b202bd780a219df811fe37b2d2a487ad6dcdce3ef2adc2162"
+    },
+    {
+      "name": "contention-1-A",
+      "exit": 0,
+      "summary": "{\"type\":\"run_done\",\"passed\":2,\"total\":2,\"failures\":0,\"unverified\":0,\"dialogs\":0,\"performance_budgets\":{\"passed\":0,\"evaluated\":0,\"total\":0},\"origin_gate\":{\"allowed\":[],\"checks\":0,\"enforced\":false},\"risk_counts\":{\"read\":3,\"write\":0,\"destructive\":0},\"eval_steps\":{\"declared\":1,\"executed\":1,\"evidence\":\"state set by eval, not trusted input\"},\"fn_waits\":{\"declared\":1,\"gated_by_eval_rule\":false},\"action_receipts\":{\"requested\":0,\"received\":0,\"engine_supported\":false},\"identity_guard\":{\"declared\":0,\"engine_supported\":false},\"verdict\":\"PASS\",\"duration_ms\":3353.83,\"startup_ms\":1789.102,\"session_sharing\":{\"lease_wait_ms\":1625.0,\"busy_waits\":0},\"report\":\"D:\\\\Claude\\\\TEIBOS-ERP-AI-First\\\\.runtime-bsk-qualification\\\\contention-1-A\\\\qa-report.md\"}",
+      "screenshotOwnerVerified": "A",
+      "bsk_versions": {
+        "daemon": "0.3.2",
+        "extension": "0.3.3",
+        "daemon_protocol": "1.3",
+        "extension_protocol": "1.3",
+        "version_skew": false
+      },
+      "run_log_sha256": "d60d4292ffeb50c591656a66d8613bdce61dad104e6894fb98ff9c27cd4b99bd"
+    },
+    {
+      "name": "contention-1-B",
+      "exit": 0,
+      "summary": "{\"type\":\"run_done\",\"passed\":2,\"total\":2,\"failures\":0,\"unverified\":0,\"dialogs\":0,\"performance_budgets\":{\"passed\":0,\"evaluated\":0,\"total\":0},\"origin_gate\":{\"allowed\":[],\"checks\":0,\"enforced\":false},\"risk_counts\":{\"read\":3,\"write\":0,\"destructive\":0},\"eval_steps\":{\"declared\":1,\"executed\":1,\"evidence\":\"state set by eval, not trusted input\"},\"fn_waits\":{\"declared\":1,\"gated_by_eval_rule\":false},\"action_receipts\":{\"requested\":0,\"received\":0,\"engine_supported\":false},\"identity_guard\":{\"declared\":0,\"engine_supported\":false},\"verdict\":\"PASS\",\"duration_ms\":1669.989,\"startup_ms\":146.667,\"session_sharing\":{\"lease_wait_ms\":0.0,\"busy_waits\":0},\"report\":\"D:\\\\Claude\\\\TEIBOS-ERP-AI-First\\\\.runtime-bsk-qualification\\\\contention-1-B\\\\qa-report.md\"}",
+      "screenshotOwnerVerified": "B",
+      "bsk_versions": {
+        "daemon": "0.3.2",
+        "extension": "0.3.3",
+        "daemon_protocol": "1.3",
+        "extension_protocol": "1.3",
+        "version_skew": false
+      },
+      "run_log_sha256": "4ab028fea7f52510a85e1874cde16d62ea349987c5cb3c28f563ec6fc8af8ea2"
+    },
+    {
+      "name": "contention-1-C",
+      "exit": 0,
+      "summary": "{\"type\":\"run_done\",\"passed\":2,\"total\":2,\"failures\":0,\"unverified\":0,\"dialogs\":0,\"performance_budgets\":{\"passed\":0,\"evaluated\":0,\"total\":0},\"origin_gate\":{\"allowed\":[],\"checks\":0,\"enforced\":false},\"risk_counts\":{\"read\":3,\"write\":0,\"destructive\":0},\"eval_steps\":{\"declared\":1,\"executed\":1,\"evidence\":\"state set by eval, not trusted input\"},\"fn_waits\":{\"declared\":1,\"gated_by_eval_rule\":false},\"action_receipts\":{\"requested\":0,\"received\":0,\"engine_supported\":false},\"identity_guard\":{\"declared\":0,\"engine_supported\":false},\"verdict\":\"PASS\",\"duration_ms\":4964.968,\"startup_ms\":3515.773,\"session_sharing\":{\"lease_wait_ms\":3407.0,\"busy_waits\":0},\"report\":\"D:\\\\Claude\\\\TEIBOS-ERP-AI-First\\\\.runtime-bsk-qualification\\\\contention-1-C\\\\qa-report.md\"}",
+      "screenshotOwnerVerified": "C",
+      "bsk_versions": {
+        "daemon": "0.3.2",
+        "extension": "0.3.3",
+        "daemon_protocol": "1.3",
+        "extension_protocol": "1.3",
+        "version_skew": false
+      },
+      "run_log_sha256": "8690e1a3d2e7a006223e20e4ee6599792a4960444fe293274016ce00bc8506f5"
+    }
+  ],
+  "screenshot_ownership": {
+    "checked": 12,
+    "passed": 12
+  },
+  "scope": "Existing shared session, owned tabs, shared lease. No session start/stop. Original ten-case contention matrix NOT run; destructive session/registry cases excluded.",
+  "source_artifacts_sha256": {
+    "native-dialogs.json": "438d69ca52090e0e0b40fe50c4b447659f38c93ed8e96eaef9681abd107f3c38",
+    "runner-shared-proof.json": "519fd65f380b626d47f0fcd1027519d4f3adf74fc16d1e29cab3fa86b03ac123"
+  },
+  "harness": "self-test/engine2/shared-pair-dialogs.py and shared-pair-runner.py preserve the executed scratch harness; only root/out/session argument handling changed after live run.",
+  "runner_source_sha256": "e0cc297d59830b65695fa6485bf314bdd8655069594c6adca425529fefd2bf83"
+}

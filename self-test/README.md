@@ -87,3 +87,28 @@ any change to the lease, the tab pinning or the capture path.
 Run the browser harness after any Chrome or `cdp.py` bump and before changing `commands.md`,
 `gotchas.md`, the PDF templates, or their behavioral claims. Current provenance is maintained in
 [`docs/CLAIMS-AUDIT.md`](../docs/CLAIMS-AUDIT.md).
+
+## Compatible BrowserSkill pair on an existing shared session (#163)
+
+Run from the candidate checkout, with the existing connected session ID (do not create a new one).
+Install Pillow for screenshot ownership checks. Both commands serve the canonical fixtures on
+loopback port 8931, so run the phases sequentially. Set `BSK_AUTO_START=0`; both scripts also enforce it.
+
+```text
+bsk --version
+python self-test/engine2/shared-pair-dialogs.py --session <existing-id> --out <evidence-directory>
+python self-test/engine2/shared-pair-runner.py --session <existing-id> --out <evidence-directory>
+```
+
+`--root` optionally selects the checkout being qualified. The first phase holds the shared lease,
+uses one owned tab for 20 native alert/confirm/prompt/beforeunload rounds and 20 post-unload liveness
+checks, checks that the daemon PID is unchanged, then closes its tab. The second runs read/confirm
+flows followed by three concurrent workers twice (six flows); all twelve screenshots must match the
+owning worker's fixture color. Runner logs record the daemon/extension/protocol contract. Record the
+CLI version separately; daemon version does not establish CLI version. Failure exits nonzero.
+Neither phase stops the daemon/session or changes an extension. Keep the JSON, logs and screenshots
+in the supplied evidence directory; commit a compact sanitized summary, not screenshot binaries.
+
+This is shared-session qualification, **not** the original ten-case `contention-matrix.py`: session
+loss, registry corruption and killed-holder scenarios are deliberately excluded on the shared
+browser. It proves the exercised pair and fixture paths, not all websites or untested failure modes.

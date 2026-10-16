@@ -89,8 +89,10 @@ RECEIPT_KEYS = frozenset({"url", "title", "focused", "console_new", "dialogs", "
 RECEIPT_MISSING = "no page-state receipt from the driver (BAS-3: UNVERIFIED)"
 ENGINES = ("cdp", "bsk")
 # BrowserSkill (BAS §4): only releases whose dialog policy was re-verified with
-# self-test/engine2/dialog-test.sh are accepted, and daemon and extension must match.
-BSK_VERIFIED_VERSIONS = ("0.3.0", "0.3.2")
+# self-test/engine2/dialog-test.sh are accepted. Unequal versions need an explicit pair
+# and its exact wire-protocol contract; upstream version_skew=false alone is insufficient.
+BSK_COMPATIBLE_PAIRS = {("0.3.0", "0.3.0"): None, ("0.3.2", "0.3.2"): None,
+                        ("0.3.2", "0.3.3"): "1.3"}
 BSK_MUTATING_DIALOGS = {"confirm", "prompt", "beforeunload"}
 # A detached debugger is transient, but only commands that cannot act twice may be retried.
 BSK_RETRY_LIMIT = 2
@@ -620,15 +622,27 @@ class BskSession:
             raise RunnerError("BSK_BROWSER_AMBIGUOUS",
                               f"มี browser เชื่อมอยู่หลายตัว ระบุ --bsk-browser: {known}")
         versions = {"daemon": status.get("daemon_version"),
-                    "extension": browsers[0].get("extension_version")}
-        if versions["daemon"] != versions["extension"] or versions["daemon"] not in BSK_VERIFIED_VERSIONS:
+                    "extension": browsers[0].get("extension_version"),
+                    "daemon_protocol": status.get("protocol_version"),
+                    "extension_protocol": browsers[0].get("extension_protocol_version"),
+                    "version_skew": browsers[0].get("version_skew")}
+        pair = (versions["daemon"], versions["extension"])
+        required_protocol = BSK_COMPATIBLE_PAIRS.get(pair)
+        protocol_ok = (required_protocol is None or (
+            versions["daemon_protocol"] == required_protocol
+            and versions["extension_protocol"] == required_protocol
+            and versions["version_skew"] is False))
+        if pair not in BSK_COMPATIBLE_PAIRS or not protocol_ok:
             raise RunnerError(
                 "DRIVER_INCOMPATIBLE",
-                f"runner รองรับ bsk {', '.join(BSK_VERIFIED_VERSIONS)} (daemon = extension): พบ "
-                f"daemon={versions['daemon']} extension={versions['extension']} — รุ่นใหม่ต้องผ่าน "
-                "self-test/engine2/dialog-test.sh ก่อนเพิ่มในรายการ (BAS §4.3)",
+                f"runner ไม่รับ bsk daemon={versions['daemon']} extension={versions['extension']} "
+                f"protocol={versions['daemon_protocol']}/{versions['extension_protocol']} "
+                f"version_skew={versions['version_skew']} — ต้องเป็นคู่ที่ระบุใน "
+                "BSK_COMPATIBLE_PAIRS และตรง protocol contract; คู่ใหม่ต้องผ่าน "
+                "dialog, runner และ contention qualification (BAS §4.3)",
                 detail=versions,
             )
+        self.versions = versions
         self.version = str(versions["daemon"])
         instance = str(browsers[0].get("instance_id"))
         if session:
@@ -644,7 +658,7 @@ class BskSession:
         if not self.tab_id:
             raise RunnerError("BSK_TAB_UNPINNED", "bsk tab create ไม่คืน tab_id — ขับต่อโดยไม่ pin tab ไม่ได้",
                               detail=created if isinstance(created, dict) else None)
-        self.ready = {"protocol": "bsk-cli", "version": self.version,
+        self.ready = {"protocol": "bsk-cli", "version": self.version, "bsk_versions": versions,
                       "browser": f"{browsers[0].get('browser_name')} {browsers[0].get('browser_version')}",
                       "browser_instance": instance,
                       "session_owned": self.owns_session,
@@ -1302,6 +1316,9 @@ def run_flow(flow: dict[str, Any], path: Path, output_dir: Path, variables: dict
                 f"`{session.ready['browser_instance']}` · tab `{session.ready['tab_id']}` · "
                 f"{'own window' if session.ready['session_owned'] else 'shared window'})")
             report[3] = report[3].replace("bsk (version not reached)", f"bsk {session.ready['version']}", 1)
+            report.insert(4, "**BrowserSkill compatibility:** " + ", ".join(
+                f"{key}=`{value if value is not None else 'not reported'}`"
+                for key, value in session.versions.items()))
         else:
             session = CDPSession(cdp_script, target_id, port=port, dialog=dialog)
         startup_ms = round((time.perf_counter() - startup_started) * 1000, 3)
@@ -1313,7 +1330,8 @@ def run_flow(flow: dict[str, Any], path: Path, output_dir: Path, variables: dict
                    "foreground": session.ready.get("foreground"),
                    "visibility_state": session.ready.get("visibility_state"),
                    "port": session.ready.get("port"),
-                   **({"browser_instance": session.ready["browser_instance"],
+                   **({"bsk_versions": session.ready["bsk_versions"],
+                       "browser_instance": session.ready["browser_instance"],
                        "tab_id": session.ready["tab_id"],
                        "session_owned": session.ready["session_owned"]}
                       if engine == "bsk" else {}),
