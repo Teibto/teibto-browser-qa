@@ -10,6 +10,13 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Admit the qualified BrowserSkill daemon/extension 0.3.3/0.3.3 pair only with both
+  protocols 1.3 and boolean `version_skew=false` (#165). Preserve unknown-input failure
+  and no-replay behavior. Shared-session qualification and earlier failed attempts are
+  recorded in `qa/issue165/qualification.json`; no daemon or extension modification.
+
 ### Added
 
 - **ด่าน login ของ NetSuite บน `bsk` (#158)** — `scripts/bsk-login.py ensure --session <sid> --company <id>`:

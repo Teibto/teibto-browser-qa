@@ -90,6 +90,10 @@ Run the browser harness after any Chrome or `cdp.py` bump and before changing `c
 
 ## Compatible BrowserSkill pair on an existing shared session (#163)
 
+The same harness qualifies 0.3.3/0.3.3 in #165; see `qa/issue165/qualification.json` for
+the completed qualification and retained earlier failures. A version admission is not a
+promise that a stalled live session is healthy: unknown input still fails without replay.
+
 Run from the candidate checkout, with the existing connected session ID (do not create a new one).
 Install Pillow for screenshot ownership checks. Both commands serve the canonical fixtures on
 loopback port 8931, so run the phases sequentially. Set `BSK_AUTO_START=0`; both scripts also enforce it.

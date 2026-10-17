@@ -209,6 +209,21 @@ class BskEngineTests(unittest.TestCase):
         with mock.patch.object(self, "compatible_pair_env", side_effect=lambda: env.copy()):
             self.test_compatible_pair_rejects_missing_wrong_or_false_protocol_contract()
 
+    def test_033_pair_keeps_dialog_guard_and_native_backstop(self):
+        env = self.compatible_pair_env()
+        env["FAKE_BSK_VERSION"] = "0.3.3"
+        with mock.patch.object(self, "compatible_pair_env", side_effect=lambda: env.copy()):
+            self.test_compatible_pair_keeps_guard_and_native_dialog_backstop()
+
+    def test_033_pair_never_replays_an_unknown_input(self):
+        env = {**self.compatible_pair_env(), "FAKE_BSK_VERSION": "0.3.3",
+               "FAKE_BSK_EFFECT_UNKNOWN": "click"}
+        _, _, events, calls = self.run_flow(READ_ONLY, env)
+        failed = next(e for e in events if e["type"] == "step_done" and e.get("error"))
+        self.assertEqual(failed["error"]["code"], "BSK_EFFECT_UNKNOWN")
+        self.assertEqual(events[-1]["verdict"], "FAIL")
+        self.assertEqual(sum(call.startswith("click ") for call in calls), 1)
+
     def test_compatible_pair_rejects_missing_wrong_or_false_protocol_contract(self):
         for key, value in (("FAKE_BSK_PROTOCOL", None), ("FAKE_BSK_PROTOCOL", "1.2"),
                            ("FAKE_BSK_EXTENSION_PROTOCOL", None), ("FAKE_BSK_EXTENSION_PROTOCOL", "1.4"),

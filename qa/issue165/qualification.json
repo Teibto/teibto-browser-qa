@@ -1,98 +1,192 @@
 {
-  "status": "NOT_QUALIFIED",
-  "pair": [
-    "0.3.3",
-    "0.3.3"
-  ],
-  "protocols": [
-    "1.3",
-    "1.3"
-  ],
+  "status": "PASS",
+  "evidence_class": "version-pinned",
+  "date": "2026-10-18",
+  "versions": {
+    "daemon": "0.3.3",
+    "extension": "0.3.3",
+    "daemon_protocol": "1.3",
+    "extension_protocol": "1.3",
+    "version_skew": false
+  },
   "cli": "0.3.3",
   "browser": "Chrome 155.0.0.0",
+  "platform": "Windows",
   "native_checks_passed": 100,
   "native_checks_total": 100,
   "daemon_pid_unchanged": true,
+  "scope": "Existing shared session; owned tabs and shared lease. Original destructive ten-case contention matrix excluded.",
+  "history": "previous-attempts.json retains failed runs on the former session. Daemon later stopped that session for idle. Coordinator ensured the current session; daemon PID stayed 26016. Internal cause of the old timeouts remains unproven; no upstream transport-fix claim.",
+  "native_log_sha256": "fe781ae5c80e6331aeccc05a46d6a3eacc77f313dcd4afa76fde67395af758a5",
   "runs": [
     {
-      "attempt": "evidence",
+      "attempt": "session-current",
+      "flow": "read",
+      "verdict": "PASS",
+      "passed": 2,
+      "duration_ms": 1583.899,
+      "lease_wait_ms": 0.0,
+      "screenshot_owner": null,
+      "log_sha256": "131fdbfce8870d7f5607cabc6af4de97c7fa22dbb67374ecc0287ce01150719f"
+    },
+    {
+      "attempt": "session-current",
       "flow": "confirm",
       "verdict": "PASS",
       "passed": 1,
-      "errors": [],
-      "log_sha256": "db8a1a9905441e0343a1c30bd15ccf94a1065f9340741e3157ec49e24ab8fadd"
+      "duration_ms": 1278.81,
+      "lease_wait_ms": 0.0,
+      "screenshot_owner": null,
+      "log_sha256": "d6f61590f225e226d4f2d2645c69d38919b7f8d4eed08a04cd59adad368dc1d5"
     },
     {
-      "attempt": "evidence",
+      "attempt": "session-current",
       "flow": "contention-0-A",
       "verdict": "PASS",
       "passed": 2,
-      "errors": [],
-      "log_sha256": "dc247e309d5ff3104c2f1f23b8837cc28390087424483d59a89ca74f64f2718d"
+      "duration_ms": 7165.46,
+      "lease_wait_ms": 4453.0,
+      "screenshot_owner": "A",
+      "log_sha256": "ce1ad41f2d078b8bcc44a7c984f94d00785603752b8c73a13eaed3964860a594"
     },
     {
-      "attempt": "evidence",
+      "attempt": "session-current",
       "flow": "contention-0-B",
       "verdict": "PASS",
       "passed": 2,
-      "errors": [],
-      "log_sha256": "3c395ed1d5c3dc93095d2e2874eb2fb80a8deda17b7ee29f6cafd45efcfd695f"
+      "duration_ms": 2817.6,
+      "lease_wait_ms": 610.0,
+      "screenshot_owner": "B",
+      "log_sha256": "5bd8dc3f179a8f5bb160744d3ffff9e98d4a200f906942cd651a13aef61fa781"
     },
     {
-      "attempt": "evidence",
+      "attempt": "session-current",
       "flow": "contention-0-C",
       "verdict": "PASS",
       "passed": 2,
-      "errors": [],
-      "log_sha256": "35730a358aca803dc7febae355c09435f0d8a683053cf235dfd7c2adcf5a6260"
+      "duration_ms": 6732.295,
+      "lease_wait_ms": 4798.0,
+      "screenshot_owner": "C",
+      "log_sha256": "0cc2c4bcd1b02140281a1dfdeaae613b9d4bb4873e0ba69399704832dbb359d7"
     },
     {
-      "attempt": "evidence",
+      "attempt": "session-current",
       "flow": "contention-1-A",
-      "verdict": "FAIL",
-      "passed": 0,
-      "errors": [
-        "BSK_COMMAND_FAILED"
-      ],
-      "log_sha256": "922a5abdb8bd673a5076617a374fb714c24fbbefc88adc6894991ee069d7fffd"
+      "verdict": "PASS",
+      "passed": 2,
+      "duration_ms": 5050.409,
+      "lease_wait_ms": 3080.0,
+      "screenshot_owner": "A",
+      "log_sha256": "1b6e23ffceab3e6975d5b2072a7bb71ea128e5f1397bdc58f23b19bf674acc3c"
     },
     {
-      "attempt": "evidence",
+      "attempt": "session-current",
       "flow": "contention-1-B",
-      "verdict": "FAIL",
-      "passed": 0,
-      "errors": [
-        "BSK_EFFECT_UNKNOWN"
-      ],
-      "log_sha256": "396c774c5a4e8900cf75d5fce35798d038fb66a7234cabc952e5f366fdb45872"
+      "verdict": "PASS",
+      "passed": 2,
+      "duration_ms": 3159.685,
+      "lease_wait_ms": 1531.0,
+      "screenshot_owner": "B",
+      "log_sha256": "da87c1f70088664ade777e7bce3aa06f2acf0466478e6a2e52e79cd1f85dd732"
     },
     {
-      "attempt": "evidence",
+      "attempt": "session-current",
       "flow": "contention-1-C",
-      "verdict": "FAIL",
-      "passed": 0,
-      "errors": [
-        "BSK_COMMAND_FAILED"
-      ],
-      "log_sha256": "1727d8178e31e42253e42c80ca0bb3a89625ad6562c641c01c6f79670473c8b7"
+      "verdict": "PASS",
+      "passed": 2,
+      "duration_ms": 2998.623,
+      "lease_wait_ms": 1439.0,
+      "screenshot_owner": "C",
+      "log_sha256": "5f0080a515b5ad801b20c6ff6c0e06d10b5b8db42cd982c9f55921566f835874"
     },
     {
-      "attempt": "evidence",
+      "attempt": "qualified",
       "flow": "read",
       "verdict": "PASS",
       "passed": 2,
-      "errors": [],
-      "log_sha256": "1fd7f59b57ef47716e1448233d04880e3464531eb434985ab7b6eedc1fb43a7a"
+      "duration_ms": 1364.173,
+      "lease_wait_ms": 0.0,
+      "screenshot_owner": null,
+      "log_sha256": "c0156fefce81869750de9172c1bb7cb2d67376772787284b19e0ea6748a86d43"
     },
     {
-      "attempt": "retry-evidence",
-      "flow": "read",
-      "verdict": "FAIL",
-      "passed": 0,
-      "errors": [
-        "BSK_COMMAND_FAILED"
-      ],
-      "log_sha256": "c311e2099695d4f805cdd0fe133ea1a58fa3c17802ac3c1948a974ececfec047"
+      "attempt": "qualified",
+      "flow": "confirm",
+      "verdict": "PASS",
+      "passed": 1,
+      "duration_ms": 1690.807,
+      "lease_wait_ms": 0.0,
+      "screenshot_owner": null,
+      "log_sha256": "06cdc4ee1d571df4123a459964a92c375d8477f4b1b9ba8ea98b581681f93334"
+    },
+    {
+      "attempt": "qualified",
+      "flow": "contention-0-A",
+      "verdict": "PASS",
+      "passed": 2,
+      "duration_ms": 5506.971,
+      "lease_wait_ms": 3563.0,
+      "screenshot_owner": "A",
+      "log_sha256": "912db9b0f23827c5667d61d0935be5b3ac9c514155370516884f639ed944ef1c"
+    },
+    {
+      "attempt": "qualified",
+      "flow": "contention-0-B",
+      "verdict": "PASS",
+      "passed": 2,
+      "duration_ms": 3694.52,
+      "lease_wait_ms": 1469.0,
+      "screenshot_owner": "B",
+      "log_sha256": "f28411f4120e35dfa30d9f1b12d13cccc4f5d85e94cee4a65255108cf4b8a802"
+    },
+    {
+      "attempt": "qualified",
+      "flow": "contention-0-C",
+      "verdict": "PASS",
+      "passed": 2,
+      "duration_ms": 6020.361,
+      "lease_wait_ms": 3938.0,
+      "screenshot_owner": "C",
+      "log_sha256": "77c5429f1c02ab6bd99f80cfe6dd03b069eeccee3b585bd330e9e97ec720b91e"
+    },
+    {
+      "attempt": "qualified",
+      "flow": "contention-1-A",
+      "verdict": "PASS",
+      "passed": 2,
+      "duration_ms": 8067.178,
+      "lease_wait_ms": 5578.0,
+      "screenshot_owner": "A",
+      "log_sha256": "2bfca895acf548fedc0a02a77dfb362eddc4c764cb41a947e65f54be4dd98042"
+    },
+    {
+      "attempt": "qualified",
+      "flow": "contention-1-B",
+      "verdict": "PASS",
+      "passed": 2,
+      "duration_ms": 7998.614,
+      "lease_wait_ms": 4313.0,
+      "screenshot_owner": "B",
+      "log_sha256": "330a4916275106da9984104be2699e83eec52fd03a100258be7acea055ed4413"
+    },
+    {
+      "attempt": "qualified",
+      "flow": "contention-1-C",
+      "verdict": "PASS",
+      "passed": 2,
+      "duration_ms": 2503.491,
+      "lease_wait_ms": 32.0,
+      "screenshot_owner": "C",
+      "log_sha256": "cebddb2097422908d732f0337f71debdeb4c8603eee4d8499372d366e5c00d53"
     }
-  ]
+  ],
+  "screenshot_ownership": {
+    "checked": 24,
+    "passed": 24
+  },
+  "source_sha256": {
+    "scripts/flow-runner.py": "47e86ebaf0bdf42f1c424ca98b9b7fef84dc15f04258998c02712c466eb1a5e9",
+    "self-test/engine2/shared-pair-dialogs.py": "07ac44e99fd5c6eea7bd078494a01e628f54f1c0c37792d92d0e763c3c053f0e",
+    "self-test/engine2/shared-pair-runner.py": "58008fb714857e69d9e05bea15bab41972a7470e99ce1a78ac2b2924fd18cf00"
+  }
 }
