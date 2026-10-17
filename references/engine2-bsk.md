@@ -4,7 +4,7 @@
 กับดักใน [`gotchas.md`](gotchas.md) เป็นของ direct CDP และไม่ได้ย้ายตามมาเอง. ทุกตัวเลขข้างล่างวัดกับ
 `bsk` 0.3.0 + Chrome 152 บน Windows (เว้นแต่แถวที่ระบุรุ่นอื่น) และมีแถวใน `docs/CLAIMS-AUDIT.md` — ขยับรุ่นแล้วต้องวัดใหม่.
 คู่ daemon/extension ที่ runner ระบุใน `BSK_COMPATIBLE_PAIRS`: **0.3.0/0.3.0**, **0.3.2/0.3.2**
-และ **0.3.2/0.3.3** (#163). คู่ต่างรุ่นต้องรายงาน `status.protocol_version="1.3"`,
+และ **0.3.2/0.3.3** (#163), **0.3.3/0.3.3** (#165). สองคู่หลังต้องรายงาน `status.protocol_version="1.3"`,
 `browsers[].extension_protocol_version="1.3"` และ `browsers[].version_skew=false` (boolean จริง)
 จาก browser ที่เลือก; ขาดค่า/ไม่ตรงให้หยุดก่อนสร้าง tab. คู่ที่ไม่ระบุยังถูกปฏิเสธ แม้ protocol ตรง.
 คู่ 0.3.2/0.3.3 ผ่าน native dialog 20 รอบ, runner read/confirm และ shared-session 6 flows
@@ -13,6 +13,14 @@
 `session_ready.bsk_versions` และรายงานเก็บ daemon, extension, protocol ทั้งสองฝั่ง และ version skew;
 `version` เดิมยังเป็น daemon version เพื่อไม่เปลี่ยน consumer contract. CLI version ไม่ได้อนุมานจาก daemon:
 บันทึก `bsk --version` แยกใน live qualification.
+
+คู่ 0.3.3/0.3.3 ผ่าน native dialog 100 checks และ runner 8 flows (read/confirm +
+3 workers × 2 รอบ, screenshot ownership 12/12) บน shared session ปัจจุบันเมื่อ 2026-10-18.
+ทดสอบ runner ชุดเดียวกันก่อน native dialogs ก็ผ่านครบ. ดู `qa/issue165/qualification.json`
+ใน source repository และ `self-test/README.md`. รอบก่อนหน้าบน session ที่หมดอายุภายหลังเคยพบ
+input outcome unknown และ RPC timeout; เก็บเป็น FAIL ในหลักฐาน ไม่อ้างว่าแก้ transport ของ upstream.
+เมื่อเกิดอาการนี้ต้องตรวจผล action ก่อน ไม่คลิกซ้ำ ไม่ restart daemon หรือเปลี่ยน session ที่ยังมีคนใช้.
+ใช้ `bsk-shared.py ensure` เมื่อ coordinator ตรวจว่า session เดิมหมดอายุจริงเท่านั้น.
 
 ## การเลือก engine และการอัปเดต
 
@@ -31,7 +39,7 @@ engine ระบุหรือเมื่อผู้ใช้เลือก.
 
 ## 1. ตั้งเครื่อง (ครั้งเดียว)
 
-1. ติดตั้ง CLI แบบ pin รุ่น: รัน `install.ps1` ของ upstream โดยตั้ง `BSK_VERSION=0.3.2` (รุ่นล่าสุดที่ runner รับ)
+1. ติดตั้ง CLI แบบ pin รุ่น: รัน `install.ps1` ของ upstream โดยตั้ง `BSK_VERSION=0.3.3` (รุ่นล่าสุดที่ runner รับ)
    · เพิ่มรุ่นใหม่ในรายการได้เมื่อ `dialog-test.sh` (นโยบายตรง), `runner-test.sh` และ `contention-matrix.py` ผ่านกับรุ่นนั้น
    · extension ของโปรไฟล์ทดสอบอัปเดตจาก Web Store แต่ใช้ผลหลังปิด-เปิด Chrome โปรไฟล์นั้น — ดูรุ่นด้วย `bsk browsers --json`
 2. เจ้าของ browser ลง extension เองแล้วเปิดสวิตช์ connection ใน popup; agent ไม่ลง extension ให้

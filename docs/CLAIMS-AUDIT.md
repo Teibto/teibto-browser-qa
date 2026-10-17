@@ -366,3 +366,10 @@ the resulting evidence. Do not promote an inferred or unrun condition to `PASS`.
 |---|---|---|
 | Daemon 0.3.2 / extension 0.3.3 is admitted only with both reported protocols exactly 1.3 and boolean `version_skew=false`; unknown pairs and absent/incorrect protocol reports fail before tab creation | verified | `tests/test_bsk_engine.py`: compatible pair, missing/wrong protocol, strict boolean skew, unknown pairs, guard/backstop and evidence assertions; fake CLI only |
 | Daemon 0.3.2 / extension 0.3.3 preserves native dialog behavior and shared-session isolation on the exercised fixture paths | version-pinned | 2026-10-16 Windows, CLI/daemon 0.3.2, extension 0.3.3, both protocols 1.3, Chrome 155: native 20 rounds / 100 checks PASS, daemon PID unchanged; read + guarded confirm PASS; 3 concurrent workers × 2 rounds PASS, all 12 screenshots own-color verified. `qa/issue163/qualification.json` records summary and raw artifact hashes; reproducible shared harness in `self-test/engine2/shared-pair-{dialogs,runner}.py` (argument handling generalized after run). Original ten-case matrix NOT run: destructive session/registry scenarios excluded. No session start/stop. |
+
+## BrowserSkill 0.3.3 pair (#165, 2026-10-18)
+
+| Claim | Evidence class | Evidence / limit |
+|---|---|---|
+| Daemon/extension 0.3.3/0.3.3 requires protocols 1.3 and boolean skew=false; unknown input fails and is not replayed | verified | `tests/test_bsk_engine.py`: admission, missing/incorrect protocols, strict skew, guard/native backstop and unknown-input tests |
+| The pair passes the exercised native-dialog and shared-session fixture paths | version-pinned | `qa/issue165/qualification.json`: CLI 0.3.3, Chrome 155, native 100/100; two runner suites of 8 flows, screenshot ownership 24/24. Daemon PID unchanged. Earlier failed session retained in `previous-attempts.json`; replacement was ensured only after daemon idle expiry. No upstream transport-fix claim and no destructive ten-case matrix. |

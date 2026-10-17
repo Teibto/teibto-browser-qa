@@ -7,6 +7,7 @@ import subprocess
 import sys
 import textwrap
 import unittest
+from unittest import mock
 import uuid
 from pathlib import Path
 
@@ -190,6 +191,39 @@ class BskEngineTests(unittest.TestCase):
         self.assertNotIn("session start", calls)
         self.assertNotIn("session stop", calls)
 
+    def test_033_pair_attaches_and_records_exact_versions(self):
+        env = self.compatible_pair_env()
+        env.update(FAKE_BSK_VERSION="0.3.3", FAKE_BSK_SESSIONS="shared:only-one")
+        process, _, events, calls = self.run_flow(READ_ONLY, env, ["--bsk-session", "shared"])
+        self.assertEqual(process.returncode, 0)
+        self.assertEqual(events[-1]["verdict"], "PASS")
+        ready = next(event for event in events if event["type"] == "session_ready")
+        self.assertEqual(ready["bsk_versions"], {"daemon": "0.3.3", "extension": "0.3.3",
+                         "daemon_protocol": "1.3", "extension_protocol": "1.3", "version_skew": False})
+        self.assertNotIn("session start", calls)
+        self.assertNotIn("session stop", calls)
+
+    def test_033_pair_rejects_invalid_protocol_contract_before_tab_creation(self):
+        env = self.compatible_pair_env()
+        env["FAKE_BSK_VERSION"] = "0.3.3"
+        with mock.patch.object(self, "compatible_pair_env", side_effect=lambda: env.copy()):
+            self.test_compatible_pair_rejects_missing_wrong_or_false_protocol_contract()
+
+    def test_033_pair_keeps_dialog_guard_and_native_backstop(self):
+        env = self.compatible_pair_env()
+        env["FAKE_BSK_VERSION"] = "0.3.3"
+        with mock.patch.object(self, "compatible_pair_env", side_effect=lambda: env.copy()):
+            self.test_compatible_pair_keeps_guard_and_native_dialog_backstop()
+
+    def test_033_pair_never_replays_an_unknown_input(self):
+        env = {**self.compatible_pair_env(), "FAKE_BSK_VERSION": "0.3.3",
+               "FAKE_BSK_EFFECT_UNKNOWN": "click"}
+        _, _, events, calls = self.run_flow(READ_ONLY, env)
+        failed = next(e for e in events if e["type"] == "step_done" and e.get("error"))
+        self.assertEqual(failed["error"]["code"], "BSK_EFFECT_UNKNOWN")
+        self.assertEqual(events[-1]["verdict"], "FAIL")
+        self.assertEqual(sum(call.startswith("click ") for call in calls), 1)
+
     def test_compatible_pair_rejects_missing_wrong_or_false_protocol_contract(self):
         for key, value in (("FAKE_BSK_PROTOCOL", None), ("FAKE_BSK_PROTOCOL", "1.2"),
                            ("FAKE_BSK_EXTENSION_PROTOCOL", None), ("FAKE_BSK_EXTENSION_PROTOCOL", "1.4"),
@@ -208,7 +242,7 @@ class BskEngineTests(unittest.TestCase):
                 self.assertNotIn("tab create", calls)
 
     def test_protocol_compatibility_does_not_authorize_unknown_pairs(self):
-        for daemon, extension in (("0.3.3", "0.3.3"), ("0.3.2", "0.3.4"), ("0.3.3", "0.3.2")):
+        for daemon, extension in (("0.3.4", "0.3.4"), ("0.3.2", "0.3.4"), ("0.3.3", "0.3.2")):
             with self.subTest(daemon=daemon, extension=extension):
                 env = {**self.compatible_pair_env(), "FAKE_BSK_VERSION": daemon,
                        "FAKE_BSK_EXTENSION_VERSION": extension}
