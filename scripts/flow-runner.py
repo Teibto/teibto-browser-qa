@@ -92,7 +92,7 @@ ENGINES = ("cdp", "bsk")
 # self-test/engine2/dialog-test.sh are accepted. Unequal versions need an explicit pair
 # and its exact wire-protocol contract; upstream version_skew=false alone is insufficient.
 BSK_COMPATIBLE_PAIRS = {("0.3.0", "0.3.0"): None, ("0.3.2", "0.3.2"): None,
-                        ("0.3.2", "0.3.3"): "1.3"}
+                        ("0.3.2", "0.3.3"): "1.3", ("0.3.3", "0.3.3"): "1.3"}
 BSK_MUTATING_DIALOGS = {"confirm", "prompt", "beforeunload"}
 # A detached debugger is transient, but only commands that cannot act twice may be retried.
 BSK_RETRY_LIMIT = 2
