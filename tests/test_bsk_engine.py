@@ -224,6 +224,95 @@ class BskEngineTests(unittest.TestCase):
         self.assertEqual(events[-1]["verdict"], "FAIL")
         self.assertEqual(sum(call.startswith("click ") for call in calls), 1)
 
+    def pair_040_env(self):
+        return {"FAKE_BSK_VERSION": "0.4.0", "FAKE_BSK_EXTENSION_VERSION": "0.4.0",
+                "FAKE_BSK_PROTOCOL": "1.7", "FAKE_BSK_EXTENSION_PROTOCOL": "1.7",
+                "FAKE_BSK_VERSION_SKEW": "false", "FAKE_BSK_COOPERATE": "1"}
+
+    def test_040_pair_syncs_a_fresh_context_before_every_page_action(self):
+        env = {**self.pair_040_env(), "FAKE_BSK_SESSIONS": "shared:only-one"}
+        process, _, events, calls = self.run_flow(READ_ONLY, env, ["--bsk-session", "shared"])
+        self.assertEqual(process.returncode, 0, calls)
+        self.assertEqual(events[-1]["verdict"], "PASS")
+        ready = next(event for event in events if event["type"] == "session_ready")
+        self.assertEqual(ready["bsk_versions"], {"daemon": "0.4.0", "extension": "0.4.0",
+                         "daemon_protocol": "1.7", "extension_protocol": "1.7", "version_skew": False})
+        actions = calls.count("context=yes")
+        self.assertGreater(actions, 0)
+        self.assertNotIn("context=none", calls)
+        self.assertEqual(calls.count("cooperate sync"), actions)   # one single-use context each
+        self.assertNotIn("tab=unpinned", calls)
+        self.assertIn("tab close", calls)                          # owned tab closed with a context
+        self.assertNotIn("session stop", calls)
+
+    def test_040_refused_action_is_resynced_and_sent_once_more(self):
+        env = {**self.pair_040_env(), "FAKE_BSK_COOP_REJECT": "click:1"}
+        _, _, events, calls = self.run_flow(READ_ONLY, env)
+        self.assertEqual(events[-1]["verdict"], "PASS")
+        self.assertEqual(sum(call.startswith("click ") for call in calls), 2)
+        self.assertIn("cooperate wait", calls)
+
+    def test_040_tab_create_refused_before_dispatch_is_sent_again(self):
+        env = {**self.pair_040_env(), "FAKE_BSK_COOP_REJECT_TAB_CREATE": "1"}
+        _, _, events, calls = self.run_flow(READ_ONLY, env)
+        self.assertEqual(events[-1]["verdict"], "PASS")
+        self.assertEqual(calls.count("tab create"), 2)
+
+    def test_040_persistent_refusal_fails_without_sending_forever(self):
+        env = {**self.pair_040_env(), "FAKE_BSK_COOP_REJECT": "click:99"}
+        _, _, events, calls = self.run_flow(READ_ONLY, env)
+        failed = next(e for e in events if e["type"] == "step_done" and e.get("error"))
+        self.assertEqual(failed["error"]["code"], "BSK_COOPERATION_HOLD")
+        self.assertEqual(events[-1]["verdict"], "FAIL")
+        self.assertEqual(sum(call.startswith("click ") for call in calls), 4)
+
+    def test_040_pair_never_replays_an_unknown_input(self):
+        env = {**self.pair_040_env(), "FAKE_BSK_EFFECT_UNKNOWN": "click"}
+        _, _, events, calls = self.run_flow(READ_ONLY, env)
+        failed = next(e for e in events if e["type"] == "step_done" and e.get("error"))
+        self.assertEqual(failed["error"]["code"], "BSK_EFFECT_UNKNOWN")
+        self.assertEqual(sum(call.startswith("click ") for call in calls), 1)
+
+    def test_040_own_input_misattributed_to_a_person_is_accepted_once_with_evidence(self):
+        env = {**self.pair_040_env(), "FAKE_BSK_SELF_REVOKE": "click"}
+        _, _, events, calls = self.run_flow(READ_ONLY, env)
+        self.assertEqual(events[-1]["verdict"], "PASS")
+        self.assertEqual(sum(call.startswith("click ") for call in calls), 1)   # never re-sent
+        revoked = events[-1]["session_sharing"]["self_revocations"]
+        self.assertEqual([item["command"] for item in revoked], ["click"])
+
+    def test_040_revocation_outside_bsks_own_window_is_a_person_and_fails(self):
+        env = {**self.pair_040_env(), "FAKE_BSK_SELF_REVOKE": "click", "FAKE_BSK_SELF_REVOKE_SKEW": "50"}
+        _, _, events, calls = self.run_flow(READ_ONLY, env)
+        failed = next(e for e in events if e["type"] == "step_done" and e.get("error"))
+        self.assertEqual(failed["error"]["code"], "BSK_EFFECT_UNKNOWN")
+        self.assertEqual(sum(call.startswith("click ") for call in calls), 1)
+
+    def test_040_native_dialog_is_decided_by_policy_and_never_repeated(self):
+        for policy, answer in (("safe", "dismiss"), ("accept", "accept")):
+            with self.subTest(policy=policy):
+                env = {**self.pair_040_env(), "FAKE_BSK_DIALOG_PENDING": "confirm:Delete?"}
+                _, _, events, calls = self.run_flow(READ_ONLY, env, ["--dialog", policy])
+                self.assertEqual(events[-1]["verdict"], "PASS")
+                self.assertEqual(next(e for e in events if e["type"] == "dialog")["answer"], answer)
+                self.assertIn(f"dialog {answer}", calls)
+                self.assertIn("operation await", calls)
+                self.assertEqual(sum(call.startswith("click ") for call in calls), 1)
+
+    def test_040_dialog_then_lost_coverage_continues_to_the_assertion(self):
+        env = {**self.pair_040_env(), "FAKE_BSK_DIALOG_PENDING": "alert:hi", "FAKE_BSK_AWAIT": "coverage"}
+        _, _, events, calls = self.run_flow(READ_ONLY, env)
+        self.assertEqual(events[-1]["verdict"], "PASS")
+        self.assertEqual(sum(call.startswith("click ") for call in calls), 1)
+
+    def test_040_pair_rejects_invalid_protocol_contract_before_tab_creation(self):
+        with mock.patch.object(self, "compatible_pair_env", side_effect=self.pair_040_env):
+            self.test_compatible_pair_rejects_missing_wrong_or_false_protocol_contract()
+
+    def test_040_pair_keeps_dialog_guard_and_native_backstop(self):
+        with mock.patch.object(self, "compatible_pair_env", side_effect=self.pair_040_env):
+            self.test_compatible_pair_keeps_guard_and_native_dialog_backstop()
+
     def test_compatible_pair_rejects_missing_wrong_or_false_protocol_contract(self):
         for key, value in (("FAKE_BSK_PROTOCOL", None), ("FAKE_BSK_PROTOCOL", "1.2"),
                            ("FAKE_BSK_EXTENSION_PROTOCOL", None), ("FAKE_BSK_EXTENSION_PROTOCOL", "1.4"),
@@ -242,7 +331,8 @@ class BskEngineTests(unittest.TestCase):
                 self.assertNotIn("tab create", calls)
 
     def test_protocol_compatibility_does_not_authorize_unknown_pairs(self):
-        for daemon, extension in (("0.3.4", "0.3.4"), ("0.3.2", "0.3.4"), ("0.3.3", "0.3.2")):
+        for daemon, extension in (("0.3.4", "0.3.4"), ("0.3.2", "0.3.4"), ("0.3.3", "0.3.2"),
+                                  ("0.4.1", "0.4.1"), ("0.3.3", "0.4.0"), ("0.4.0", "0.3.3")):
             with self.subTest(daemon=daemon, extension=extension):
                 env = {**self.compatible_pair_env(), "FAKE_BSK_VERSION": daemon,
                        "FAKE_BSK_EXTENSION_VERSION": extension}

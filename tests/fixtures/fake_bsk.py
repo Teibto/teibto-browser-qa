@@ -31,6 +31,49 @@ def fail(code: str, message: str) -> None:
     raise SystemExit(3)
 
 
+# FAKE_BSK_COOPERATE=1 models bsk 0.4 shared control: a page action without `--context` from
+# `cooperate sync` is refused before dispatch. FAKE_BSK_COOP_REJECT=<command>:<n> refuses the
+# first n context-carrying calls of that command as if the page changed after the sync.
+PASSIVE = {"status", "browsers", "daemon", "session", "window", "cooperate", "snapshot",
+           "screenshot", "console", "dialog", "operation"}
+if os.environ.get("FAKE_BSK_COOPERATE") == "1":
+    if args[0] == "cooperate":
+        reply = {"ready": True}
+        if args[1] == "sync":
+            reply["context_id"] = "ctx-" + uuid.uuid4().hex[:6]
+        elif args[1] == "status" and os.environ.get("FAKE_BSK_SELF_REVOKE"):
+            skew = float(os.environ.get("FAKE_BSK_SELF_REVOKE_SKEW", "0.4"))
+            reply["activity"] = [{"type": "pointerdown", "label": "tab", "attribution": {
+                "expected_type": "pointerdown", "event_timestamp": 1000.0 - skew,
+                "expected_event_time": {"earliest": 1000.0, "latest": 1004.0}}}]
+        print(json.dumps(reply))
+        raise SystemExit(0)
+    # FAKE_BSK_COOP_REJECT_TAB_CREATE=1: the first `tab create` is refused before dispatch because
+    # the session's task tab frame is not responding (seen live on 0.4.0).
+    if (os.environ.get("FAKE_BSK_COOP_REJECT_TAB_CREATE") == "1" and args[:2] == ["tab", "create"] and log
+            and pathlib.Path(log).read_text(encoding="utf-8").splitlines().count("tab create") == 1):
+        print(json.dumps({"code": "permission_denied", "exit_code": 1, "message": "A page frame is not responding",
+                          "data": {"effect_state": "none", "reason": "cooperation_sync_required"}}))
+        raise SystemExit(1)
+    acts = (args[0] == "tab" and args[1] == "close") or (args[0] not in PASSIVE and args[0] != "tab")
+    if acts:
+        if log:
+            with open(log, "a", encoding="utf-8") as handle:
+                handle.write("context=" + ("yes" if "--context" in args else "none") + "\n")
+        reject = os.environ.get("FAKE_BSK_COOP_REJECT", "")
+        reject_command, _, reject_count = reject.partition(":")
+        refused = "--context" not in args
+        if not refused and reject_command == args[0] and log:
+            sent = pathlib.Path(log).read_text(encoding="utf-8").splitlines().count(
+                args[0] + " " + (args[1] if len(args) > 1 else ""))
+            refused = sent <= int(reject_count or "1")
+        if refused:
+            print(json.dumps({"code": "permission_denied", "exit_code": 1,
+                              "message": "This action requires the context returned by the latest cooperate sync",
+                              "data": {"effect_state": "none", "reason": "cooperation_sync_required"}}))
+            raise SystemExit(1)
+
+
 # FAKE_BSK_DETACH_ONCE=<command>: the first call of that command fails like a detached debugger.
 once = os.environ.get("FAKE_BSK_DETACH_ONCE")
 if once == args[0] and log:
@@ -76,6 +119,36 @@ if os.environ.get("FAKE_BSK_EFFECT_UNKNOWN") == args[0]:
                       "data": {"effect_state": "unknown", "reason": "input_cleanup_failed"}, "exit_code": 3}))
     raise SystemExit(3)
 command = args[0]
+# FAKE_BSK_DIALOG_PENDING=<kind>:<message> models bsk >= protocol 1.5: a click that opens a native
+# dialog is suspended (exit 6) until `dialog accept|dismiss`; `operation await` returns its result.
+# FAKE_BSK_AWAIT=coverage makes the await fail like 0.4.0 "Page interaction coverage changed".
+pending = os.environ.get("FAKE_BSK_DIALOG_PENDING")
+if pending and command == "click":
+    kind, message = pending.split(":", 1)
+    print(json.dumps({"code": "dialog_pending", "exit_code": 6,
+                      "message": "Original operation is suspended for a dialog decision; do not repeat it",
+                      "data": {"dialog": {"id": "dlg-1", "type": kind, "message": message, "sequence": 1},
+                               "dispatched": True, "operation_id": "op-1", "reason": "dialog_pending"}}))
+    raise SystemExit(6)
+if pending and command == "dialog":
+    print(json.dumps({"dialog": {"handled": "accepted" if args[1] == "accept" else "dismissed"}}))
+    raise SystemExit(0)
+if pending and command == "operation":
+    if os.environ.get("FAKE_BSK_AWAIT") == "coverage":
+        print(json.dumps({"state": "failed", "operation_id": "op-1", "error": {
+            "code": "permission_denied", "message": "Page interaction coverage changed; wait and synchronize",
+            "data": {"effect_state": "unknown", "reason": "cooperation_sync_required"}}}))
+    else:
+        print(json.dumps({"state": "completed", "operation_id": "op-1",
+                          "result": {"used_selector": "#tab"}}))
+    raise SystemExit(0)
+# FAKE_BSK_SELF_REVOKE=<command> models the 0.4.0 mis-attribution: the action lands but is reported
+# as revoked by user activity; `cooperate status` then shows bsk's own expected-input attribution.
+# FAKE_BSK_SELF_REVOKE_SKEW=<ms> moves the event that far before the expected window.
+if os.environ.get("FAKE_BSK_SELF_REVOKE") == command:
+    print(json.dumps({"code": "permission_denied", "exit_code": 1, "message": "User activity revoked this action",
+                      "data": {"effect_state": "unknown", "reason": "cooperation_sync_required"}}))
+    raise SystemExit(1)
 
 
 def flag(name: str) -> str:

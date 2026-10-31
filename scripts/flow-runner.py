@@ -33,6 +33,7 @@ from jsonschema import Draft202012Validator
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))   # scripts/ is importable when run by path
 from bsk_lease import LeaseTimeout, SessionLease  # noqa: E402
+import bsk_coop  # noqa: E402
 
 try:
     sys.stdout.reconfigure(encoding="utf-8")
@@ -92,7 +93,8 @@ ENGINES = ("cdp", "bsk")
 # self-test/engine2/dialog-test.sh are accepted. Unequal versions need an explicit pair
 # and its exact wire-protocol contract; upstream version_skew=false alone is insufficient.
 BSK_COMPATIBLE_PAIRS = {("0.3.0", "0.3.0"): None, ("0.3.2", "0.3.2"): None,
-                        ("0.3.2", "0.3.3"): "1.3", ("0.3.3", "0.3.3"): "1.3"}
+                        ("0.3.2", "0.3.3"): "1.3", ("0.3.3", "0.3.3"): "1.3",
+                        ("0.4.0", "0.4.0"): "1.7"}
 BSK_MUTATING_DIALOGS = {"confirm", "prompt", "beforeunload"}
 # A detached debugger is transient, but only commands that cannot act twice may be retried.
 BSK_RETRY_LIMIT = 2
@@ -597,6 +599,7 @@ class BskSession:
         self.held_lease: SessionLease | None = None
         self.lease_wait_ms = 0.0
         self.busy_waits = 0
+        self.self_revocations: list[dict[str, Any]] = []
         self.console_since = 0
         status = self._cli(["status"])
         browsers = self._cli(["browsers"])
@@ -673,12 +676,86 @@ class BskSession:
             command += ["--session", self.session_id]
         if self.tab_id and args[0] not in BSK_SESSION_SCOPED:
             command += ["--tab-id", self.tab_id]
+        # bsk 0.4 (protocol 1.7): a page action needs a fresh single-use context from
+        # `cooperate sync`; sync and action run under one lease so no peer can act in between.
+        coop = bool(self.session_id and self.tab_id) and bsk_coop.needs_context(args)
+        with self._critical() if coop else contextlib.nullcontext():
+            return self._cli_loop(args, command, env, timeout, idempotent, coop)
+
+    def _coop_run(self, args: list[str]) -> tuple[int, str, str]:
+        """Raw `cooperate` call on our own tab; the caller already holds the lease."""
+        env = os.environ.copy()
+        env["BSK_AUTO_START"] = "0"
+        try:
+            done = subprocess.run([*self.bsk, *args, "--session", str(self.session_id),
+                                   "--tab-id", str(self.tab_id)], capture_output=True, text=True,
+                                  encoding="utf-8", errors="replace", env=env,
+                                  timeout=self.request_timeout)
+        except subprocess.TimeoutExpired:
+            return 1, "", "timeout"
+        return done.returncode, done.stdout, done.stderr
+
+    def _session_cli(self, args: list[str]) -> tuple[int, Any]:
+        env = os.environ.copy()
+        env["BSK_AUTO_START"] = "0"
+        try:
+            done = subprocess.run([*self.bsk, *args, "--json", "--session", str(self.session_id)],
+                                  capture_output=True, text=True, encoding="utf-8", errors="replace",
+                                  env=env, timeout=self.request_timeout)
+        except subprocess.TimeoutExpired:
+            return 1, {}
+        try:
+            return done.returncode, json.loads(done.stdout or done.stderr)
+        except ValueError:
+            return done.returncode, {}
+
+    def _decide_native_dialog(self, command: str, text: str) -> dict[str, Any]:
+        try:
+            data = json.loads(text).get("data") or {}
+        except ValueError:
+            data = {}
+        operation = data.get("operation_id")
+        for _ in range(4):                      # each further dialog of the same operation needs a decision
+            dialog = data.get("dialog") or {}
+            kind, message = str(dialog.get("type")), str(dialog.get("message"))
+            answer = ("accept" if kind == "alert" or self.dialog_policy == "accept" else "dismiss")
+            code, _ = self._session_cli(["dialog", answer, str(dialog.get("id"))])
+            if code != 0:
+                raise RunnerError("BSK_EFFECT_UNKNOWN",
+                                  f"bsk {command} ค้างที่ native {kind} และตัดสิน dialog ไม่สำเร็จ — "
+                                  "ห้ามสั่งซ้ำ ให้ตรวจหน้าเว็บก่อน")
+            self.dialogs.put({"kind": kind, "message": message, "answer": answer,
+                              "line": f"[dialog] {kind}: {message} -> {answer}"})
+            if not operation:
+                return {}
+            code, awaited = self._session_cli(["operation", "await", str(operation)])
+            state = awaited.get("state") if isinstance(awaited, dict) else None
+            if state == "completed":
+                result = awaited.get("result")
+                return result if isinstance(result, dict) else {}
+            if code == 6 or (isinstance(awaited, dict) and (awaited.get("data") or {}).get("dialog")):
+                data = awaited.get("data") or awaited
+                continue
+            error = (awaited.get("error") or {}) if isinstance(awaited, dict) else {}
+            if state == "failed" and (error.get("data") or {}).get("reason") == "cooperation_sync_required":
+                # The dialog proves the action ran; bsk only lost its coverage when the page changed
+                # under the dialog. The step's assertion verifies the outcome.
+                return {}
+            raise RunnerError("BSK_EFFECT_UNKNOWN",
+                              f"bsk {command} หลังตัดสิน native {kind} ไม่ได้ผลยืนยัน (state={state}) — "
+                              f"ห้ามสั่งซ้ำ: {json.dumps(awaited, ensure_ascii=False)[:300]}")
+        raise RunnerError("BSK_EFFECT_UNKNOWN", f"bsk {command} เปิด native dialog ต่อเนื่องเกินกำหนด — ห้ามสั่งซ้ำ")
+
+    def _cli_loop(self, args: list[str], command: list[str], env: dict[str, str],
+                  timeout: float | None, idempotent: bool, coop: bool) -> Any:
         self.attempts = 0
+        syncs = 0
         busy_deadline = time.monotonic() + BSK_BUSY_RETRY_SECONDS
         while True:
             self.attempts += 1
+            sent = command + (bsk_coop.context_args(self._coop_run) if coop else [])
             try:
-                done = self._dispatch(command, env, timeout or self.request_timeout)
+                done = self._dispatch(sent, env, timeout or self.request_timeout)
             except subprocess.TimeoutExpired as exc:
                 raise RunnerError("SESSION_TIMEOUT", f"bsk {args[0]} ไม่ตอบภายในเวลาที่กำหนด") from exc
             except LeaseTimeout as exc:
@@ -698,6 +775,22 @@ class BskSession:
                                       f"{BSK_BUSY_RETRY_SECONDS:.0f}s — มี agent อื่นขับ session เดียวกันอยู่")
                 time.sleep(0.25)
                 continue
+            compact = text.replace(" ", "").replace("\n", "")
+            if bsk_coop.sync_required(text) and '"effect_state":"none"' in compact:
+                # Refused before dispatch (page changed since sync, a person holds the tab, or the
+                # task tab's frame is not responding yet — `tab create` too): nothing ran, so wait,
+                # take a new context where one applies and send the same command again.
+                self.attempts -= 1
+                syncs += 1
+                if syncs > bsk_coop.COOP_RETRIES:
+                    raise RunnerError("BSK_COOPERATION_HOLD",
+                                      f"bsk {args[0]} ถูกปฏิเสธเพราะหน้าเปลี่ยนหรือมีคนถือ tab อยู่ "
+                                      f"{syncs} ครั้งติด (ยังไม่ได้ส่ง action): {text[:300]}")
+                if coop:
+                    bsk_coop.wait(self._coop_run)
+                else:
+                    time.sleep(1.0)
+                continue
             if "No tab with id" in text:
                 # Our own tab was closed under us. Whatever ran last may or may not have landed.
                 raise RunnerError("BSK_TAB_LOST",
@@ -712,6 +805,18 @@ class BskSession:
                 raise RunnerError("BSK_SESSION_LOST",
                                   f"bsk session หายระหว่าง {args[0]} (Agent Window ถูกปิด?) — ผลของ action ล่าสุด"
                                   "ไม่ทราบ ห้ามรันซ้ำโดยไม่ตรวจกับ backend ก่อน")
+            if '"reason":"dialog_pending"' in compact:
+                # bsk >= protocol 1.5 suspends the action on a native dialog the guard missed and
+                # waits for a decision. Decide by policy, then collect the ORIGINAL result; the
+                # action is already running and is never sent again.
+                return self._decide_native_dialog(args[0], text)
+            if coop and bsk_coop.SELF_REVOKED in text and '"effect_state":"unknown"' in compact:
+                own = bsk_coop.self_revocation(self._coop_run)
+                if own is not None:
+                    # bsk 0.4.0 mis-attributed our own input to a person (#167). It was delivered
+                    # once; accept it without re-sending and keep the evidence for the report.
+                    self.self_revocations.append({"command": args[0], "activity": own})
+                    return {"self_revoked": True}
             if '"effect_state":"unknown"' in text.replace(" ", ""):
                 # The input was dispatched but bsk could not confirm it (e.g. input_cleanup_failed while
                 # the page was already navigating). Re-issuing it could act twice.
@@ -1600,7 +1705,8 @@ def run_flow(flow: dict[str, Any], path: Path, output_dir: Path, variables: dict
                "startup_ms": startup_ms,
                # How much of the run was spent queueing behind other processes on a shared session.
                **({"session_sharing": {"lease_wait_ms": getattr(session, "lease_wait_ms", 0.0),
-                                       "busy_waits": getattr(session, "busy_waits", 0)}}
+                                       "busy_waits": getattr(session, "busy_waits", 0),
+                                       "self_revocations": getattr(session, "self_revocations", [])}}
                   if engine == "bsk" else {}),
                "report": str(report_path.resolve())})
     return 0 if verdict == "PASS" else 1
