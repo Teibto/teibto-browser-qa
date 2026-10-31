@@ -38,6 +38,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))   # scripts/ is importable when run by path
 from bsk_lease import SessionLease  # noqa: E402
+import bsk_coop  # noqa: E402
 
 try:
     sys.stdout.reconfigure(encoding="utf-8")
@@ -360,18 +361,34 @@ class BskDriver:
             if not self.tab_id:
                 raise LoginError("BSK_FAILED", "bsk tab create ไม่คืน tab_id")
 
-    def _cli(self, args: list[str], *, tab: bool = True, timeout: float = 90.0) -> dict:
-        command = [*self.bsk, *args, "--json", "--session", self.session]
-        if tab:
+    def _raw(self, argv: list[str], *, tab: bool, timeout: float) -> tuple[int, str, str]:
+        command = [*self.bsk, *argv]
+        if "--json" not in argv:
+            command.append("--json")
+        command += ["--session", self.session]
+        if tab and self.tab_id:
             command += ["--tab-id", self.tab_id]
         env = {**os.environ, "BSK_AUTO_START": "0"}
+        done = subprocess.run(command, capture_output=True, text=True, encoding="utf-8",
+                              errors="replace", env=env, timeout=timeout)
+        return done.returncode, done.stdout, done.stderr
+
+    def _cli(self, args: list[str], *, tab: bool = True, timeout: float = 90.0) -> dict:
+        # bsk 0.4: page actions need a fresh `cooperate sync` context (scripts/bsk_coop.py);
+        # sync and action share one lease so no peer acts in between.
         with SessionLease(self.session):
-            done = subprocess.run(command, capture_output=True, text=True, encoding="utf-8",
-                                  errors="replace", env=env, timeout=timeout)
-        if done.returncode != 0:
-            raise RuntimeError(f"bsk {args[0]}: {(done.stderr or done.stdout).strip()[-300:]}")
+            code, out, err = bsk_coop.dispatch(
+                lambda argv: self._raw(argv, tab=tab or argv[0] == "cooperate", timeout=timeout), args)
+            if code != 0:
+                pending = bsk_coop.dismiss_pending(
+                    lambda argv: self._raw(argv, tab=False, timeout=timeout), err or out)
+                if pending is not None:
+                    raise RuntimeError(f"bsk {args[0]} เปิด native {pending.get('type')} "
+                                       f"\"{pending.get('message')}\" — dismiss แล้ว ผลของ action ไม่ทราบ ห้ามสั่งซ้ำ")
+        if code != 0:
+            raise RuntimeError(f"bsk {args[0]}: {(err or out).strip()[-300:]}")
         try:
-            return json.loads(done.stdout) if done.stdout.strip() else {}
+            return json.loads(out) if out.strip() else {}
         except ValueError as exc:
             raise RuntimeError(f"bsk {args[0]} คืนค่าที่ไม่ใช่ JSON") from exc
 

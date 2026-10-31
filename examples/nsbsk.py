@@ -64,6 +64,7 @@ def _load_script(filename, name):
 
 
 _lease = _load_script("bsk_lease.py", "bsk_lease")
+_coop = _load_script("bsk_coop.py", "bsk_coop")
 _login = _load_script("bsk-login.py", "bsk_login")
 
 
@@ -141,21 +142,38 @@ class Session:
     def __exit__(self, *exc):
         self.close()
 
-    def run(self, args, *, idempotent, timeout=120):
-        cmd = ["bsk", *args, "--json"] + (["--session", self.sid] if self.sid and args[0] != "session" else [])
-        if self.tab_id and args[0] not in self.SESSION_COMMANDS:
+    def _raw(self, argv, *, tab, timeout):
+        cmd = ["bsk", *argv] + ([] if "--json" in argv else ["--json"])
+        cmd += ["--session", self.sid] if self.sid and argv[0] != "session" else []
+        if tab and self.tab_id:
             cmd += ["--tab-id", self.tab_id]
+        done = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace",
+                              timeout=timeout, env=_ENV)
+        return done.returncode, done.stdout, done.stderr
+
+    def run(self, args, *, idempotent, timeout=120):
+        pinned = args[0] not in self.SESSION_COMMANDS
         for attempt in (1, 2, 3):
             self.calls += 1
             with (_lease.SessionLease(self.sid) if (self.sid and not self.owns_session) else _NoLock()):
-                done = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace",
-                                      timeout=timeout, env=_ENV)
-            if done.returncode == 0:
-                result = json.loads(done.stdout) if done.stdout.strip() else {}
+                # bsk 0.4: page actions carry a fresh `cooperate sync` context (scripts/bsk_coop.py)
+                code, out, err = _coop.dispatch(
+                    lambda argv: self._raw(argv, tab=pinned or argv[0] == "cooperate", timeout=timeout), args)
+                pending = None if code == 0 else _coop.dismiss_pending(
+                    lambda argv: self._raw(argv, tab=False, timeout=timeout), err or out)
+            if code == 0:
+                result = json.loads(out) if out.strip() else {}
                 for item in (result.get("dialogs") or []) if isinstance(result, dict) else []:
                     self.dialogs.append({k: item.get(k) for k in ("type", "message", "handled")})
+                if isinstance(result, dict) and result.get("self_revoked"):
+                    self.self_revocations = getattr(self, "self_revocations", 0) + 1
                 return result
-            text = (done.stderr or done.stdout)[-500:]
+            if pending is not None:
+                self.dialogs.append({"type": pending.get("type"), "message": pending.get("message"),
+                                     "handled": "dismissed"})
+                raise EffectUnknown(f"bsk {args[0]}: native {pending.get('type')} dismissed — "
+                                    "the action ran; observe the page, never re-issue it")
+            text = (err or out)[-500:]
             if "session not registered" in text or "no active tab in Agent Window" in text:
                 raise SessionLost(f"bsk {args[0]}: session/tab lost — effect of the last mutating action is UNKNOWN")
             if '"effect_state":"unknown"' in text.replace(" ", ""):
@@ -297,8 +315,8 @@ class Session:
         if self.sid and not self.owns_session:
             if self.tab_id:          # shared window: close only our own tab, leave the session to its owner
                 with _lease.SessionLease(self.sid):
-                    subprocess.run(["bsk", "tab", "close", self.tab_id, "--session", self.sid, "--quiet"],
-                                   env=_ENV, capture_output=True, timeout=30)
+                    _coop.dispatch(lambda argv: self._raw(argv, tab=argv[0] == "cooperate", timeout=30),
+                                   ["tab", "close", self.tab_id])
             self.sid = self.tab_id = None
             return
         if self.sid:

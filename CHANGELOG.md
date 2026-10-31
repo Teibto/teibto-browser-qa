@@ -12,6 +12,22 @@
 
 ### Fixed
 
+- **BrowserSkill 0.4.0 (#167).** `bsk update` and the Web Store extension moved machines to
+  daemon/extension 0.4.0 (protocol 1.7). The runner used to stop every bsk run with
+  `DRIVER_INCOMPATIBLE`, and the extension refuses 0.3.x daemons, so there is no way back.
+  Admit exactly 0.4.0/0.4.0 with both protocols 1.7 and boolean `version_skew=false`. The new
+  `scripts/bsk_coop.py` is shared by the runner, `bsk-login.py`, `examples/nsbsk.py` and the
+  dialog harness:
+  - Each page action gets a fresh single-use `cooperate sync` context under the session lease.
+  - A refusal made before dispatch (`cooperation_sync_required` with `effect_state: none`) is
+    waited out and sent again, at most 3 times (`BSK_COOPERATION_HOLD`). This includes `tab create`.
+  - A native dialog that suspends an action (`dialog_pending`) is decided by `--dialog` and its
+    original result is collected with `operation await`. A beforeunload closure that bsk cannot
+    confirm counts as applied only when that await completed.
+  - An upstream bug revokes the agent's own click as "User activity" (~17–30% of clicks). Such a
+    click was delivered exactly once, so it is accepted only when every activity matches bsk's
+    own expected input within 5 ms. These are recorded in `run_done.session_sharing.self_revocations`.
+  - Nothing is ever re-sent after an unknown effect. Live evidence is in `qa/issue167/`.
 - Admit the qualified BrowserSkill daemon/extension 0.3.3/0.3.3 pair only with both
   protocols 1.3 and boolean `version_skew=false` (#165). Preserve unknown-input failure
   and no-replay behavior. Shared-session qualification and earlier failed attempts are

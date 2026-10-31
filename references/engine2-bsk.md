@@ -4,7 +4,7 @@
 กับดักใน [`gotchas.md`](gotchas.md) เป็นของ direct CDP และไม่ได้ย้ายตามมาเอง. ทุกตัวเลขข้างล่างวัดกับ
 `bsk` 0.3.0 + Chrome 152 บน Windows (เว้นแต่แถวที่ระบุรุ่นอื่น) และมีแถวใน `docs/CLAIMS-AUDIT.md` — ขยับรุ่นแล้วต้องวัดใหม่.
 คู่ daemon/extension ที่ runner ระบุใน `BSK_COMPATIBLE_PAIRS`: **0.3.0/0.3.0**, **0.3.2/0.3.2**
-และ **0.3.2/0.3.3** (#163), **0.3.3/0.3.3** (#165). สองคู่หลังต้องรายงาน `status.protocol_version="1.3"`,
+และ **0.3.2/0.3.3** (#163), **0.3.3/0.3.3** (#165), **0.4.0/0.4.0** (#167, protocol `1.7` — ดูหัวข้อ 0.4.0 ด้านล่าง). สองคู่ 0.3.x หลังต้องรายงาน `status.protocol_version="1.3"`,
 `browsers[].extension_protocol_version="1.3"` และ `browsers[].version_skew=false` (boolean จริง)
 จาก browser ที่เลือก; ขาดค่า/ไม่ตรงให้หยุดก่อนสร้าง tab. คู่ที่ไม่ระบุยังถูกปฏิเสธ แม้ protocol ตรง.
 คู่ 0.3.2/0.3.3 ผ่าน native dialog 20 รอบ, runner read/confirm และ shared-session 6 flows
@@ -21,6 +21,23 @@
 input outcome unknown และ RPC timeout; เก็บเป็น FAIL ในหลักฐาน ไม่อ้างว่าแก้ transport ของ upstream.
 เมื่อเกิดอาการนี้ต้องตรวจผล action ก่อน ไม่คลิกซ้ำ ไม่ restart daemon หรือเปลี่ยน session ที่ยังมีคนใช้.
 ใช้ `bsk-shared.py ensure` เมื่อ coordinator ตรวจว่า session เดิมหมดอายุจริงเท่านั้น.
+
+### bsk 0.4.0 (protocol 1.7) — สิ่งที่เปลี่ยนและ runner รับมือแล้ว (#167)
+
+คู่ **0.4.0/0.4.0** ต้องรายงาน protocol `1.7` ทั้งสองฝั่ง และ `version_skew=false`. ถอยกลับ 0.3.x ไม่ได้:
+extension 0.4.0 (อัปเดตเองจาก Web Store) เตะ daemon ที่ protocol ต่ำกว่า 1.6 ออก
+(`kicked: local protocol 1.3 is below peer min_compatible_protocol 1.6` ใน `bsk logs`).
+โค้ดทุกตัวในแพ็กเกจนี้ส่งคำสั่งผ่าน `scripts/bsk_coop.py` อยู่แล้ว ส่วนสคริปต์ที่เรียก `bsk` ตรงต้องทำตามตารางนี้เอง.
+
+| สิ่งที่เปลี่ยน (วัดกับ 0.4.0 · Chrome 156 · Windows · 2026-10-31) | ผลต่อการใช้งาน |
+|---|---|
+| ทุก page action (`navigate` ครั้งที่สองเป็นต้นไป, `evaluate`, `click`, `fill`, `select`, `press`, `tab close`) ต้องมี `--context <id>` จาก `bsk cooperate sync --tab-id <tab>` ล่าสุด และ context ใช้ได้ **ครั้งเดียว**. ไม่มี context จะถูกปฏิเสธด้วย `reason: cooperation_sync_required`, `effect_state: none` | sync ก่อน action ทุกครั้ง ใน lease เดียวกับ action. คำสั่งที่อ่านอย่างเดียว (`snapshot`, `screenshot`, `console`, `tab create/list/select`) ไม่ต้องใช้ context. ถ้าถูกปฏิเสธด้วย `effect_state: none` แปลว่า action ยังไม่ได้ส่ง ให้ `cooperate wait` แล้ว sync และส่งใหม่ได้ (runner ทำสูงสุด 3 ครั้ง ถ้ายังไม่ผ่านจะล้มด้วย `BSK_COOPERATION_HOLD`) |
+| `cooperate sync` บน `about:blank` ล้มด้วย `Receiving end does not exist` และบน tab พื้นหลังบางครั้งได้ `A page frame is not responding` | ใช้ `--settle` (bsk รอแล้ว sync ใหม่เอง โดยไม่ส่ง action ซ้ำ). ถ้า sync ไม่ได้ context ให้ส่ง action ไปโดยไม่มี context แล้วให้ daemon เป็นคนตัดสิน · `navigate` ครั้งแรกจาก `about:blank` ไม่ต้องใช้ context · `tab create` เองก็ถูกปฏิเสธก่อน dispatch ได้เมื่อ frame ของ task tab ไม่ตอบ จึงรอแล้วส่งใหม่ได้เช่นกัน |
+| native dialog ไม่ถูก accept อัตโนมัติแล้ว: action ถูกพักไว้และคืน `dialog_pending` (exit 6) พร้อม `data.dialog.id` และ `data.operation_id` | ห้ามส่ง action ซ้ำ. ตัดสินด้วย `bsk dialog accept\|dismiss <id>` แล้วเก็บผลเดิมด้วย `bsk operation await <op>`. runner ตัดสินตาม `--dialog` (`safe`/`dismiss` = dismiss confirm/prompt/beforeunload, alert = accept). ถ้าไม่ตัดสินภายใน 60 วินาที bsk จะปฏิเสธ modal เองและ session จะค้างรอจนถึงตอนนั้น |
+| หลังตัดสิน dialog แล้ว `operation await` อาจได้ `state: failed` + `Page interaction coverage changed` (`effect_state: unknown`) ทั้งที่ click ไปถึงหน้าเว็บแล้ว | dialog เป็นหลักฐานว่า action ทำงานไปแล้ว runner จึงไปต่อที่ assertion ของ step โดยไม่ส่งซ้ำ |
+| **บั๊ก upstream:** click ของ agent เองถูก revoke ด้วย `User activity revoked this action` (`effect_state: unknown`) ราว 17–30% ของ click. `cooperate status` แสดง `pointerdown` ที่ bsk เองคาดไว้ แต่ประทับเวลาไว้ก่อนช่วงที่คาดราว 0.4 ms. ไม่เกี่ยวกับคน: เกิดทั้งที่เครื่อง idle 45–113 วินาที | probe 30 click: click ที่ถูก revoke ทั้ง 5 ครั้งส่ง pointerdown/up/click ถึงหน้าเว็บครบครั้งเดียว. runner รับกรณีนี้ **เฉพาะเมื่อ** ทุก activity เป็น event ชนิดเดียวกับที่ bsk คาดไว้ และห่างจากช่วงที่คาดไม่เกิน 5 ms. รับแล้วไม่ส่งซ้ำ และบันทึกไว้ใน `run_done.session_sharing.self_revocations`. กรณีอื่นยังเป็น `BSK_EFFECT_UNKNOWN` ตามเดิม |
+| click ที่หน้าเว็บเปลี่ยน DOM ทันที บางครั้งได้ `The action's observed content changed; synchronize and replan` แบบ effect unknown (1 ใน 24 flow ของ qualification ตอนรัน 3 workers พร้อมกัน) | ยังเป็น `BSK_EFFECT_UNKNOWN` ห้ามสั่งซ้ำ ให้ดูหน้าเว็บก่อน. runner ไม่เดาให้ เพราะไม่มีหลักฐาน attribution แบบกรณีข้างบน |
+| `IPC read timed out` / `daemon IPC probe timed out after 500ms` เกิดเป็นพัก ๆ ทั้งที่ daemon PID เดิมยังอยู่ | เป็นอาการชั่วคราว ให้ลองคำสั่งอ่านอย่างเดียวใหม่ภายหลัง ห้าม restart daemon |
 
 ## การเลือก engine และการอัปเดต
 
@@ -39,7 +56,8 @@ engine ระบุหรือเมื่อผู้ใช้เลือก.
 
 ## 1. ตั้งเครื่อง (ครั้งเดียว)
 
-1. ติดตั้ง CLI แบบ pin รุ่น: รัน `install.ps1` ของ upstream โดยตั้ง `BSK_VERSION=0.3.3` (รุ่นล่าสุดที่ runner รับ)
+1. ติดตั้ง CLI แบบ pin รุ่น: รัน `install.ps1` ของ upstream โดยตั้ง `BSK_VERSION=0.4.0` (รุ่นล่าสุดที่ runner รับ;
+   daemon รัน `bsk update` เองเป็นระยะ ถ้าได้รุ่นที่ยังไม่อยู่ใน `BSK_COMPATIBLE_PAIRS` runner จะหยุดด้วย `DRIVER_INCOMPATIBLE` จนกว่าจะ qualify รุ่นนั้น)
    · เพิ่มรุ่นใหม่ในรายการได้เมื่อ `dialog-test.sh` (นโยบายตรง), `runner-test.sh` และ `contention-matrix.py` ผ่านกับรุ่นนั้น
    · extension ของโปรไฟล์ทดสอบอัปเดตจาก Web Store แต่ใช้ผลหลังปิด-เปิด Chrome โปรไฟล์นั้น — ดูรุ่นด้วย `bsk browsers --json`
 2. เจ้าของ browser ลง extension เองแล้วเปิดสวิตช์ connection ใน popup; agent ไม่ลง extension ให้
@@ -126,7 +144,8 @@ python scripts/bsk-account.py status                   # ทุก account: port
 
 ## 3. ด่านขั้นต่ำของสคริปต์ที่เปลี่ยนข้อมูลผ่าน `bsk`
 
-`bsk` ตอบ **accept** ให้ dialog ทุกชนิดและปิดไม่ได้ (`self-test/engine2/dialog-test.sh`). สคริปต์จึงต้อง:
+`bsk` 0.3.x ตอบ **accept** ให้ dialog ทุกชนิดและปิดไม่ได้ (`self-test/engine2/dialog-test.sh`). ตั้งแต่ 0.4.0 action จะค้างที่
+`dialog_pending` จนกว่าจะตัดสิน (หัวข้อ 0.4.0 ข้างบน) แต่ด่านในหน้าเว็บยังเป็นด่านหลัก เพราะ dialog ที่ไม่เคยเปิดย่อมไม่ทำให้ session ค้าง. สคริปต์จึงต้อง:
 
 1. **Identity gate ก่อนทุก save** — อ่าน account + environment จากหน้า (NetSuite: `nlapiGetContext().getCompany()` และ
    `.getEnvironment()==='SANDBOX'`) แล้วหยุดถ้าไม่ตรง. ด่านนี้จับกรณี session หลุดได้ด้วย: หน้า Log In ไม่มี `nlapiGetContext`
