@@ -55,11 +55,21 @@ def click_and_decide(kind):
  while data.get('reason')=='dialog_pending' or data.get('dialog'):
   dialog=data.get('dialog') or {}
   decided=parse(*raw(['dialog','accept',str(dialog.get('id'))],False))
-  decisions.append({'type':dialog.get('type'),'handled':(decided.get('dialog') or {}).get('handled')})
+  decisions.append({'id':dialog.get('id'),'type':dialog.get('type'),'handled':(decided.get('dialog') or {}).get('handled'),
+                    'error':None if decided.get('dialog') else str(decided.get('message') or decided)[:160]})
   awaited=parse(*raw(['operation','await',str(operation)],False))
   state=awaited.get('state')
   data=(awaited.get('data') or {}) if awaited.get('code')=='dialog_pending' else {}
- return {'path':'decided','reports':[d['handled'] for d in decisions],'types':[d['type'] for d in decisions],'await':state}
+ # A refused decision leaves the same dialog pending, so it is decided again (never the click).
+ # Pass only when exactly one dialog instance existed and its final decision was accepted.
+ ids={d['id'] for d in decisions}
+ # Accepting beforeunload unloads the page, so bsk can answer "Browser did not confirm dialog
+ # closure" although the decision applied; a completed await of the original operation proves it.
+ if decisions and decisions[-1]['handled'] is None and state=='completed' and 'did not confirm dialog closure' in (decisions[-1]['error'] or ''):
+  decisions[-1]['handled']='accepted'
+ final=[decisions[-1]['handled']] if decisions and len(ids)==1 else [d['handled'] for d in decisions]
+ return {'path':'decided','reports':final,'types':sorted({d['type'] for d in decisions}),'await':state,
+         'decision_attempts':len(decisions),'decision_errors':[d['error'] for d in decisions if d['error']]}
 checks=[];tab=None
 try:
  with SessionLease(SID):

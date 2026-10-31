@@ -130,6 +130,9 @@ if pending and command == "click":
                       "data": {"dialog": {"id": "dlg-1", "type": kind, "message": message, "sequence": 1},
                                "dispatched": True, "operation_id": "op-1", "reason": "dialog_pending"}}))
     raise SystemExit(6)
+if pending and command == "dialog" and os.environ.get("FAKE_BSK_DECIDE_UNCONFIRMED") == "1":
+    print(json.dumps({"code": "cdp_failed", "exit_code": 3, "message": "Browser did not confirm dialog closure"}))
+    raise SystemExit(3)
 if pending and command == "dialog":
     print(json.dumps({"dialog": {"handled": "accepted" if args[1] == "accept" else "dismissed"}}))
     raise SystemExit(0)

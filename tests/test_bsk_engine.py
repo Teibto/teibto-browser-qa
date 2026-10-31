@@ -299,6 +299,15 @@ class BskEngineTests(unittest.TestCase):
                 self.assertIn("operation await", calls)
                 self.assertEqual(sum(call.startswith("click ") for call in calls), 1)
 
+    def test_040_unconfirmed_dialog_closure_with_completed_operation_is_applied(self):
+        env = {**self.pair_040_env(), "FAKE_BSK_DIALOG_PENDING": "beforeunload:Leave?",
+               "FAKE_BSK_DECIDE_UNCONFIRMED": "1"}
+        _, _, events, calls = self.run_flow(READ_ONLY, env, ["--dialog", "accept"])
+        self.assertEqual(events[-1]["verdict"], "PASS")
+        dialog = next(e for e in events if e["type"] == "dialog")
+        self.assertIn("closure unconfirmed", dialog["line"])
+        self.assertEqual(sum(call.startswith("click ") for call in calls), 1)
+
     def test_040_dialog_then_lost_coverage_continues_to_the_assertion(self):
         env = {**self.pair_040_env(), "FAKE_BSK_DIALOG_PENDING": "alert:hi", "FAKE_BSK_AWAIT": "coverage"}
         _, _, events, calls = self.run_flow(READ_ONLY, env)

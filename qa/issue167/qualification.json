@@ -1,0 +1,268 @@
+{
+  "status": "PASS",
+  "evidence_class": "version-pinned",
+  "date": "2026-10-31",
+  "versions": {
+    "daemon": "0.4.0",
+    "extension": "0.4.0",
+    "daemon_protocol": "1.7",
+    "extension_protocol": "1.7",
+    "version_skew": false
+  },
+  "cli": "0.4.0",
+  "browser": "Chrome 156.0.0.0",
+  "platform": "Windows 11",
+  "native_checks_passed": 100,
+  "native_checks_total": 100,
+  "native_dialogs_decided_by_agent": 80,
+  "native_dialogs_auto_accepted": 0,
+  "daemon_pid_unchanged": true,
+  "scope": "Existing shared session gsyi; owned tabs and shared lease. Original destructive ten-case contention matrix not run (session loss, registry corruption and killed-holder excluded).",
+  "native_log_sha256": "29cae4cc956bae24c37b15c624e8a8bd68c57540a737929798e7ff04882e06cb",
+  "runs": [
+    {
+      "suite": "A",
+      "flow": "read",
+      "verdict": "PASS",
+      "passed": 2,
+      "duration_ms": 3968.728,
+      "lease_wait_ms": 31.0,
+      "self_revocations": 0,
+      "dialogs": 1,
+      "screenshot_owner": null,
+      "log_sha256": "5b41f0b05fc6cb2bb91c79410847de86cb8688e56e08a84eeeb4337410da3456"
+    },
+    {
+      "suite": "A",
+      "flow": "confirm",
+      "verdict": "PASS",
+      "passed": 1,
+      "duration_ms": 3235.282,
+      "lease_wait_ms": 0.0,
+      "self_revocations": 0,
+      "dialogs": 1,
+      "screenshot_owner": null,
+      "log_sha256": "c27483973abf783122a7882eff922da1cc329524f68d2d8e8ea9cedf01d163d2"
+    },
+    {
+      "suite": "A",
+      "flow": "contention-0-A",
+      "verdict": "PASS",
+      "passed": 2,
+      "duration_ms": 8191.523,
+      "lease_wait_ms": 4156.0,
+      "self_revocations": 0,
+      "dialogs": 0,
+      "screenshot_owner": "A",
+      "log_sha256": "260998de67c6053b0199c6986fe73256e9b7ea8685a0e501c943a1f07d3f0615"
+    },
+    {
+      "suite": "A",
+      "flow": "contention-0-B",
+      "verdict": "PASS",
+      "passed": 2,
+      "duration_ms": 16745.27,
+      "lease_wait_ms": 10594.0,
+      "self_revocations": 0,
+      "dialogs": 0,
+      "screenshot_owner": "B",
+      "log_sha256": "78f01fb8b3220286571785e744c5516bf51a7ff2b07715f79a93681d26cdfcb7"
+    },
+    {
+      "suite": "A",
+      "flow": "contention-0-C",
+      "verdict": "PASS",
+      "passed": 2,
+      "duration_ms": 14341.008,
+      "lease_wait_ms": 7766.0,
+      "self_revocations": 0,
+      "dialogs": 0,
+      "screenshot_owner": "C",
+      "log_sha256": "eea0742f295f2a28426b8c8da6c24bbcf9125ffa94788ca7a0f9ba200283b955"
+    },
+    {
+      "suite": "A",
+      "flow": "contention-1-A",
+      "verdict": "PASS",
+      "passed": 2,
+      "duration_ms": 15721.092,
+      "lease_wait_ms": 11531.0,
+      "self_revocations": 0,
+      "dialogs": 0,
+      "screenshot_owner": "A",
+      "log_sha256": "d5af13d8831b273965056ecd926a2cdb3ef7f72da65c17f6da7ff48ddbdce019"
+    },
+    {
+      "suite": "A",
+      "flow": "contention-1-B",
+      "verdict": "PASS",
+      "passed": 2,
+      "duration_ms": 11774.226,
+      "lease_wait_ms": 5296.0,
+      "self_revocations": 0,
+      "dialogs": 0,
+      "screenshot_owner": "B",
+      "log_sha256": "04f239c94144706480c4b033b28417388ea68f886a1681d1a365da40fd4af0f3"
+    },
+    {
+      "suite": "A",
+      "flow": "contention-1-C",
+      "verdict": "PASS",
+      "passed": 2,
+      "duration_ms": 5697.776,
+      "lease_wait_ms": 16.0,
+      "self_revocations": 0,
+      "dialogs": 0,
+      "screenshot_owner": "C",
+      "log_sha256": "dd787cc1364f03cb958db673f766acace5125b7ce84dec30f23e42cfc2d2c1a2"
+    },
+    {
+      "suite": "B",
+      "flow": "read",
+      "verdict": "PASS",
+      "passed": 2,
+      "duration_ms": 3430.106,
+      "lease_wait_ms": 15.0,
+      "self_revocations": 0,
+      "dialogs": 1,
+      "screenshot_owner": null,
+      "log_sha256": "f68888263268df291e7c3e73df1141363ca9ffc09ea9d6c9b7a1fe4dbabdab8c"
+    },
+    {
+      "suite": "B",
+      "flow": "confirm",
+      "verdict": "PASS",
+      "passed": 1,
+      "duration_ms": 4076.14,
+      "lease_wait_ms": 16.0,
+      "self_revocations": 0,
+      "dialogs": 1,
+      "screenshot_owner": null,
+      "log_sha256": "1f612358ca56455d27074b95c7c45437c65c982b348615f5cdeccc37d83af866"
+    },
+    {
+      "suite": "B",
+      "flow": "contention-0-A",
+      "verdict": "PASS",
+      "passed": 2,
+      "duration_ms": 6764.886,
+      "lease_wait_ms": 32.0,
+      "self_revocations": 0,
+      "dialogs": 0,
+      "screenshot_owner": "A",
+      "log_sha256": "dec60234ef2e14df4a1bb9b546cd4f16ed1f8fa8da315bbac6fddc55cd420fc5"
+    },
+    {
+      "suite": "B",
+      "flow": "contention-0-B",
+      "verdict": "PASS",
+      "passed": 2,
+      "duration_ms": 15397.258,
+      "lease_wait_ms": 10640.0,
+      "self_revocations": 0,
+      "dialogs": 0,
+      "screenshot_owner": "B",
+      "log_sha256": "1b422f991af25200e4d58926d8ec2551f6c4ff8bcf355958bb1792ef87a6aab8"
+    },
+    {
+      "suite": "B",
+      "flow": "contention-0-C",
+      "verdict": "PASS",
+      "passed": 2,
+      "duration_ms": 11555.944,
+      "lease_wait_ms": 5968.0,
+      "self_revocations": 0,
+      "dialogs": 0,
+      "screenshot_owner": "C",
+      "log_sha256": "1c9075de4929cecde96fb634833f362b4763a6545c5bf55356b39afa1f93ba5f"
+    },
+    {
+      "suite": "B",
+      "flow": "contention-1-A",
+      "verdict": "PASS",
+      "passed": 2,
+      "duration_ms": 10493.471,
+      "lease_wait_ms": 5532.0,
+      "self_revocations": 0,
+      "dialogs": 0,
+      "screenshot_owner": "A",
+      "log_sha256": "f4c20cf1920b5de8aa8930c3983dcb8341d2efe4bdcebb0ff8509966a3b50c05"
+    },
+    {
+      "suite": "B",
+      "flow": "contention-1-B",
+      "verdict": "PASS",
+      "passed": 2,
+      "duration_ms": 5809.361,
+      "lease_wait_ms": 30.0,
+      "self_revocations": 0,
+      "dialogs": 0,
+      "screenshot_owner": "B",
+      "log_sha256": "28c6daffa53149eaa6934711d32cffb9ff90a7d53294d93a82107a5e884772ad"
+    },
+    {
+      "suite": "B",
+      "flow": "contention-1-C",
+      "verdict": "PASS",
+      "passed": 2,
+      "duration_ms": 14239.876,
+      "lease_wait_ms": 10109.0,
+      "self_revocations": 0,
+      "dialogs": 0,
+      "screenshot_owner": "C",
+      "log_sha256": "c8007388172973891ab427cc1186006415e63ddceabe58fee3a6c4bcf40a9eee"
+    }
+  ],
+  "screenshot_ownership": {
+    "checked": 24,
+    "passed": 24
+  },
+  "self_revocations_accepted": [],
+  "failed_attempt_suite_A": {
+    "counted": false,
+    "note": "First suite of this session after the final code. contention-0-A click returned 'The action's observed content changed; synchronize and replan' with an unknown effect; the runner failed the step without re-sending. The harness stops at the first failure, so round 1 did not run.",
+    "runs": [
+      {
+        "flow": "confirm",
+        "verdict": "PASS",
+        "error_code": null,
+        "error_message": null,
+        "log_sha256": "3aeae2ba8e780e070c010e513ff97213a83881ffb915a124493f62bc90fd83aa"
+      },
+      {
+        "flow": "contention-0-A",
+        "verdict": "FAIL",
+        "error_code": "BSK_EFFECT_UNKNOWN",
+        "error_message": "bsk click ถูกส่งแล้วแต่ยืนยันผลไม่ได้ — ให้สังเกตหน้าเว็บ ห้ามสั่งซ้ำ: { \"code\": \"permission_denied\", \"message\": \"The action's observed content changed; synchronize and replan\", \"hint\": \"use `bsk cooperate wait --session",
+        "log_sha256": "09a47ffd5772146b88251f009ec0f28c79837c3d3d89f5c7e94b39433cf74245"
+      },
+      {
+        "flow": "contention-0-B",
+        "verdict": "PASS",
+        "error_code": null,
+        "error_message": null,
+        "log_sha256": "065a4825a07830a95f48a8abeafb8ea2887556a34797c1703ccfd72827850ab4"
+      },
+      {
+        "flow": "contention-0-C",
+        "verdict": "PASS",
+        "error_code": null,
+        "error_message": null,
+        "log_sha256": "cfcc0c2672745c746030dd6381999a8e53a26ea61203a54fccbc91ccd3b0eb37"
+      },
+      {
+        "flow": "read",
+        "verdict": "PASS",
+        "error_code": null,
+        "error_message": null,
+        "log_sha256": "8855aaf756eedb49fe7f1cc95395fda277780afc661554b864a7004a9546e729"
+      }
+    ]
+  },
+  "source_sha256": {
+    "scripts/flow-runner.py": "20228465a8fa99f94e09c068683c461060fb254fda77d2819d6d9d17a338c7a1",
+    "scripts/bsk_coop.py": "78d11cf7de6cb84ed948bb88462b220482690df1d048c0225bbf35b0a6f0dc6b",
+    "self-test/engine2/shared-pair-dialogs.py": "7a7d429419506d942a21fd78fa2c7d33ce50dc6bbdda48eb5184bc64944d727e",
+    "self-test/engine2/shared-pair-runner.py": "58008fb714857e69d9e05bea15bab41972a7470e99ce1a78ac2b2924fd18cf00"
+  }
+}

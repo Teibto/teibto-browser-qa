@@ -719,17 +719,27 @@ class BskSession:
             dialog = data.get("dialog") or {}
             kind, message = str(dialog.get("type")), str(dialog.get("message"))
             answer = ("accept" if kind == "alert" or self.dialog_policy == "accept" else "dismiss")
-            code, _ = self._session_cli(["dialog", answer, str(dialog.get("id"))])
-            if code != 0:
+            decided, reply = self._session_cli(["dialog", answer, str(dialog.get("id"))])
+            if decided != 0 and not operation:
                 raise RunnerError("BSK_EFFECT_UNKNOWN",
                                   f"bsk {command} ค้างที่ native {kind} และตัดสิน dialog ไม่สำเร็จ — "
                                   "ห้ามสั่งซ้ำ ให้ตรวจหน้าเว็บก่อน")
-            self.dialogs.put({"kind": kind, "message": message, "answer": answer,
-                              "line": f"[dialog] {kind}: {message} -> {answer}"})
             if not operation:
+                self.dialogs.put({"kind": kind, "message": message, "answer": answer,
+                                  "line": f"[dialog] {kind}: {message} -> {answer}"})
                 return {}
             code, awaited = self._session_cli(["operation", "await", str(operation)])
             state = awaited.get("state") if isinstance(awaited, dict) else None
+            if decided != 0 and state != "completed":
+                # A refused decision with no completed operation: the dialog may still be open.
+                raise RunnerError("BSK_EFFECT_UNKNOWN",
+                                  f"bsk {command} ค้างที่ native {kind} และตัดสิน dialog ไม่สำเร็จ "
+                                  f"({str((reply or {}).get('message'))[:120]}) — ห้ามสั่งซ้ำ ให้ตรวจหน้าเว็บก่อน")
+            # Accepting beforeunload unloads the page, so bsk may not confirm the closure although the
+            # decision applied; the completed original operation is the proof.
+            suffix = "" if decided == 0 else " (closure unconfirmed)"
+            self.dialogs.put({"kind": kind, "message": message, "answer": answer,
+                              "line": f"[dialog] {kind}: {message} -> {answer}{suffix}"})
             if state == "completed":
                 result = awaited.get("result")
                 return result if isinstance(result, dict) else {}
