@@ -153,23 +153,23 @@ class BskEngineTests(unittest.TestCase):
         self.assertEqual(events[-1]["verdict"], "PASS")
         self.assertEqual(events[-1]["dialogs"], 1)
 
-    def test_unpinned_version_is_driver_incompatible(self):
-        _, _, events, calls = self.run_flow(READ_ONLY, {"FAKE_BSK_VERSION": "0.4.0"})
-        fatal = next(event for event in events if event["type"] == "fatal")
-        self.assertEqual(fatal["error"]["code"], "DRIVER_INCOMPATIBLE")
-        self.assertNotIn("session start", calls)
+    def test_any_connected_version_pair_runs_and_is_recorded(self):
+        # #169: no version allowlist. A skewed pair bsk still connects (0.4.0 daemon, 0.4.1
+        # extension) runs, and its versions are recorded rather than judged.
+        env = {"FAKE_BSK_VERSION": "0.4.0", "FAKE_BSK_EXTENSION_VERSION": "0.4.1",
+               "FAKE_BSK_PROTOCOL": "1.7", "FAKE_BSK_EXTENSION_PROTOCOL": "1.8",
+               "FAKE_BSK_VERSION_SKEW": "true", "FAKE_BSK_COOPERATE": "1"}
+        process, _, events, _ = self.run_flow(READ_ONLY, env)
+        self.assertEqual(process.returncode, 0)
+        self.assertEqual(events[-1]["verdict"], "PASS")
+        ready = next(event for event in events if event["type"] == "session_ready")
+        self.assertEqual(ready["bsk_versions"], {"daemon": "0.4.0", "extension": "0.4.1",
+                         "daemon_protocol": "1.7", "extension_protocol": "1.8", "version_skew": True})
 
     def test_every_verified_version_is_accepted_and_reported(self):
         _, out, events, _ = self.run_flow(READ_ONLY, {"FAKE_BSK_VERSION": "0.3.2"})
         self.assertEqual(events[-1]["verdict"], "PASS")
         self.assertIn("**Engine:** bsk 0.3.2", (out / "qa-report.md").read_text(encoding="utf-8"))
-
-    def test_daemon_and_extension_skew_is_driver_incompatible(self):
-        _, _, events, calls = self.run_flow(READ_ONLY, {"FAKE_BSK_VERSION": "0.3.2",
-                                                        "FAKE_BSK_EXTENSION_VERSION": "0.3.0"})
-        fatal = next(event for event in events if event["type"] == "fatal")
-        self.assertEqual(fatal["error"]["code"], "DRIVER_INCOMPATIBLE")
-        self.assertNotIn("session start", calls)
 
     def compatible_pair_env(self):
         return {"FAKE_BSK_VERSION": "0.3.2", "FAKE_BSK_EXTENSION_VERSION": "0.3.3",
@@ -202,12 +202,6 @@ class BskEngineTests(unittest.TestCase):
                          "daemon_protocol": "1.3", "extension_protocol": "1.3", "version_skew": False})
         self.assertNotIn("session start", calls)
         self.assertNotIn("session stop", calls)
-
-    def test_033_pair_rejects_invalid_protocol_contract_before_tab_creation(self):
-        env = self.compatible_pair_env()
-        env["FAKE_BSK_VERSION"] = "0.3.3"
-        with mock.patch.object(self, "compatible_pair_env", side_effect=lambda: env.copy()):
-            self.test_compatible_pair_rejects_missing_wrong_or_false_protocol_contract()
 
     def test_033_pair_keeps_dialog_guard_and_native_backstop(self):
         env = self.compatible_pair_env()
@@ -314,41 +308,9 @@ class BskEngineTests(unittest.TestCase):
         self.assertEqual(events[-1]["verdict"], "PASS")
         self.assertEqual(sum(call.startswith("click ") for call in calls), 1)
 
-    def test_040_pair_rejects_invalid_protocol_contract_before_tab_creation(self):
-        with mock.patch.object(self, "compatible_pair_env", side_effect=self.pair_040_env):
-            self.test_compatible_pair_rejects_missing_wrong_or_false_protocol_contract()
-
     def test_040_pair_keeps_dialog_guard_and_native_backstop(self):
         with mock.patch.object(self, "compatible_pair_env", side_effect=self.pair_040_env):
             self.test_compatible_pair_keeps_guard_and_native_dialog_backstop()
-
-    def test_compatible_pair_rejects_missing_wrong_or_false_protocol_contract(self):
-        for key, value in (("FAKE_BSK_PROTOCOL", None), ("FAKE_BSK_PROTOCOL", "1.2"),
-                           ("FAKE_BSK_EXTENSION_PROTOCOL", None), ("FAKE_BSK_EXTENSION_PROTOCOL", "1.4"),
-                           ("FAKE_BSK_VERSION_SKEW", None), ("FAKE_BSK_VERSION_SKEW", "true"),
-                           ("FAKE_BSK_VERSION_SKEW", "0"), ("FAKE_BSK_VERSION_SKEW", '\"false\"')):
-            with self.subTest(key=key, value=value):
-                env = self.compatible_pair_env()
-                if value is None:
-                    del env[key]
-                else:
-                    env[key] = value
-                _, _, events, calls = self.run_flow(READ_ONLY, env)
-                fatal = next(event for event in events if event["type"] == "fatal")
-                self.assertEqual(fatal["error"]["code"], "DRIVER_INCOMPATIBLE")
-                self.assertNotIn("session start", calls)
-                self.assertNotIn("tab create", calls)
-
-    def test_protocol_compatibility_does_not_authorize_unknown_pairs(self):
-        for daemon, extension in (("0.3.4", "0.3.4"), ("0.3.2", "0.3.4"), ("0.3.3", "0.3.2"),
-                                  ("0.4.1", "0.4.1"), ("0.3.3", "0.4.0"), ("0.4.0", "0.3.3")):
-            with self.subTest(daemon=daemon, extension=extension):
-                env = {**self.compatible_pair_env(), "FAKE_BSK_VERSION": daemon,
-                       "FAKE_BSK_EXTENSION_VERSION": extension}
-                _, _, events, calls = self.run_flow(READ_ONLY, env)
-                self.assertEqual(next(e for e in events if e["type"] == "fatal")["error"]["code"],
-                                 "DRIVER_INCOMPATIBLE")
-                self.assertNotIn("tab create", calls)
 
     def test_compatible_pair_keeps_guard_and_native_dialog_backstop(self):
         env = self.compatible_pair_env()

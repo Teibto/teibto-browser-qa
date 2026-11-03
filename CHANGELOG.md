@@ -12,6 +12,12 @@
 
 ### Fixed
 
+- **No more BrowserSkill version allowlist (#169).** The Web Store extension moved to 0.4.1
+  (protocol 1.8) while the daemon stayed 0.4.0; `bsk status` calls that pair usable, but the runner
+  stopped every bsk run with `DRIVER_INCOMPATIBLE`. Both sides update themselves, so the allowlist
+  kept turning into an outage. `BSK_COMPATIBLE_PAIRS` and the protocol/skew checks are removed: a
+  connected browser is bsk's own compatibility verdict. Versions are still recorded in
+  `session_ready.bsk_versions` and the report.
 - **BrowserSkill 0.4.0 (#167).** `bsk update` and the Web Store extension moved machines to
   daemon/extension 0.4.0 (protocol 1.7). The runner used to stop every bsk run with
   `DRIVER_INCOMPATIBLE`, and the extension refuses 0.3.x daemons, so there is no way back.

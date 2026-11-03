@@ -89,12 +89,6 @@ RECEIPT_KEYS = frozenset({"url", "title", "focused", "console_new", "dialogs", "
                           "downloads", "ref_invalidated"})
 RECEIPT_MISSING = "no page-state receipt from the driver (BAS-3: UNVERIFIED)"
 ENGINES = ("cdp", "bsk")
-# BrowserSkill (BAS §4): only releases whose dialog policy was re-verified with
-# self-test/engine2/dialog-test.sh are accepted. Unequal versions need an explicit pair
-# and its exact wire-protocol contract; upstream version_skew=false alone is insufficient.
-BSK_COMPATIBLE_PAIRS = {("0.3.0", "0.3.0"): None, ("0.3.2", "0.3.2"): None,
-                        ("0.3.2", "0.3.3"): "1.3", ("0.3.3", "0.3.3"): "1.3",
-                        ("0.4.0", "0.4.0"): "1.7"}
 BSK_MUTATING_DIALOGS = {"confirm", "prompt", "beforeunload"}
 # A detached debugger is transient, but only commands that cannot act twice may be retried.
 BSK_RETRY_LIMIT = 2
@@ -624,27 +618,14 @@ class BskSession:
             # Same rule as invariant 1: never guess among shared targets.
             raise RunnerError("BSK_BROWSER_AMBIGUOUS",
                               f"มี browser เชื่อมอยู่หลายตัว ระบุ --bsk-browser: {known}")
+        # No version allowlist (#169): daemon and extension update themselves, and bsk refuses an
+        # incompatible peer on its own, so a connected browser is the compatibility verdict.
+        # The versions are recorded, not judged.
         versions = {"daemon": status.get("daemon_version"),
                     "extension": browsers[0].get("extension_version"),
                     "daemon_protocol": status.get("protocol_version"),
                     "extension_protocol": browsers[0].get("extension_protocol_version"),
                     "version_skew": browsers[0].get("version_skew")}
-        pair = (versions["daemon"], versions["extension"])
-        required_protocol = BSK_COMPATIBLE_PAIRS.get(pair)
-        protocol_ok = (required_protocol is None or (
-            versions["daemon_protocol"] == required_protocol
-            and versions["extension_protocol"] == required_protocol
-            and versions["version_skew"] is False))
-        if pair not in BSK_COMPATIBLE_PAIRS or not protocol_ok:
-            raise RunnerError(
-                "DRIVER_INCOMPATIBLE",
-                f"runner ไม่รับ bsk daemon={versions['daemon']} extension={versions['extension']} "
-                f"protocol={versions['daemon_protocol']}/{versions['extension_protocol']} "
-                f"version_skew={versions['version_skew']} — ต้องเป็นคู่ที่ระบุใน "
-                "BSK_COMPATIBLE_PAIRS และตรง protocol contract; คู่ใหม่ต้องผ่าน "
-                "dialog, runner และ contention qualification (BAS §4.3)",
-                detail=versions,
-            )
         self.versions = versions
         self.version = str(versions["daemon"])
         instance = str(browsers[0].get("instance_id"))

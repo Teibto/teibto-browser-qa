@@ -3,10 +3,11 @@
 ไฟล์นี้เป็นของ `bsk` เท่านั้น. เงื่อนไขว่า **ใช้ได้เมื่อใด** อยู่ที่ `docs/BROWSER-AGENT-STANDARD.md` §4;
 กับดักใน [`gotchas.md`](gotchas.md) เป็นของ direct CDP และไม่ได้ย้ายตามมาเอง. ทุกตัวเลขข้างล่างวัดกับ
 `bsk` 0.3.0 + Chrome 152 บน Windows (เว้นแต่แถวที่ระบุรุ่นอื่น) และมีแถวใน `docs/CLAIMS-AUDIT.md` — ขยับรุ่นแล้วต้องวัดใหม่.
-คู่ daemon/extension ที่ runner ระบุใน `BSK_COMPATIBLE_PAIRS`: **0.3.0/0.3.0**, **0.3.2/0.3.2**
-และ **0.3.2/0.3.3** (#163), **0.3.3/0.3.3** (#165), **0.4.0/0.4.0** (#167, protocol `1.7` — ดูหัวข้อ 0.4.0 ด้านล่าง). สองคู่ 0.3.x หลังต้องรายงาน `status.protocol_version="1.3"`,
-`browsers[].extension_protocol_version="1.3"` และ `browsers[].version_skew=false` (boolean จริง)
-จาก browser ที่เลือก; ขาดค่า/ไม่ตรงให้หยุดก่อนสร้าง tab. คู่ที่ไม่ระบุยังถูกปฏิเสธ แม้ protocol ตรง.
+runner **ไม่ตรวจคู่เวอร์ชัน daemon/extension** (#169): ทั้งสองฝั่งอัปเดตตัวเอง และ `bsk` ปฏิเสธ peer
+ที่ใช้ร่วมกันไม่ได้อยู่แล้ว (extension เตะ daemon ที่ต่ำกว่า `min_compatible_protocol` จึงไม่ปรากฏใน `bsk browsers`)
+browser ที่เชื่อมอยู่ = ใช้ได้ แม้ `version_skew=true` (เช่น daemon 0.4.0 / extension 0.4.1 ซึ่ง `bsk status` บอก "still usable").
+คู่ที่เคย qualify ด้วยมือ: **0.3.0/0.3.0**, **0.3.2/0.3.2**, **0.3.2/0.3.3** (#163), **0.3.3/0.3.3** (#165),
+**0.4.0/0.4.0** (#167, protocol `1.7` — ดูหัวข้อ 0.4.0 ด้านล่าง).
 คู่ 0.3.2/0.3.3 ผ่าน native dialog 20 รอบ, runner read/confirm และ shared-session 6 flows
 (3 workers × 2 รอบ), screenshot ownership 12/12 เมื่อ 2026-10-16; ดู `self-test/README.md`
 และ `qa/issue163/qualification.json`. ไม่ใช่ original contention matrix 10 กรณี (ไม่ทดสอบทำลาย shared session). คู่เดิมคง contract ที่ตรวจแล้ว ไม่บังคับ field ที่รุ่นเดิมไม่รายงาน.
@@ -24,7 +25,7 @@ input outcome unknown และ RPC timeout; เก็บเป็น FAIL ใ�
 
 ### bsk 0.4.0 (protocol 1.7) — สิ่งที่เปลี่ยนและ runner รับมือแล้ว (#167)
 
-คู่ **0.4.0/0.4.0** ต้องรายงาน protocol `1.7` ทั้งสองฝั่ง และ `version_skew=false`. ถอยกลับ 0.3.x ไม่ได้:
+ถอยกลับ 0.3.x ไม่ได้:
 extension 0.4.0 (อัปเดตเองจาก Web Store) เตะ daemon ที่ protocol ต่ำกว่า 1.6 ออก
 (`kicked: local protocol 1.3 is below peer min_compatible_protocol 1.6` ใน `bsk logs`).
 โค้ดทุกตัวในแพ็กเกจนี้ส่งคำสั่งผ่าน `scripts/bsk_coop.py` อยู่แล้ว ส่วนสคริปต์ที่เรียก `bsk` ตรงต้องทำตามตารางนี้เอง.
@@ -56,9 +57,9 @@ engine ระบุหรือเมื่อผู้ใช้เลือก.
 
 ## 1. ตั้งเครื่อง (ครั้งเดียว)
 
-1. ติดตั้ง CLI แบบ pin รุ่น: รัน `install.ps1` ของ upstream โดยตั้ง `BSK_VERSION=0.4.0` (รุ่นล่าสุดที่ runner รับ;
-   daemon รัน `bsk update` เองเป็นระยะ ถ้าได้รุ่นที่ยังไม่อยู่ใน `BSK_COMPATIBLE_PAIRS` runner จะหยุดด้วย `DRIVER_INCOMPATIBLE` จนกว่าจะ qualify รุ่นนั้น)
-   · เพิ่มรุ่นใหม่ในรายการได้เมื่อ `dialog-test.sh` (นโยบายตรง), `runner-test.sh` และ `contention-matrix.py` ผ่านกับรุ่นนั้น
+1. ติดตั้ง CLI: รัน `install.ps1` ของ upstream (`BSK_VERSION=0.4.0` คือรุ่นล่าสุดที่ qualify ด้วยมือ;
+   daemon รัน `bsk update` เองเป็นระยะ และ runner ไม่หยุดเพราะรุ่นเปลี่ยน — #169)
+   · รุ่นใหม่ที่เปลี่ยนพฤติกรรมจะโผล่เป็น typed failure ตอนรัน ให้ตรวจด้วย `dialog-test.sh` (นโยบายตรง), `runner-test.sh` และ `contention-matrix.py`
    · extension ของโปรไฟล์ทดสอบอัปเดตจาก Web Store แต่ใช้ผลหลังปิด-เปิด Chrome โปรไฟล์นั้น — ดูรุ่นด้วย `bsk browsers --json`
 2. เจ้าของ browser ลง extension เองแล้วเปิดสวิตช์ connection ใน popup; agent ไม่ลง extension ให้
 3. ให้ host เป็นคน start daemon (`bsk daemon start --foreground` ใน terminal ที่เปิดค้าง)
