@@ -378,12 +378,12 @@ trusted input และคือรัศมีระเบิดของ injec
 |---|---|
 | หลักฐานที่ replay ได้ต้องเป็นของเรา | ✅ adapter ออก `run-log.jsonl` / `qa-report.md` / `shots/` ชุดเดียวกัน (#91) |
 | dialog และ `beforeunload` (เหตุที่เลิก daemon ตัวก่อน #34) | ✅ ไม่ wedge 20/20 (#89); นโยบายถูกบังคับด้วยด่านในหน้าเว็บ + backstop (#110) |
-| สอง engine = สองชุดกับดัก | ✅ ไฟล์กับดักแยก `references/engine2-bsk.md`; 🟡 version pin บังคับใน runner แต่ **ยังไม่มี CI job** ที่รัน `bsk` จริง — เจ้าของ repo ยอมรับความเสี่ยงนี้ในมติ #110; drift ตรวจด้วย `self-test/engine2/*.sh` บนเครื่อง dev |
+| สอง engine = สองชุดกับดัก | ✅ ไฟล์กับดักแยก `references/engine2-bsk.md`; 🟡 runner ไม่ล็อกเวอร์ชัน (#169) และ **ยังไม่มี CI job** ที่รัน `bsk` จริง — เจ้าของ repo ยอมรับความเสี่ยงนี้ในมติ #110; drift ตรวจด้วย `self-test/engine2/*.sh` บนเครื่อง dev |
 | ความเสถียร | 🟡 session หายเมื่อคนปิด Agent Window, `input_cleanup_failed` ต่อปุ่ม — มี typed failure และกฎรับมือ (`engine2-bsk.md` §4, §6) |
 
 ข้อเท็จจริงของ `bsk` ตรวจกับ v0.3.0 (`fa953dc`, MIT) และนโยบาย dialog ตรวจซ้ำกับ v0.3.2 (#144) — เป็น `version-pinned`;
-โครงการออกรุ่นถี่ ต้องรัน `self-test/engine2/dialog-test.sh`, `runner-test.sh` และ `contention-matrix.py` ก่อนเพิ่มรุ่นใน
-`BSK_COMPATIBLE_PAIRS` ของ runner (contract และสถานะ qualification ใน `references/engine2-bsk.md`).
+โครงการออกรุ่นถี่และอัปเดตตัวเอง runner จึงไม่ล็อกคู่เวอร์ชัน (#169) แต่บันทึกไว้ในหลักฐานทุก run;
+เมื่อรุ่นเปลี่ยนให้รัน `self-test/engine2/dialog-test.sh`, `runner-test.sh` และ `contention-matrix.py` (สถานะ qualification ใน `references/engine2-bsk.md`).
 
 ### 4.4 เส้นทางอื่นที่ยังเป็นข้อยกเว้น
 

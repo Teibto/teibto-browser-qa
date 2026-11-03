@@ -71,7 +71,7 @@ py scripts/flow-runner.py --engine cdp --target-id <id> --flow ... --out ...    
   และไม่เคย `session stop` ให้ใคร; session ที่ไม่มีอยู่จริง = `BSK_SESSION_MISSING`. ทุกคำสั่งผ่าน lease ต่อ session
   (`scripts/bsk_lease.py`) เพราะ session รับทีละคำสั่ง; เวลาที่รอคิวอยู่ใน `run_done.session_sharing`
   (ดู `references/engine2-bsk.md` §1.1)
-- daemon/extension ต้องเป็นรุ่นที่ runner pin ไว้ ไม่ตรง = `DRIVER_INCOMPATIBLE`; runner ไม่ start daemon เอง
+- runner ไม่ตรวจคู่เวอร์ชัน daemon/extension (bsk ตัดสินเอง; #169) แต่บันทึกไว้ใน `session_ready.bsk_versions`; runner ไม่ start daemon เอง
 - รับเฉพาะ CSS selector (`@ref` = `ENGINE_UNSUPPORTED`)
 - console check นับเฉพาะ `console.error` และ uncaught exception; resource ที่โหลดไม่ได้เป็นงานของ `lens netlog`
   ซึ่ง engine นี้ไม่มี
