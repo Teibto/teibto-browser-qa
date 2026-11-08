@@ -12,6 +12,19 @@
 
 ### Fixed
 
+- **BrowserSkill 0.4.2 / protocol 1.8 (#172).** On a host whose daemon and extension updated to
+  0.4.2, every page action was refused before dispatch and the NetSuite login gate could never log in.
+  - `bsk_coop.context_args` now sends the sync's top-level `observation_id` as `--observation`
+    alongside `--context` (one fresh sync per action). CLIs without the flag (0.4.0) still get
+    `--context` only; the capability is read once from `bsk click --help`.
+  - `control_context_invalid` (e.g. "Page interaction coverage changed; wait and synchronize") is
+    waited out and re-sent like 0.4.0's `cooperation_sync_required`, only when `effect_state` is `none`.
+  - `bsk-login.py`: 0.4.2 `fill` does not fire the events the login form listens to, so
+    `#login-submit` stayed disabled. The gate re-announces `input`/`change` and waits up to 15 s for
+    an enabled button before its single click; if it never enables, nothing is submitted.
+  - Live on teibto-agents-01 (daemon/extension 0.4.2): `4089685_SB2` → `READY via=env`, then
+    `via=existing`.
+
 - **No more BrowserSkill version allowlist (#169).** The Web Store extension moved to 0.4.1
   (protocol 1.8) while the daemon stayed 0.4.0; `bsk status` calls that pair usable, but the runner
   stopped every bsk run with `DRIVER_INCOMPATIBLE`. Both sides update themselves, so the allowlist
