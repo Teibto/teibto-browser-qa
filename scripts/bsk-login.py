@@ -65,6 +65,14 @@ otp:light.length>0,otp_hidden:deep>0,mark:!!window.__teibtoLoginMark});})()"""
 
 MARK_JS = "(function(){window.__teibtoLoginMark=1;return 'ok';})()"
 
+# bsk 0.4.2 `fill` sets the value without the input/change events the login form listens to, so
+# #login-submit stays disabled (#172). Re-announce both fields; "true" once the button is enabled.
+NOTIFY_INPUT_JS = ("(function(){['#email','#password'].forEach(function(s){var e=document.querySelector(s);"
+                   "if(e){e.dispatchEvent(new Event('input',{bubbles:true}));"
+                   "e.dispatchEvent(new Event('change',{bubbles:true}));}});"
+                   "var b=document.querySelector('#login-submit');return String(!!b&&!b.disabled);})()")
+SUBMIT_READY_SECONDS = 15
+
 # Tag the 2FA controls in the light DOM so trusted fill/click can address them by selector.
 TAG_OTP_JS = r"""(function(){
 function vis(e){return !!(e&&e.offsetParent!==null);}
@@ -275,6 +283,15 @@ class Gate:
         try:
             self.d.fill("#email", creds["email"])
             self.d.fill("#password", creds["password"])
+            # The form is still initialising right after load (a late frame, the button disabled):
+            # click only once the button is enabled, and never submit if it does not become so.
+            for _ in range(SUBMIT_READY_SECONDS):
+                if str(self.d.evaluate(NOTIFY_INPUT_JS)).strip('"') == "true":
+                    break
+                self.sleep(1.0)
+            else:
+                return (f"ปุ่ม Log In ไม่พร้อมกดภายใน {SUBMIT_READY_SECONDS} วินาที — ไม่ได้ส่ง credential",
+                        self.probe())
             page = self.submit_and_wait(lambda: self.d.click("#login-submit"), retry_swallowed=True)
         except RuntimeError as exc:
             return self.redact(f"กรอกหน้า Login ไม่สำเร็จ: {exc}"), self.probe()

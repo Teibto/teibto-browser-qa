@@ -2,7 +2,9 @@
 
 From protocol 1.7 the daemon rejects every page action (navigate after the first, evaluate,
 click, fill, select, press, tab close, ...) unless it carries `--context <id>` from the latest
-`bsk cooperate sync` of that tab. Each context is single-use. A rejection is reported before
+`bsk cooperate sync` of that tab. Each context is single-use. Protocol 1.8 (0.4.2) also wants the
+sync's top-level `observation_id` as `--observation`, and reports refusals as
+`control_context_invalid`. A rejection is reported before
 dispatch as `reason: cooperation_sync_required` with `effect_state: none`, so the action did not
 run; callers wait, sync again and re-send at most COOP_RETRIES times. Any other outcome is the
 caller's ordinary error handling, and an unknown effect is never re-sent.
@@ -36,21 +38,44 @@ def needs_context(args: list[str]) -> bool:
 
 
 def sync_required(text: str) -> bool:
-    return "cooperation_sync_required" in text
+    """A refusal that means "sync again" (0.4.0: cooperation_sync_required; protocol 1.8:
+    control_context_invalid, e.g. "Page interaction coverage changed"). Callers re-send only when
+    the same reply says `effect_state: none`."""
+    return "cooperation_sync_required" in text or "control_context_invalid" in text
+
+
+_OBSERVATION_FLAG: bool | None = None
+
+
+def supports_observation(run: Runner) -> bool:
+    """Protocol 1.8 (bsk 0.4.2) CLIs take `--observation`; 0.4.0 rejects the flag. Asked once."""
+    global _OBSERVATION_FLAG
+    if _OBSERVATION_FLAG is None:
+        code, out, err = run(["click", "--help"])
+        _OBSERVATION_FLAG = code == 0 and "--observation" in (out + err)
+    return _OBSERVATION_FLAG
 
 
 def context_args(run: Runner) -> list[str]:
-    """`--context <id>` from a fresh sync, or [] when this page/CLI has no shared control."""
+    """`--context <id>` (plus `--observation <id>` on protocol 1.8) from one fresh sync, or []
+    when this page/CLI has no shared control."""
     # --settle lets bsk absorb a transient read-only refusal ("A page frame is not responding" on a
     # background tab) with its own bounded wait+sync; it never repeats a browser action.
     code, out, _ = run(["cooperate", "sync", "--settle", "--max-tokens", SYNC_TOKENS, "--json"])
     if code != 0:
         return []
     try:
-        context = json.loads(out).get("context_id")
+        reply = json.loads(out)
+        context, observation = reply.get("context_id"), reply.get("observation_id")
     except (ValueError, AttributeError):
         return []
-    return ["--context", str(context)] if context else []
+    if not context:
+        return []
+    # Protocol 1.8 refuses every page action without an unused observation from the same sync
+    # ("This action requires an unused strict observation from cooperate sync", #172).
+    if observation and supports_observation(run):
+        return ["--context", str(context), "--observation", str(observation)]
+    return ["--context", str(context)]
 
 
 SELF_REVOKED = "User activity revoked this action"

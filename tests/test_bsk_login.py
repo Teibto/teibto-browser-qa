@@ -34,8 +34,11 @@ class FakeNetSuite:
     """Just enough of NetSuite's login pages to drive every branch of the gate."""
 
     def __init__(self, clock: Clock, *, logged_in_as=None, otp=False, person_after=None,
-                 person_as=("4089685_SB2", "SANDBOX"), login_host="system.netsuite.com"):
+                 person_as=("4089685_SB2", "SANDBOX"), login_host="system.netsuite.com",
+                 submit_enabled_after: float | None = 0.0):
         self.clock, self.session, self.otp_required = clock, logged_in_as, otp
+        # seconds after the password fill until #login-submit is enabled; None = never (#172)
+        self.submit_enabled_after = submit_enabled_after
         self.person_after, self.person_as, self.login_host = person_after, person_as, login_host
         self.page = {"protocol": "about:", "host": "", "path": "blank"}
         self.fields: dict[str, str] = {}
@@ -82,7 +85,14 @@ class FakeNetSuite:
             return json.dumps({"otp": True, "trust": True, "trust_checked": False, "submit": True})
         if js == login.TRUST_CHECKED_JS:
             return "true"
+        if js == login.NOTIFY_INPUT_JS:
+            return "true" if self._submit_enabled() else "false"
         raise AssertionError("unexpected script")
+
+    def _submit_enabled(self) -> bool:
+        filled = self.filled_at.get("#password")
+        return (filled is not None and self.submit_enabled_after is not None
+                and self.clock.now() - filled >= self.submit_enabled_after)
 
     def fill(self, selector: str, value: str) -> None:
         self.fills.append(selector)
@@ -92,6 +102,8 @@ class FakeNetSuite:
     def click(self, selector: str) -> None:
         self.clicks.append(selector)
         if selector == "#login-submit":
+            if not self._submit_enabled():
+                raise RuntimeError("bsk click: control_context_invalid (disabled #login-submit)")
             self.submits += 1
             if self.fields.get("#email") == "qa@example.com" and self.fields.get("#password") == PASSWORD:
                 if self.otp_required:
@@ -151,6 +163,22 @@ class LoginGateTests(unittest.TestCase):
         self.assertEqual("4089685_SB2", result["company"])
         self.assertEqual(["#email", "#password"], ns.fills)
         self.assertEqual(1, ns.submits)
+        self.assertNoSecret(json.dumps(result), *self.messages)
+
+    def test_submit_waits_until_the_button_is_enabled(self):
+        ns = FakeNetSuite(self.clock, submit_enabled_after=3.0)       # #172: form still initialising
+        result = self.gate(ns, env_file=self.env()).run()
+        self.assertEqual(("READY", "env"), (result["state"], result["via"]))
+        self.assertEqual(1, ns.submits)
+        self.assertGreaterEqual(self.clock.now() - ns.filled_at["#password"], 3.0)
+
+    def test_disabled_button_is_never_clicked(self):
+        ns = FakeNetSuite(self.clock, submit_enabled_after=None, person_after=2)
+        result = self.gate(ns, env_file=self.env()).run()
+        self.assertEqual("user", result["via"])                       # handed to a person instead
+        self.assertEqual(0, ns.submits)
+        self.assertNotIn("#login-submit", ns.clicks)
+        self.assertTrue(any("ไม่ได้ส่ง credential" in m for m in self.messages))
         self.assertNoSecret(json.dumps(result), *self.messages)
 
     def test_totp_is_answered_and_device_trusted(self):
