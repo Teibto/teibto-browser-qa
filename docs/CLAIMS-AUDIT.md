@@ -374,6 +374,14 @@ the resulting evidence. Do not promote an inferred or unrun condition to `PASS`.
 | Daemon/extension 0.3.3/0.3.3 requires protocols 1.3 and boolean skew=false; unknown input fails and is not replayed | verified | `tests/test_bsk_engine.py`: admission, missing/incorrect protocols, strict skew, guard/native backstop and unknown-input tests |
 | The 0.3.3 pair passes the exercised native-dialog and shared-session fixture paths | version-pinned | `qa/issue165/qualification.json`: CLI 0.3.3, Chrome 155, native 100/100; two runner suites of 8 flows, screenshot ownership 24/24. Daemon PID unchanged. Earlier failed session retained in `previous-attempts.json`; replacement was ensured only after daemon idle expiry. No upstream transport-fix claim and no destructive ten-case matrix. |
 
+## Blocked shared session (#170, 2026-11-09)
+
+| Claim | Evidence class | Evidence / limit |
+|---|---|---|
+| On daemon 0.4.0, an agent tab in `page_load_failed` makes bsk refuse `tab create`, `tab select`, `navigate` and `tab close` of that tab in the same session; starting the server afterwards does not clear it | measured, version-pinned | 2026-11-09 Windows, CLI/daemon 0.4.0, extension 0.4.2 (protocol 1.8, skew true): manual probes on a shared session after a fixture page failed to load; only stopping the session cleared it. Reload by a person not tested |
+| The runner names the blocking tab (`BSK_SESSION_BLOCKED`) and reports its own unclosable tab (`BSK_TAB_LEFT_OPEN`) | verified | `tests/test_bsk_engine.py::test_040_tab_create_blocked_*` and `::test_040_own_tab_that_cannot_be_closed_is_reported` (fake CLI); live on the same host: dead-URL flow → warning, next `flow-read.yaml` → `BSK_SESSION_BLOCKED` naming that tab |
+| Daemon/CLI 0.4.0 with extension 0.4.2 drives a page action with `--context` only | measured, version-pinned | same host and date: `self-test/engine2/flow-read.yaml` (open + click) PASS twice on a fresh shared session |
+
 ## BrowserSkill 0.4.0 pair (#167, 2026-10-31)
 
 | Claim | Evidence class | Evidence / limit |

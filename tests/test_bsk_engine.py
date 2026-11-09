@@ -252,6 +252,24 @@ class BskEngineTests(unittest.TestCase):
         self.assertEqual(events[-1]["verdict"], "PASS")
         self.assertEqual(calls.count("tab create"), 2)
 
+    def test_040_tab_create_blocked_by_an_unloadable_agent_tab_names_that_tab(self):
+        env = {**self.pair_040_env(), "FAKE_BSK_SESSIONS": "shared:only-one",
+               "FAKE_BSK_BLOCKED_TAB": "77:http://127.0.0.1:8931/down.html"}
+        _, _, events, calls = self.run_flow(READ_ONLY, env, ["--bsk-session", "shared"])
+        fatal = next(event for event in events if event["type"] == "fatal")
+        self.assertEqual(fatal["error"]["code"], "BSK_SESSION_BLOCKED")
+        self.assertIn("77 (http://127.0.0.1:8931/down.html: page_load_failed)", fatal["error"]["message"])
+        self.assertNotIn("about:blank", fatal["error"]["message"])   # a blank tab is not a blocker
+        self.assertFalse(any(call.startswith(("navigate", "click", "cooperate sync")) for call in calls))
+
+    def test_040_own_tab_that_cannot_be_closed_is_reported(self):
+        env = {**self.pair_040_env(), "FAKE_BSK_SESSIONS": "shared:only-one", "FAKE_BSK_CLOSE_REFUSED": "1"}
+        process, out, events, _ = self.run_flow(READ_ONLY, env, ["--bsk-session", "shared"])
+        self.assertEqual(process.returncode, 0)   # the flow itself passed
+        warning = next(event for event in events if event["type"] == "warning")
+        self.assertEqual((warning["code"], warning["tab_id"]), ("BSK_TAB_LEFT_OPEN", "4242"))
+        self.assertIn("BSK_TAB_LEFT_OPEN", (out / "qa-report.md").read_text(encoding="utf-8"))
+
     def test_040_persistent_refusal_fails_without_sending_forever(self):
         env = {**self.pair_040_env(), "FAKE_BSK_COOP_REJECT": "click:99"}
         _, _, events, calls = self.run_flow(READ_ONLY, env)
