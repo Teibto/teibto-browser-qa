@@ -54,7 +54,7 @@ MIN_SESSION_VERSION = 3
 INPUT_SETTLE_POLICY = "none"
 DIALOG_POLICIES = ("safe", "accept", "dismiss")
 STDOUT_MODES = ("events", "summary")
-SUMMARY_EVENT_TYPES = {"fatal", "run_done"}
+SUMMARY_EVENT_TYPES = {"fatal", "warning", "run_done"}
 ALLOWED_SCHEMES = ("http", "https")
 # What a step inherits when it declares no wait_timeout_ms — the values the runner used to hard-code.
 DEFAULT_WAIT_TIMEOUT_MS = 20_000
@@ -594,6 +594,7 @@ class BskSession:
         self.lease_wait_ms = 0.0
         self.busy_waits = 0
         self.self_revocations: list[dict[str, Any]] = []
+        self.tab_left_open: dict[str, str] | None = None
         self.console_since = 0
         status = self._cli(["status"])
         browsers = self._cli(["browsers"])
@@ -637,7 +638,19 @@ class BskSession:
             self.session_id = str(started["session_id"])
         # Invariant 1 for this engine: own one tab and pin it. A tab left on chrome://newtab cannot
         # be driven, so it is created on about:blank, and --no-active keeps it off the person's face.
-        created = self._cli(["tab", "create", "--no-active", "--url", "about:blank"])
+        try:
+            created = self._cli(["tab", "create", "--no-active", "--url", "about:blank"])
+        except RunnerError as exc:
+            blocking = self._blocking_tabs() if exc.code == "BSK_COOPERATION_HOLD" else []
+            if not blocking:
+                raise
+            # bsk 0.4 checks `tab create` against an existing agent tab; one whose page failed to
+            # load refuses every action in the session, its own close included (#170).
+            names = ", ".join(f"{tab['tab_id']} ({tab['url']}: {tab['reason']})" for tab in blocking)
+            raise RunnerError("BSK_SESSION_BLOCKED",
+                              f"bsk session {self.session_id} ถูกบล็อกโดย tab ที่ bsk สังเกตไม่ได้: {names} "
+                              "— ยังไม่ได้ส่ง action ใด ให้คนเปิด Agent Window แล้ว reload หรือปิด tab นั้น "
+                              "(bsk ไม่รับ close/navigate ของ tab นั้นจาก CLI)", detail=blocking) from exc
         self.tab_id = str(created.get("tab_id") or created.get("id") or "")
         if not self.tab_id:
             raise RunnerError("BSK_TAB_UNPINNED", "bsk tab create ไม่คืน tab_id — ขับต่อโดยไม่ pin tab ไม่ได้",
@@ -662,6 +675,23 @@ class BskSession:
         coop = bool(self.session_id and self.tab_id) and bsk_coop.needs_context(args)
         with self._critical() if coop else contextlib.nullcontext():
             return self._cli_loop(args, command, env, timeout, idempotent, coop)
+
+    def _blocking_tabs(self) -> list[dict[str, str]]:
+        """Agent tabs that `cooperate status` refuses for a reason other than a blank page.
+
+        `status` neither mints a context nor consumes activity, and the lease keeps the probe
+        between a peer's sync and its action, so probing a peer's tab cannot disturb it.
+        """
+        found = []
+        with self._critical():
+            code, listed = self._session_cli(["tab", "list", "--scope", "agent"])
+            for tab in (listed.get("tabs") or []) if code == 0 and isinstance(listed, dict) else []:
+                code, reply = self._session_cli(["cooperate", "status", "--tab-id", str(tab.get("tab_id"))])
+                reason = str(((reply.get("data") or {}).get("reason")) if isinstance(reply, dict) else "")
+                if code != 0 and reason != "frame_unobservable":
+                    found.append({"tab_id": str(tab.get("tab_id")), "url": str(tab.get("url")),
+                                  "reason": reason or str(reply.get("message", ""))[:120]})
+        return found
 
     def _coop_run(self, args: list[str]) -> tuple[int, str, str]:
         """Raw `cooperate` call on our own tab; the caller already holds the lease."""
@@ -1056,8 +1086,10 @@ class BskSession:
             # Shared window: close our own tab and leave the session to whoever started it.
             try:
                 self._cli(["tab", "close", self.tab_id], timeout=20)
-            except RunnerError:
-                pass
+            except RunnerError as exc:
+                # A tab bsk cannot observe (e.g. its page failed to load) refuses its own close
+                # and then blocks every later run in this shared session (#170): say so.
+                self.tab_left_open = {"tab_id": self.tab_id, "cause": exc.code, "message": str(exc)[:300]}
         self.session_id = self.tab_id = None
 
 
@@ -1646,8 +1678,14 @@ def run_flow(flow: dict[str, Any], path: Path, output_dir: Path, variables: dict
     finally:
         if session:
             session.close()
+            left = getattr(session, "tab_left_open", None)
+            if left:
+                sink.emit({"type": "warning", "code": "BSK_TAB_LEFT_OPEN", **left})
+                report.append(f"## Warning\n\n- ⚠️ BSK_TAB_LEFT_OPEN: ปิด tab `{left['tab_id']}` ของ run นี้ไม่ได้ "
+                              f"({left['cause']}) — tab ที่ bsk สังเกตไม่ได้จะบล็อก run ถัดไปใน session เดียวกัน "
+                              "ให้คน reload หรือปิด tab นั้นใน Agent Window\n")
 
-    verdict = "FAIL" if failures else ("UNVERIFIED" if unverified else "PASS")
+    verdict ="FAIL" if failures else ("UNVERIFIED" if unverified else "PASS")
     summary = [f"**Verdict:** {verdict}", f"**Assertions:** {passed}/{assertions} passed",
                f"**Unverified state changes:** {unverified}",
                f"**Auto-answered dialogs:** {dialogs} (policy: {dialog})", ""]

@@ -37,6 +37,30 @@ def fail(code: str, message: str) -> None:
 PASSIVE = {"status", "browsers", "daemon", "session", "window", "cooperate", "snapshot",
            "screenshot", "console", "dialog", "operation"}
 if os.environ.get("FAKE_BSK_COOPERATE") == "1":
+    # FAKE_BSK_BLOCKED_TAB=<id>:<url>: another agent tab's page failed to load. bsk 0.4.0 then refuses
+    # `tab create` before dispatch and `cooperate status` of that tab with page_load_failed (#170).
+    blocked_id, _, blocked_url = os.environ.get("FAKE_BSK_BLOCKED_TAB", "").partition(":")
+    if blocked_id and args[:2] == ["tab", "list"]:
+        print(json.dumps({"tabs": [{"tab_id": 1, "url": "about:blank", "active": True},
+                                   {"tab_id": int(blocked_id), "url": blocked_url, "active": False}]}))
+        raise SystemExit(0)
+    if blocked_id and args[:2] == ["cooperate", "status"] and "--tab-id" in args:
+        blank = args[args.index("--tab-id") + 1] == "1"
+        print(json.dumps({"code": "permission_denied", "exit_code": 1,
+                          "message": "Page frames cannot be observed" if blank else "The main page failed to load",
+                          "data": {"effect_state": "none",
+                                   "reason": "frame_unobservable" if blank else "page_load_failed"}}))
+        raise SystemExit(1)
+    if blocked_id and args[:2] == ["tab", "create"]:
+        print(json.dumps({"code": "permission_denied", "exit_code": 1,
+                          "message": f"The main page failed to load ({blocked_url})",
+                          "data": {"effect_state": "none", "reason": "cooperation_sync_required"}}))
+        raise SystemExit(1)
+    # FAKE_BSK_CLOSE_REFUSED=1: our own tab's page failed to load, so bsk refuses to close it.
+    if os.environ.get("FAKE_BSK_CLOSE_REFUSED") == "1" and args[:2] == ["tab", "close"]:
+        print(json.dumps({"code": "permission_denied", "exit_code": 1, "message": "The main page failed to load",
+                          "data": {"effect_state": "none", "reason": "page_load_failed"}}))
+        raise SystemExit(1)
     if args[0] == "cooperate":
         reply = {"ready": True}
         if args[1] == "sync":

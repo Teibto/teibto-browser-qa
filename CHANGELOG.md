@@ -12,6 +12,18 @@
 
 ### Fixed
 
+- **A tab whose page failed to load no longer blocks a shared session silently (#170).** bsk 0.4.0
+  refuses every action in a session, including `tab create` and that tab's own `tab close`, while one
+  agent tab is in `page_load_failed`. Runs on that session used to fail with a bare
+  `BSK_COOPERATION_HOLD`, and the run that left the tab behind said nothing.
+  - When `tab create` keeps being refused, the runner probes the agent tabs with `cooperate status`
+    under the session lease and fails with `BSK_SESSION_BLOCKED`, naming each blocking tab and URL.
+    Blank tabs (`frame_unobservable`) are not reported. Nothing is sent.
+  - A run whose own tab cannot be closed emits a `warning` event `BSK_TAB_LEFT_OPEN` (also in
+    `--stdout summary`) and a Warning section in the report. The verdict is unchanged.
+  - Live on this host (daemon 0.4.0 / extension 0.4.2): a flow opening a dead loopback URL ended with
+    `BSK_TAB_LEFT_OPEN`, and the next run failed with `BSK_SESSION_BLOCKED` naming that tab.
+
 - **BrowserSkill 0.4.2 / protocol 1.8 (#172).** On a host whose daemon and extension updated to
   0.4.2, every page action was refused before dispatch and the NetSuite login gate could never log in.
   - `bsk_coop.context_args` now sends the sync's top-level `observation_id` as `--observation`
