@@ -10,6 +10,10 @@
 
 ## [Unreleased]
 
+## [4.1.0] - 2026-11-09
+
+**ด่าน login NetSuite บน bsk, รองรับ BrowserSkill 0.4.x โดยไม่มี allowlist รุ่น และบอกได้ว่า tab ไหนบล็อก session ที่ใช้ร่วมกัน**
+
 ### Fixed
 
 - **A tab whose page failed to load no longer blocks a shared session silently (#170).** bsk 0.4.0
