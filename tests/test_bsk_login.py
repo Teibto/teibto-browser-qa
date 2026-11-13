@@ -143,7 +143,7 @@ class LoginGateTests(unittest.TestCase):
 
     def gate(self, ns, company="4089685_SB2", env_file=None, wait=60):
         return login.Gate(ns, company, env_file=env_file, wait_seconds=wait, log=self.messages.append,
-                          sleep=self.clock.sleep, now=self.clock.now)
+                          sleep=self.clock.sleep, now=self.clock.now, rejected_file=self.dir / "rejected.json")
 
     def assertNoSecret(self, *texts):
         for text in texts:
@@ -204,6 +204,36 @@ class LoginGateTests(unittest.TestCase):
         self.assertEqual(1, ns.submits)
         self.assertIn("ไม่ลองซ้ำ", str(raised.exception))
         self.assertTrue(any(m.startswith("ACTION REQUIRED") for m in self.messages))
+
+    def test_rejection_is_remembered_across_runs(self):
+        path = self.env()
+        path.write_text(path.read_text(encoding="utf-8").replace(PASSWORD, "wrong"), encoding="utf-8")
+        with self.assertRaises(login.LoginError):
+            self.gate(FakeNetSuite(self.clock), env_file=path, wait=30).run()
+        stored = (self.dir / "rejected.json").read_text(encoding="utf-8")
+        self.assertIn("4089685_SB2", stored)
+        self.assertNotIn("wrong", stored)
+        self.assertNotIn("qa@example.com", stored)
+        again = FakeNetSuite(self.clock)                 # a new run, maybe another agent
+        with self.assertRaises(login.LoginError) as raised:
+            self.gate(again, env_file=path, wait=30).run()
+        self.assertEqual("BLOCKED", raised.exception.code)
+        self.assertEqual([], again.fills)
+        self.assertEqual(0, again.submits)
+        self.assertTrue(any("เคยปฏิเสธ" in m for m in self.messages))
+
+    def test_changed_password_is_tried_and_clears_the_rejection(self):
+        path = self.env()
+        good = path.read_text(encoding="utf-8")
+        path.write_text(good.replace(PASSWORD, "wrong"), encoding="utf-8")
+        with self.assertRaises(login.LoginError):
+            self.gate(FakeNetSuite(self.clock), env_file=path, wait=30).run()
+        path.write_text(good, encoding="utf-8")         # the owner updated .env
+        ns = FakeNetSuite(self.clock)
+        result = self.gate(ns, env_file=path).run()
+        self.assertEqual(("READY", "env"), (result["state"], result["via"]))
+        self.assertEqual(1, ns.submits)
+        self.assertNotIn("4089685_SB2", (self.dir / "rejected.json").read_text(encoding="utf-8"))
 
     def test_rejected_password_then_person_logs_in(self):
         path = self.env()
