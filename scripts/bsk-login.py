@@ -14,7 +14,8 @@ a classic page. A session for another account or environment is reported, never 
 Credentials come from --env-file, TEIBTO_LOGIN_ENV or `.env` in the working directory (never a parent
 directory): NS_ACCOUNT_ID, NS_EMAIL, NS_PASSWORD, optional NS_TOTP_SECRET. They are used only when
 NS_ACCOUNT_ID equals --company, only on an https `*.netsuite.com` page, only once per run (a rejected
-password is never retried: that is how accounts get locked), and a production account additionally
+password is never retried: that is how accounts get locked; the rejection is remembered across runs
+as a fingerprint in ~/.teibto/ns-login/rejected.json until the .env value changes), and a production account additionally
 needs NS_AUTO_LOGIN_PRODUCTION=1 in that same file. Values are never printed.
 
 stdout is one JSON object. Exit 0 = ready · 2 = usage/config · 3 = nobody logged in before the wait
@@ -47,9 +48,13 @@ except (AttributeError, OSError):
     pass
 
 READY, LOGIN, OTP, ROLE, FOREIGN, OTHER = "ready", "login", "otp", "role", "foreign", "other"
+REJECTED = "NetSuite ปฏิเสธ email/password ใน .env — ไม่ลองซ้ำ (กันบัญชีถูกล็อก)"
 EXIT = {"CONFIG": 2, "BLOCKED": 3, "IDENTITY_MISMATCH": 4, "BSK_FAILED": 5}
 TOTP_MIN_VALIDITY = 12      # a code with 1-2 s left is accepted, then the role leg times out
 SUBMIT_SETTLE_SECONDS = 45
+# A rejection is remembered across runs and agents (#177): only a sha256 of account+email+password.
+REJECTED_FILE = Path(os.environ.get("TEIBTO_LOGIN_REJECTED")
+                     or Path.home() / ".teibto" / "ns-login" / "rejected.json")
 
 # One cheap read of where the tab is. Shadow roots are walked only on small pages: NetSuite's 2FA
 # page is a web component, while a record form can be 2.7 MB and a full walk takes ~17 s.
@@ -150,6 +155,26 @@ def load_credentials(company: str, env_file: Path | None) -> tuple[dict | None, 
             "totp": values.get("NS_TOTP_SECRET") or None, "source": str(env_file)}, ""
 
 
+def fingerprint(company: str, creds: dict) -> str:
+    raw = "\x1f".join((norm_company(company), creds["email"], creds["password"]))
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def read_rejected(path: Path) -> dict:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def write_rejected(path: Path, data: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8", newline="")
+    os.replace(tmp, path)
+
+
 def totp(secret: str, at: float, digits: int = 6, step: int = 30) -> str:
     """RFC 6238 (SHA-1), so the gate needs no third-party package."""
     key = base64.b32decode(secret.replace(" ", "").upper() + "=" * (-len(secret.replace(" ", "")) % 8))
@@ -186,7 +211,8 @@ def in_login_flow(page: dict | None) -> bool:
 
 class Gate:
     def __init__(self, driver, company: str, *, env_file: Path | None, wait_seconds: float,
-                 poll_seconds: float = 5.0, log=None, sleep=time.sleep, now=time.time):
+                 poll_seconds: float = 5.0, log=None, sleep=time.sleep, now=time.time,
+                 rejected_file: Path | None = None):
         self.d, self.company = driver, norm_company(company)
         self.env_file, self.wait_seconds, self.poll = env_file, wait_seconds, poll_seconds
         self.log = log or (lambda msg: print(msg, file=sys.stderr, flush=True))
@@ -194,6 +220,7 @@ class Gate:
         self.home = f"https://{account_host(self.company)}/app/center/card.nl?sc=-29"
         self.login_url = f"https://system.netsuite.com/pages/customerlogin.jsp?c={self.company}"
         self.secrets: list[str] = []
+        self.rejected_file = rejected_file or REJECTED_FILE
 
     # -- helpers ---------------------------------------------------------------------------------
     def redact(self, text: str) -> str:
@@ -246,12 +273,26 @@ class Gate:
         if creds is None:
             return self.wait_for_person(why)
         self.secrets = [creds["password"], creds["email"]] + ([creds["totp"]] if creds["totp"] else [])
+        fp = fingerprint(self.company, creds)
+        seen = read_rejected(self.rejected_file).get(self.company)
+        if seen and seen.get("fingerprint") == fp:
+            return self.wait_for_person(
+                f"NetSuite เคยปฏิเสธ email/password ชุดนี้ใน {creds['source']} เมื่อ {seen.get('at')} — "
+                f"ไม่กรอกซ้ำ (กันบัญชีถูกล็อก) · อัปเดตรหัสผ่านในไฟล์นั้นแล้วรันใหม่ หรือ login เองในแท็บนี้")
         if classify(page) != LOGIN:
             page = self.open(self.login_url)     # native login page: SSO and stale redirects bypassed
         if classify(page) != LOGIN:
             return self.wait_for_person(f"ไม่พบหน้า Login ของ NetSuite ({classify(page)}: {(page or {}).get('host')})")
         outcome, page = self.auto_login(page, creds)
+        if outcome == REJECTED:
+            data = read_rejected(self.rejected_file)
+            data[self.company] = {"fingerprint": fp, "source": creds["source"],
+                                  "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(self.now()))}
+            write_rejected(self.rejected_file, data)
         if outcome == READY:
+            data = read_rejected(self.rejected_file)
+            if data.pop(self.company, None) is not None:
+                write_rejected(self.rejected_file, data)
             return self.identity(page, "env")
         return self.wait_for_person(outcome)
 
@@ -297,7 +338,7 @@ class Gate:
             return self.redact(f"กรอกหน้า Login ไม่สำเร็จ: {exc}"), self.probe()
         state = classify(page)
         if state == LOGIN:
-            return "NetSuite ปฏิเสธ email/password ใน .env — ไม่ลองซ้ำ (กันบัญชีถูกล็อก)", page
+            return REJECTED, page
         if state == OTP:
             if not creds["totp"]:
                 return "หน้า 2FA ต้องใช้รหัส และ .env ไม่มี NS_TOTP_SECRET", page
