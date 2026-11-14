@@ -77,6 +77,22 @@ NOTIFY_INPUT_JS = ("(function(){['#email','#password'].forEach(function(s){var e
                    "e.dispatchEvent(new Event('change',{bubbles:true}));}});"
                    "var b=document.querySelector('#login-submit');return String(!!b&&!b.disabled);})()")
 SUBMIT_READY_SECONDS = 15
+OTP_RENDER_SECONDS = 15
+
+
+def set_value_js(selector: str, value: str) -> str:
+    """Set an input through the native setter and fire input/change, without trusted input.
+
+    A trusted `bsk fill` is a user gesture, so Chrome autofills the saved netsuite.com password
+    into both fields at once; bsk 0.5.0 reads that as a person typing, revokes the fill and keeps
+    the tab in `mode: human` for minutes (#179). Owner-approved 2026-11-14 for the login form only.
+    bsk records only the script length in its intent ledger, never the text.
+    """
+    return ("(function(s,v){var e=document.querySelector(s);if(!e)return 'missing';"
+            "Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(e,v);"
+            "e.dispatchEvent(new Event('input',{bubbles:true}));"
+            "e.dispatchEvent(new Event('change',{bubbles:true}));"
+            f"return String(e.value===v);}})({json.dumps(selector)},{json.dumps(value)})")
 
 # Tag the 2FA controls in the light DOM so trusted fill/click can address them by selector.
 TAG_OTP_JS = r"""(function(){
@@ -322,8 +338,8 @@ class Gate:
             return "หน้าเปลี่ยนก่อนกรอก — ไม่กรอก credential", page
         self.log(f"login อัตโนมัติ {self.company} ด้วย credential จาก {creds['source']}")
         try:
-            self.d.fill("#email", creds["email"])
-            self.d.fill("#password", creds["password"])
+            self.d.set_value("#email", creds["email"])
+            self.d.set_value("#password", creds["password"])
             # The form is still initialising right after load (a late frame, the button disabled):
             # click only once the button is enabled, and never submit if it does not become so.
             for _ in range(SUBMIT_READY_SECONDS):
@@ -352,7 +368,12 @@ class Gate:
         return (READY, page) if classify(page) == READY else (f"login แล้วไม่ถึงหน้า classic ({classify(page)})", page)
 
     def answer_otp(self, secret: str) -> tuple[str, dict | None]:
-        found = json.loads(self.d.evaluate(TAG_OTP_JS))
+        # The challenge page renders its form after "Logging in..." (#179): look until it appears.
+        for _ in range(OTP_RENDER_SECONDS):
+            found = json.loads(self.d.evaluate(TAG_OTP_JS))
+            if found.get("otp"):
+                break
+            self.sleep(1.0)
         if not found.get("otp"):
             return "หาช่องรหัส 2FA ใน light DOM ไม่เจอ", self.probe()
         try:
@@ -444,7 +465,7 @@ class BskDriver:
                     raise RuntimeError(f"bsk {args[0]} เปิด native {pending.get('type')} "
                                        f"\"{pending.get('message')}\" — dismiss แล้ว ผลของ action ไม่ทราบ ห้ามสั่งซ้ำ")
         if code != 0:
-            raise RuntimeError(f"bsk {args[0]}: {(err or out).strip()[-300:]}")
+            raise RuntimeError(f"bsk {args[0]}: {bsk_error(err or out)}")
         try:
             return json.loads(out) if out.strip() else {}
         except ValueError as exc:
@@ -463,6 +484,10 @@ class BskDriver:
     def fill(self, selector: str, value: str) -> None:
         self._cli(["fill", "--selector", selector, "--value", value])
 
+    def set_value(self, selector: str, value: str) -> None:
+        if self.evaluate(set_value_js(selector, value)).strip('"') != "true":
+            raise RuntimeError(f"ตั้งค่า {selector} ไม่สำเร็จ")
+
     def click(self, selector: str) -> None:
         self._cli(["click", "--selector", selector])
 
@@ -478,6 +503,17 @@ class BskDriver:
                 self._cli(["tab", "close", self.tab_id], tab=False, timeout=20)
             except RuntimeError:
                 pass
+
+
+def bsk_error(text: str) -> str:
+    """The parts of a bsk error that say what happened; the tail of raw JSON cut the message off."""
+    try:
+        parsed = json.loads(text)
+        data = parsed.get("data") or {}
+        return (f"{parsed.get('code')}: {parsed.get('message')} "
+                f"(reason={data.get('reason')}, effect_state={data.get('effect_state')})")
+    except (ValueError, AttributeError):
+        return text.strip()[-300:]
 
 
 def bsk_command(explicit: str | None) -> list[str]:

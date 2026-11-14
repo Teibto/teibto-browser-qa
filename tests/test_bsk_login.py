@@ -35,15 +35,17 @@ class FakeNetSuite:
 
     def __init__(self, clock: Clock, *, logged_in_as=None, otp=False, person_after=None,
                  person_as=("4089685_SB2", "SANDBOX"), login_host="system.netsuite.com",
-                 submit_enabled_after: float | None = 0.0):
+                 submit_enabled_after: float | None = 0.0, otp_render_after: float = 0.0):
         self.clock, self.session, self.otp_required = clock, logged_in_as, otp
         # seconds after the password fill until #login-submit is enabled; None = never (#172)
         self.submit_enabled_after = submit_enabled_after
+        self.otp_render_after, self.otp_shown_at = otp_render_after, None   # "Logging in..." (#179)
         self.person_after, self.person_as, self.login_host = person_after, person_as, login_host
         self.page = {"protocol": "about:", "host": "", "path": "blank"}
         self.fields: dict[str, str] = {}
         self.filled_at: dict[str, float] = {}
         self.fills: list[str] = []
+        self.set_values: list[str] = []
         self.clicks: list[str] = []
         self.submits = 0
         self.fronted = 0
@@ -82,6 +84,9 @@ class FakeNetSuite:
             self.page["mark"] = True
             return "ok"
         if js == login.TAG_OTP_JS:
+            self.otp_shown_at = self.clock.now() if self.otp_shown_at is None else self.otp_shown_at
+            if self.clock.now() - self.otp_shown_at < self.otp_render_after:
+                return json.dumps({"otp": False})
             return json.dumps({"otp": True, "trust": True, "trust_checked": False, "submit": True})
         if js == login.TRUST_CHECKED_JS:
             return "true"
@@ -93,6 +98,10 @@ class FakeNetSuite:
         filled = self.filled_at.get("#password")
         return (filled is not None and self.submit_enabled_after is not None
                 and self.clock.now() - filled >= self.submit_enabled_after)
+
+    def set_value(self, selector: str, value: str) -> None:
+        self.set_values.append(selector)        # the login form: no trusted input (#179)
+        self.fill(selector, value)
 
     def fill(self, selector: str, value: str) -> None:
         self.fills.append(selector)
@@ -162,6 +171,7 @@ class LoginGateTests(unittest.TestCase):
         self.assertEqual("env", result["via"])
         self.assertEqual("4089685_SB2", result["company"])
         self.assertEqual(["#email", "#password"], ns.fills)
+        self.assertEqual(["#email", "#password"], ns.set_values)   # never a trusted fill (#179)
         self.assertEqual(1, ns.submits)
         self.assertNoSecret(json.dumps(result), *self.messages)
 
@@ -186,6 +196,11 @@ class LoginGateTests(unittest.TestCase):
         result = self.gate(ns, env_file=self.env(NS_TOTP_SECRET=SEED)).run()
         self.assertEqual("env", result["via"])
         self.assertIn("[data-teibto-trust]", ns.clicks)
+
+    def test_totp_waits_for_the_challenge_form_to_render(self):
+        ns = FakeNetSuite(self.clock, otp=True, otp_render_after=4)
+        result = self.gate(ns, env_file=self.env(NS_TOTP_SECRET=SEED)).run()
+        self.assertEqual(("READY", "env"), (result["state"], result["via"]))
 
     def test_totp_waits_out_a_nearly_expired_window(self):
         ns = FakeNetSuite(self.clock, otp=True)
@@ -308,3 +323,10 @@ class LoginGateTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SetValueScriptTests(unittest.TestCase):
+    def test_value_is_a_json_literal_so_quotes_cannot_break_out(self):
+        js = login.set_value_js("#password", "a'b\"c</script>")
+        self.assertIn(json.dumps("a'b\"c</script>"), js)
+        self.assertIn("HTMLInputElement.prototype", js)

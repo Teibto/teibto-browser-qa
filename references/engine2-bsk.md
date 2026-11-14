@@ -350,8 +350,8 @@ python scripts/bsk-login.py ensure --session $sid --company 4089685_SB2   # ร�
 2. หา credential ตามลำดับ `--env-file` → `TEIBTO_LOGIN_ENV` → `./.env` (ไม่ไล่ขึ้นไปหาใน parent dir). ใช้ได้เมื่อ
    `NS_ACCOUNT_ID` เท่ากับ `--company` และเป็น sandbox (`_SB<n>`); ถ้าเป็น production ต้องตั้ง
    `NS_AUTO_LOGIN_PRODUCTION=1` ในไฟล์เดียวกันด้วย. จากนั้นเข้าทาง native `system.netsuite.com/pages/customerlogin.jsp?c=<id>`
-   (ข้าม SSO) → `fill #email`/`#password` → trusted click `#login-submit` แล้วได้ `via=env`
-3. หน้า 2FA: ติ๊ก *Trust this device* ด้วย trusted click แล้วกรอก TOTP (RFC 6238, stdlib) เมื่อรหัสเหลือเวลาอย่างน้อย 12 s
+   (ข้าม SSO) → ตั้งค่า `#email`/`#password` ด้วย JS (native setter + `input`/`change`) → trusted click `#login-submit` แล้วได้ `via=env`
+3. หน้า 2FA: รอฟอร์มขึ้นหลัง "Logging in..." (≤15 s) → ติ๊ก *Trust this device* ด้วย trusted click แล้วกรอก TOTP (RFC 6238, stdlib) เมื่อรหัสเหลือเวลาอย่างน้อย 12 s
 4. ถ้าทางอื่นไม่สำเร็จ: ยก tab ขึ้นหน้า แล้วพิมพ์ `ACTION REQUIRED: …` ลง stderr แล้ว poll ทุก 5 s (อ่านอย่างเดียว ไม่ navigate
    ระหว่างที่คนอยู่บนหน้า login/2FA) จนถึง `--wait-seconds` (ค่าเริ่มต้น 900) เมื่อคน login เสร็จจะได้ `via=user`
 5. ทุกเส้นทางจบที่ด่านเดียวกัน คือ company และ environment ต้องตรง. ถ้าไม่ตรงจะ exit 4 และไม่สลับ account/role ให้เอง
@@ -368,6 +368,7 @@ python scripts/bsk-login.py ensure --session $sid --company 4089685_SB2   # ร�
 |---|---|
 | login ล้ม 1 ครั้ง = เลิกใช้ credential ทันที แล้วรอคน | ถ้าลองรหัสผิดซ้ำ account จะถูกล็อก · คลิกซ้ำได้เฉพาะเมื่อหน้ายังไม่ได้ส่ง request เลย (marker ในหน้ายังอยู่) |
 | การถูกปฏิเสธถูกจำข้ามการรัน: gate เก็บ sha256 ของ account+email+password (ไม่เก็บค่าจริง) ไว้ที่ `~/.teibto/ns-login/rejected.json` (`TEIBTO_LOGIN_REJECTED` ใช้เปลี่ยน path ได้) รันครั้งต่อไปที่ใช้ค่าเดิมจะไม่กรอก และรอคนพร้อมบอกว่าต้องอัปเดตไฟล์ไหน · เมื่อค่าใน `.env` เปลี่ยน จะลองได้หนึ่งครั้ง และ login สำเร็จแล้วลบรายการนั้นออก | 2026-11-13 credential ของ 4089685 ที่ใช้ได้ล่าสุดเมื่อ 2026-10-05 ถูกเปลี่ยนรหัสใน NetSuite โดยไม่มีใครอัปเดต `.env` จึงถูกกรอกผิดซ้ำ 2 ครั้งในวันเดียว จากเครื่องมือคนละตัว (#177) · **ห้ามกรอก login เองนอก gate** (สคริปต์ playwright ของโปรเจกต์ หรือ `bsk fill` ด้วยมือ) เพราะทางเหล่านั้นไม่เห็นรายการนี้ |
+| ช่อง email/password ตั้งค่าด้วย JS ไม่ใช้ trusted `bsk fill` (เจ้าของอนุมัติ 2026-11-14, #179) | input จริงเป็น user gesture ทำให้ Chrome autofill รหัส netsuite.com ที่ profile บันทึกไว้ลงสองช่องห่างกัน 2 ms. bsk 0.5.0 ถือว่าเป็นคนพิมพ์: ยกเลิก fill (`User activity revoked this action`, `effect_state: unknown`), ถือ tab ใน `mode: human, editing: true` เกิน 3 นาที และ fill ซ้ำบนช่องเดิมถูกบล็อกด้วย `mutating action blocked: prior tool.fill` จนกว่าจะ `bsk sync` หลัง hand-back · intent ledger ของ bsk เก็บแค่ `script(len=N)` ไม่เก็บเนื้อ script · ใช้ได้เฉพาะในด่านนี้ ห้ามกรอก login ด้วย JS นอก gate |
 | กรอก credential เฉพาะบน `https` + `*.netsuite.com` และตรวจซ้ำก่อนกรอกทุกครั้ง | redirect ไป IdP หรือ host อื่นต้องไม่ได้รับรหัสผ่าน |
 | ค่า credential ไม่ถูกพิมพ์ออกมา และข้อความ error ทุกอันถูก redact | `bsk fill` 0.3.2 รับค่าผ่าน `--value` เท่านั้น (ไม่มี stdin) ค่าจึงอยู่ใน argv ของ process ลูกระหว่างคำสั่งนั้นสั้น ๆ · daemon log ระดับ INFO ไม่บันทึกค่า fill |
 | `authenticaterole.nl` หลังส่ง 2FA คือหน้าทางผ่าน ไม่ใช่หน้าเลือก role | ถ้า navigate ทับระหว่างนั้น login จะไม่สำเร็จ · หน้าที่ถือว่าเป็นหน้าเลือก role คือ `chooserole` เท่านั้น |
