@@ -10,6 +10,15 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **NetSuite login gate works on BrowserSkill 0.5.0 (#179).** A trusted `bsk fill` on the login form is a
+  user gesture, so Chrome autofilled the saved netsuite.com password into both fields; bsk 0.5.0 read
+  that as a person typing, revoked the fill and held the tab in `mode: human` for minutes. The gate now
+  sets `#email`/`#password` through the native setter with `input`/`change` (owner-approved; login
+  form only), waits up to 15 s for the 2FA form after "Logging in...", and reports bsk errors as
+  `code: message (reason, effect_state)` instead of the last 300 characters of raw JSON.
+
 ## [4.1.0] - 2026-11-09
 
 **ด่าน login NetSuite บน bsk, รองรับ BrowserSkill 0.4.x โดยไม่มี allowlist รุ่น และบอกได้ว่า tab ไหนบล็อก session ที่ใช้ร่วมกัน**
